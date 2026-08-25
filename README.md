@@ -101,6 +101,17 @@ Use `.dev.vars.example` as the placeholder template for local setup. Do not comm
 
 Port 25 is rejected. Use 465 (SSL / implicit TLS), 587 (STARTTLS), or 2525. The settings are provider-independent (Brevo, SMTP2GO, or any standard SMTP service). `POST /api/settings/smtp/test` sends a real test email, and `POST /api/invoices/:id/send` sends the real invoice email with a PDF attachment.
 
+## Hostnames
+
+| Host | Role |
+|---|---|
+| `invoice.vrfnw.com` | Private admin SPA + admin APIs (Cloudflare Access) |
+| `pay.vrfnw.com` | Public card payment only (`/i/:token`, `/api/public/*`, Stripe webhook, read-only branding file) |
+| `*.workers.dev` | Disabled (`workers_dev: false`) and Worker-locked so it cannot bypass Access |
+| `localhost` | Full local development |
+
+The Worker enforces hostname access **before** SPA asset fallback. Visiting `https://pay.vrfnw.com/` shows a neutral payment landing page, not the admin dashboard.
+
 ## Local development
 
 ```bash

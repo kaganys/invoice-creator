@@ -6,10 +6,18 @@
 		"nodejs_compat"
 	],
 	"main": "./worker/index.ts",
+	// Disable *.workers.dev so it cannot bypass the invoice.vrfnw.com Access app.
+	// Public payments use pay.vrfnw.com; admin uses invoice.vrfnw.com.
+	"workers_dev": false,
 	"assets": {
+		"binding": "ASSETS",
 		"not_found_handling": "single-page-application",
+		// Worker runs first for HTML/API routes; hashed assets/fonts/branding stay asset-first.
 		"run_worker_first": [
-			"/api/*"
+			"/*",
+			"!/assets/*",
+			"!/branding/*",
+			"!/fonts/*"
 		]
 	},
 	"observability": {
