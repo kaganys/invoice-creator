@@ -35,7 +35,4 @@
 		"binding": "BROWSER",
 		"remote": true
 	},
-	"vars": {
-		"PUBLIC_PAYMENT_BASE_URL": ""
-	}
 }
