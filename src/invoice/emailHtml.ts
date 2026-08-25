@@ -73,6 +73,67 @@ export function htmlToPlainText(html: string): string {
 export type EmailWrapOptions = {
   preheader?: string
   businessName?: string
+  logoUrl?: string
+  wordmarkUrl?: string
+}
+
+export type EmailBrandAssets = {
+  logoUrl?: string
+  wordmarkUrl?: string
+}
+
+/** Build an absolute URL for email images (email clients need https://…). */
+export function absolutePublicAssetUrl(baseOrigin: string, path: string): string {
+  const trimmed = path.trim()
+  if (!trimmed) {
+    return ''
+  }
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed
+  }
+  const origin = baseOrigin.trim().replace(/\/$/, '')
+  if (!origin) {
+    return trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+  }
+  try {
+    return new URL(trimmed.startsWith('/') ? trimmed : `/${trimmed}`, `${origin}/`)
+      .href
+  } catch {
+    return trimmed
+  }
+}
+
+function brandHeaderHtml(options: EmailWrapOptions): string {
+  const logo = options.logoUrl?.trim() ?? ''
+  const wordmark = options.wordmarkUrl?.trim() ?? ''
+  const business = escapeHtml(options.businessName ?? 'Bitz Designs')
+  if (!logo && !wordmark) {
+    return `<tr>
+            <td class="email-pad" style="padding:8px 12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.4;color:#6b7280;text-align:center;">
+              Invoice from ${business}
+            </td>
+          </tr>`
+  }
+  const logoCell = logo
+    ? `<td valign="middle" style="padding:0 12px 0 0;">
+<img src="${escapeHtml(logo)}" width="44" height="44" alt="" style="display:block;border:0;outline:none;text-decoration:none;width:44px;height:44px;" />
+</td>`
+    : ''
+  const wordmarkCell = wordmark
+    ? `<td valign="middle" style="padding:0;">
+<img src="${escapeHtml(wordmark)}" alt="${business}" height="32" style="display:block;border:0;outline:none;text-decoration:none;max-width:220px;height:32px;width:auto;" />
+</td>`
+    : `<td valign="middle" style="padding:0;font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:700;color:#111111;">${business}</td>`
+  return `<tr>
+            <td class="email-pad" align="center" style="padding:12px 12px 18px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
+                <tr>
+                  ${logoCell}
+                  ${wordmarkCell}
+                </tr>
+              </table>
+            </td>
+          </tr>`
 }
 
 export function wrapInvoiceEmailHtml(
@@ -120,11 +181,7 @@ export function wrapInvoiceEmailHtml(
     <tr>
       <td align="center" style="padding:16px 8px;">
         <table class="email-shell" role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="width:100%;max-width:600px;">
-          <tr>
-            <td class="email-pad" style="padding:8px 12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.4;color:#6b7280;text-align:center;">
-              Invoice from ${business}
-            </td>
-          </tr>
+          ${brandHeaderHtml(options)}
           <tr>
             <td class="email-card" style="background:#ffffff;border-radius:12px;overflow:hidden;">
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
@@ -157,6 +214,7 @@ export function wrapInvoiceEmailHtml(
 export function prepareInvoiceEmail(
   bodyTemplate: string,
   vars: TemplateVars,
+  brand: EmailBrandAssets = {},
 ): { html: string; text: string } {
   const source = bodyTemplate.trim()
     ? bodyTemplate
@@ -172,6 +230,8 @@ export function prepareInvoiceEmail(
     html: wrapInvoiceEmailHtml(clean, {
       preheader: `Invoice ${vars.invoice_number} from ${vars.business_name}`,
       businessName: vars.business_name,
+      logoUrl: brand.logoUrl,
+      wordmarkUrl: brand.wordmarkUrl,
     }),
     text: textSource.trim() || htmlToPlainText(clean),
   }
@@ -188,4 +248,9 @@ export const SAMPLE_EMAIL_VARS: TemplateVars = {
     'Please pay by Zelle using your invoice number as the memo.',
   payment_url:
     'https://pay.example.com/i/abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG',
+}
+
+export const SAMPLE_EMAIL_BRAND: EmailBrandAssets = {
+  logoUrl: '/branding/bitz-designs-icon.png',
+  wordmarkUrl: '/branding/bitz-designs-wordmark.png',
 }

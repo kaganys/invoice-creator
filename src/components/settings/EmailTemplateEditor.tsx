@@ -10,6 +10,7 @@ import {
 } from '../../invoice/emailBlocks.ts'
 import {
   prepareInvoiceEmail,
+  SAMPLE_EMAIL_BRAND,
   SAMPLE_EMAIL_VARS,
 } from '../../invoice/emailHtml.ts'
 import { useFocusTrap } from '../../hooks/useFocusTrap.ts'
@@ -87,7 +88,11 @@ export function EmailTemplateEditor({
     return null
   }
 
-  const preview = prepareInvoiceEmail(editorHtml, SAMPLE_EMAIL_VARS)
+  const preview = prepareInvoiceEmail(
+    editorHtml,
+    SAMPLE_EMAIL_VARS,
+    SAMPLE_EMAIL_BRAND,
+  )
 
   function sync() {
     setEditorHtml(editorRef.current?.innerHTML ?? '')

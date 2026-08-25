@@ -1,4 +1,7 @@
-import { prepareInvoiceEmail } from '../../src/invoice/emailHtml.ts'
+import {
+  absolutePublicAssetUrl,
+  prepareInvoiceEmail,
+} from '../../src/invoice/emailHtml.ts'
 import {
   applyEmailTemplate,
   containsHeaderInjection,
@@ -14,6 +17,7 @@ import { createEntityId, isUuid, nowIso } from '../lib/ids.ts'
 import { asTrimmedString, isRecord, readJsonBody } from '../lib/json.ts'
 import type { MailTransport } from '../mail/types.ts'
 import { createSmtpTransport } from '../mail/smtpTransport.ts'
+import { parseBrandingJson } from '../settings/branding.ts'
 import { parseSmtpJson, smtpPasswordConfigured } from '../settings/smtp.ts'
 import { SETTINGS_KEYS } from '../settings/keys.ts'
 import type { SettingsKvStore } from '../settings/types.ts'
@@ -159,9 +163,21 @@ export async function sendInvoice(
   }
 
   const vars = invoiceTemplateVars(invoice, { paymentUrl })
+  const branding = parseBrandingJson(
+    await deps.settings.get(SETTINGS_KEYS.branding),
+  )
+  // Prefer the public payment origin so Access on invoice.vrfnw.com does not
+  // block logo/wordmark images in email clients.
+  const assetOrigin = customerBase.ok ? customerBase.value : ''
   const recipient = asTrimmedString(body.value.recipient) || invoice.customer.email
   const subject = applyEmailTemplate(subjectTemplate, vars)
-  const prepared = prepareInvoiceEmail(bodyTemplate, vars)
+  const prepared = prepareInvoiceEmail(bodyTemplate, vars, {
+    logoUrl: absolutePublicAssetUrl(assetOrigin, branding.siteIcon.path),
+    wordmarkUrl: absolutePublicAssetUrl(
+      assetOrigin,
+      branding.siteWordmark.path,
+    ),
+  })
   const text = prepared.text
   const html = prepared.html
   const idempotencyKey = asTrimmedString(body.value.idempotencyKey)

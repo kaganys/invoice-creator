@@ -3,6 +3,7 @@ import { testSmtp } from '../../api/settings.ts'
 import { ApiError } from '../../api/http.ts'
 import {
   prepareInvoiceEmail,
+  SAMPLE_EMAIL_BRAND,
   SAMPLE_EMAIL_VARS,
 } from '../../invoice/emailHtml.ts'
 import { defaultEmailTemplates } from '../../invoice/emailTemplates.ts'
@@ -83,6 +84,7 @@ export function SmtpPanel() {
   const preview = prepareInvoiceEmail(
     draft.bodyTemplate || defaultEmailTemplates().body,
     SAMPLE_EMAIL_VARS,
+    SAMPLE_EMAIL_BRAND,
   )
 
   return (

@@ -79,7 +79,7 @@ export function InvoiceDetailModal({
   const closeRef = useRef<HTMLButtonElement>(null)
   const { setView } = useAppView()
   const { loadSavedInvoice } = useInvoiceDraft()
-  const { format, smtp } = useSettings()
+  const { format, smtp, branding } = useSettings()
   const [invoice, setInvoice] = useState<SavedInvoice | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -662,6 +662,14 @@ export function InvoiceDetailModal({
                   invoiceTemplateVars(invoice, {
                     paymentUrl: paymentLink?.url ?? '',
                   }),
+                  {
+                    logoUrl:
+                      branding.siteIcon.url ||
+                      '/branding/bitz-designs-icon.png',
+                    wordmarkUrl:
+                      branding.siteWordmark.url ||
+                      '/branding/bitz-designs-wordmark.png',
+                  },
                 ).html
               }
             />

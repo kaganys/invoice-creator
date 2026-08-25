@@ -10,7 +10,9 @@ import {
 } from './emailTemplates.ts'
 import {
   htmlToPlainText,
+  absolutePublicAssetUrl,
   prepareInvoiceEmail,
+  SAMPLE_EMAIL_BRAND,
   sanitizeEmailHtml,
   wrapInvoiceEmailHtml,
 } from './emailHtml.ts'
@@ -86,6 +88,26 @@ describe('HTML invoice email', () => {
     expect(html).toContain('<p>Hello</p>')
   })
 
+  it('puts the site logo and wordmark at the top of the email', () => {
+    const html = wrapInvoiceEmailHtml('<p>Hello</p>', {
+      businessName: 'Bitz Designs',
+      logoUrl: 'https://pay.example.com/branding/bitz-designs-icon.png',
+      wordmarkUrl: 'https://pay.example.com/branding/bitz-designs-wordmark.png',
+    })
+    expect(html).toContain(
+      'src="https://pay.example.com/branding/bitz-designs-icon.png"',
+    )
+    expect(html).toContain(
+      'src="https://pay.example.com/branding/bitz-designs-wordmark.png"',
+    )
+    expect(html.indexOf('bitz-designs-icon.png')).toBeLessThan(
+      html.indexOf('<p>Hello</p>'),
+    )
+    expect(html.indexOf('bitz-designs-wordmark.png')).toBeLessThan(
+      html.indexOf('<p>Hello</p>'),
+    )
+  })
+
   it('strips scripts from custom HTML', () => {
     expect(sanitizeEmailHtml('<p>Hi</p><script>alert(1)</script>')).toBe('<p>Hi</p>')
     expect(sanitizeEmailHtml('<a href="javascript:alert(1)">x</a>')).not.toContain(
@@ -133,14 +155,47 @@ describe('HTML invoice email', () => {
     const prepared = prepareInvoiceEmail(
       DEFAULT_EMAIL_BODY,
       invoiceTemplateVars(invoice, { paymentUrl }),
+      {
+        logoUrl: absolutePublicAssetUrl(
+          'https://pay.example.com',
+          SAMPLE_EMAIL_BRAND.logoUrl ?? '',
+        ),
+        wordmarkUrl: absolutePublicAssetUrl(
+          'https://pay.example.com',
+          SAMPLE_EMAIL_BRAND.wordmarkUrl ?? '',
+        ),
+      },
     )
 
     expect(prepared.html).toContain(`href="${paymentUrl}"`)
     expect(prepared.html).toContain('Pay Online')
     expect(prepared.html).toContain('background:#0f766e')
     expect(prepared.html).toContain(paymentUrl)
+    expect(prepared.html).toContain(
+      'src="https://pay.example.com/branding/bitz-designs-icon.png"',
+    )
+    expect(prepared.html).toContain(
+      'src="https://pay.example.com/branding/bitz-designs-wordmark.png"',
+    )
     expect(prepared.text).toContain('Pay Online')
     expect(prepared.text).toContain(paymentUrl)
+  })
+
+  it('absolutizes branding asset paths for email clients', () => {
+    expect(
+      absolutePublicAssetUrl(
+        'https://pay.vrfnw.com',
+        '/branding/bitz-designs-icon.png',
+      ),
+    ).toBe('https://pay.vrfnw.com/branding/bitz-designs-icon.png')
+    expect(
+      absolutePublicAssetUrl(
+        'https://pay.vrfnw.com/',
+        '/api/branding/file/branding%2Fsite-wordmark%2Faaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.png',
+      ),
+    ).toBe(
+      'https://pay.vrfnw.com/api/branding/file/branding%2Fsite-wordmark%2Faaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.png',
+    )
   })
 
   it('hides the default payment CTA block when no payment URL is available', () => {
