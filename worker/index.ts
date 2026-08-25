@@ -5,6 +5,7 @@ import { registerInvoiceRoutes } from './routes/invoices.ts'
 import { registerPeopleRoutes } from './routes/people.ts'
 import { registerPublicRoutes } from './routes/public.ts'
 import { registerSettingsRoutes } from './routes/settings.ts'
+import { registerWebhookRoutes } from './routes/webhooks.ts'
 
 const router = new Router()
 registerHealthRoutes(router)
@@ -12,6 +13,7 @@ registerPeopleRoutes(router)
 registerSettingsRoutes(router)
 registerInvoiceRoutes(router)
 registerPublicRoutes(router)
+registerWebhookRoutes(router)
 
 export default {
   async fetch(request, env, ctx) {

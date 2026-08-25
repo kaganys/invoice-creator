@@ -106,12 +106,22 @@ export function PaymentsPanel() {
         </div>
       </div>
       <p className="settings-help">
-        The Stripe secret key is a Worker secret. Never paste it here. Set it with:
+        Stripe secrets are Worker secrets. Never paste them here. Set them with:
       </p>
       <p className="settings-example">npx wrangler secret put STRIPE_SECRET_KEY</p>
+      <p className="settings-example">npx wrangler secret put STRIPE_WEBHOOK_SECRET</p>
       <p className="settings-help">
-        Local development: STRIPE_SECRET_KEY in a gitignored .dev.vars file. Webhook
-        finalization (STRIPE_WEBHOOK_SECRET) is reserved for the next phase.
+        Local development: put STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET in a
+        gitignored .dev.vars file. Forward Stripe events with:
+      </p>
+      <p className="settings-example">
+        stripe listen --forward-to localhost:5173/api/webhooks/stripe
+      </p>
+      <p className="settings-help">
+        Use the CLI-printed whsec_… value as STRIPE_WEBHOOK_SECRET locally. Cloudflare
+        Access must allow unauthenticated POST /api/webhooks/stripe (and /i/*,
+        /api/public/*). Paid state is set only by the verified webhook, never by the
+        customer browser.
       </p>
       <div className="settings-actions">
         <button

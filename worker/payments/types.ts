@@ -1,6 +1,6 @@
 export type PaymentTokenStatus = 'active' | 'revoked'
 
-export type PaymentRevokeReason = 'paid' | 'void' | 'regenerated' | 'manual'
+export type PaymentRevokeReason = 'paid' | 'void' | 'regenerated' | 'manual' | 'mismatch'
 
 export type PaymentTokenRecord = {
   id: string

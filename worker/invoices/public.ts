@@ -38,6 +38,8 @@ export function publicInvoice(record: InvoiceRecord) {
     lastSentAt: record.lastSentAt,
     sendCount: record.sendCount,
     format: record.format,
+    stripePaymentIntentId: record.stripePaymentIntentId ?? null,
+    paidAmountCents: record.paidAmountCents ?? null,
     lineItems: record.lineItems.map(publicLine),
   }
 }

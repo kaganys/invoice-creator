@@ -10,7 +10,7 @@ export type InvoiceLineRecord = {
   unitPriceCents: number
 }
 
-export type PaidMethod = 'zelle' | 'manual' | 'other'
+export type PaidMethod = 'zelle' | 'manual' | 'other' | 'card'
 
 export type InvoiceRecord = {
   id: string
@@ -34,6 +34,8 @@ export type InvoiceRecord = {
   lastSentAt: string | null
   sendCount: number
   format: InvoiceFormat | null
+  stripePaymentIntentId: string | null
+  paidAmountCents: number | null
   lineItems: InvoiceLineRecord[]
 }
 
@@ -84,8 +86,22 @@ export interface InvoiceStore {
   deleteDraft(id: string): Promise<'deleted' | 'not_found' | 'not_draft'>
   markPaid(
     id: string,
-    fields: { paidAt: string; paidMethod: PaidMethod; updatedAt: string },
+    fields: {
+      paidAt: string
+      paidMethod: PaidMethod
+      updatedAt: string
+      stripePaymentIntentId?: string | null
+      paidAmountCents?: number | null
+    },
   ): Promise<MarkPaidResult>
+  attachStripeReceipt(
+    id: string,
+    fields: {
+      stripePaymentIntentId: string
+      paidAmountCents: number
+      updatedAt: string
+    },
+  ): Promise<void>
   voidInvoice(
     id: string,
     fields: { voidedAt: string; voidReason: string; updatedAt: string },

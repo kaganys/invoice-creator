@@ -22,6 +22,8 @@ function emptyPaymentState() {
     lastSentAt: null,
     sendCount: 0,
     format: null,
+    stripePaymentIntentId: null,
+    paidAmountCents: null,
   } as const
 }
 
@@ -41,6 +43,8 @@ function toRecord(
     | 'lastSentAt'
     | 'sendCount'
     | 'format'
+    | 'stripePaymentIntentId'
+    | 'paidAmountCents'
   > = emptyPaymentState(),
 ): InvoiceRecord {
   const lineItems: InvoiceLineRecord[] = parsed.lineItems.map((line, index) => ({
@@ -74,6 +78,8 @@ function toRecord(
     lastSentAt: extras.lastSentAt,
     sendCount: extras.sendCount,
     format: extras.format,
+    stripePaymentIntentId: extras.stripePaymentIntentId,
+    paidAmountCents: extras.paidAmountCents,
     lineItems,
   }
 }
@@ -189,6 +195,8 @@ export async function updateInvoice(
       lastSentAt: current.lastSentAt,
       sendCount: current.sendCount,
       format: current.format,
+      stripePaymentIntentId: current.stripePaymentIntentId ?? null,
+      paidAmountCents: current.paidAmountCents ?? null,
     },
   )
   const updated = await store.replace(record)

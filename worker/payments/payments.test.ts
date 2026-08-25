@@ -69,6 +69,8 @@ function invoiceRecord(overrides: Partial<InvoiceRecord> = {}): InvoiceRecord {
     lastSentAt: NOW,
     sendCount: 1,
     format: null,
+    stripePaymentIntentId: null,
+    paidAmountCents: null,
     lineItems: [
       {
         id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
@@ -143,6 +145,7 @@ function createInvoiceStore(seed: InvoiceRecord): InvoiceStore {
       existing.updatedAt = fields.updatedAt
       return 'ok'
     },
+    async attachStripeReceipt() {},
     async voidInvoice(id, fields) {
       const existing = invoices.get(id)
       if (!existing) {

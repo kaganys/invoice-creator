@@ -60,6 +60,8 @@ function record(overrides: Partial<InvoiceRecord> = {}): InvoiceRecord {
     lastSentAt: NOW,
     sendCount: 1,
     format: defaultInvoiceFormat(),
+    stripePaymentIntentId: null,
+    paidAmountCents: null,
     lineItems: [
       {
         id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
@@ -95,6 +97,7 @@ function emptyStore(getImpl: InvoiceStore['get']): InvoiceStore {
     async markPaid() {
       return 'not_found'
     },
+    async attachStripeReceipt() {},
     async voidInvoice() {
       return 'not_found'
     },

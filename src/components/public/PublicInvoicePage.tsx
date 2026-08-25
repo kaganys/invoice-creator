@@ -11,6 +11,17 @@ export function PublicInvoicePage({ token }: { token: string }) {
   const [error, setError] = useState<string | null>(null)
   const [method, setMethod] = useState<'zelle' | 'card'>('zelle')
 
+  function loadInvoice() {
+    return fetchPublicInvoice(token)
+      .then((result) => {
+        setPayload(result)
+        setError(null)
+      })
+      .catch(() => {
+        setError('This payment link is invalid or expired.')
+      })
+  }
+
   useEffect(() => {
     let cancelled = false
     fetchPublicInvoice(token)
@@ -154,7 +165,13 @@ export function PublicInvoicePage({ token }: { token: string }) {
                 </p>
               </div>
             ) : (
-              <CardCheckout token={token} invoice={invoice} />
+              <CardCheckout
+                token={token}
+                invoice={invoice}
+                onAuthoritativePaid={() => {
+                  void loadInvoice()
+                }}
+              />
             )}
           </div>
         ) : null}

@@ -5,9 +5,10 @@ import {
   useStripe,
 } from '@stripe/react-stripe-js'
 import { loadStripe, type Stripe } from '@stripe/stripe-js'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   createPublicPaymentIntent,
+  fetchPublicInvoice,
   type PublicInvoice,
 } from '../../api/publicInvoice.ts'
 
@@ -25,15 +26,16 @@ function stripePromise(publishableKey: string) {
 function CheckoutForm({
   amountLabel,
   onBusy,
+  onSubmitted,
 }: {
   amountLabel: string
   onBusy: (busy: boolean) => void
+  onSubmitted: () => void
 }) {
   const stripe = useStripe()
   const elements = useElements()
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [submitted, setSubmitted] = useState(false)
 
   async function onPay() {
     if (!stripe || !elements || submitting) {
@@ -54,22 +56,13 @@ function CheckoutForm({
         setError(result.error.message || 'Card payment failed.')
         return
       }
-      setSubmitted(true)
+      onSubmitted()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Card payment failed.')
     } finally {
       setSubmitting(false)
       onBusy(false)
     }
-  }
-
-  if (submitted) {
-    return (
-      <p className="public-pay__success">
-        Your card payment was submitted for {amountLabel}. This invoice will be
-        marked paid after the payment is confirmed.
-      </p>
-    )
   }
 
   return (
@@ -91,16 +84,65 @@ function CheckoutForm({
 export function CardCheckout({
   token,
   invoice,
+  onAuthoritativePaid,
 }: {
   token: string
   invoice: PublicInvoice
+  onAuthoritativePaid?: () => void
 }) {
   const [clientSecret, setClientSecret] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  const [delayed, setDelayed] = useState(false)
+  const [paid, setPaid] = useState(false)
+  const onPaidRef = useRef(onAuthoritativePaid)
+  onPaidRef.current = onAuthoritativePaid
   const publishableKey = invoice.stripePublishableKey
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('redirect_status') === 'succeeded') {
+      setConfirming(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!confirming || paid) {
+      return
+    }
+    let cancelled = false
+    let attempts = 0
+    const poll = async () => {
+      const result = await fetchPublicInvoice(token)
+      if (cancelled) {
+        return
+      }
+      if (result.state === 'paid') {
+        setPaid(true)
+        setConfirming(false)
+        onPaidRef.current?.()
+        return
+      }
+      attempts += 1
+      if (attempts < 20) {
+        window.setTimeout(() => {
+          void poll()
+        }, 1500)
+      } else {
+        setDelayed(true)
+      }
+    }
+    void poll()
+    return () => {
+      cancelled = true
+    }
+  }, [confirming, paid, token])
+
+  useEffect(() => {
+    if (confirming || paid) {
+      return
+    }
     let cancelled = false
     setError(null)
     createPublicPaymentIntent(token)
@@ -121,7 +163,7 @@ export function CardCheckout({
     return () => {
       cancelled = true
     }
-  }, [token])
+  }, [token, confirming, paid])
 
   const stripe = useMemo(
     () => (publishableKey ? stripePromise(publishableKey) : null),
@@ -136,6 +178,28 @@ export function CardCheckout({
     )
   }
 
+  if (paid) {
+    return (
+      <div>
+        <h2 className="public-pay__success">Invoice already paid</h2>
+        <p>No further payment is required.</p>
+      </div>
+    )
+  }
+  if (confirming) {
+    return (
+      <div>
+        <p className="public-pay__success">
+          Payment received. Confirming payment…
+        </p>
+        {delayed ? (
+          <p className="public-pay__card-note">
+            This can take a few seconds. You can refresh this page.
+          </p>
+        ) : null}
+      </div>
+    )
+  }
   if (error) {
     return <p className="public-pay__error">{error}</p>
   }
@@ -177,6 +241,7 @@ export function CardCheckout({
         <CheckoutForm
           amountLabel={`${invoice.cardTotal} ${invoice.currency}`}
           onBusy={setBusy}
+          onSubmitted={() => setConfirming(true)}
         />
       </Elements>
     </div>

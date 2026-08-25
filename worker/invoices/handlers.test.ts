@@ -131,6 +131,7 @@ function createMemoryStore(): InvoiceStore {
       existing.updatedAt = fields.updatedAt
       return 'ok'
     },
+    async attachStripeReceipt() {},
     async voidInvoice(id, fields) {
       const existing = invoices.get(id)
       if (!existing) {

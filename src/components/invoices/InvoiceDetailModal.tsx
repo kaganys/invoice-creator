@@ -25,6 +25,7 @@ import { printInvoiceElement } from '../../utils/invoicePrint.ts'
 import { useFocusTrap } from '../../hooks/useFocusTrap.ts'
 import { useInvoiceDraft } from '../../invoice/InvoiceDraftContext.tsx'
 import { useAppView } from '../../nav/AppViewContext.tsx'
+import { formatMoney } from '../../utils/money.ts'
 import type {
   InvoiceEmailLogItem,
   PaidMethod,
@@ -64,6 +65,9 @@ function methodLabel(method: PaidMethod | null): string {
   }
   if (method === 'manual') {
     return 'Manual'
+  }
+  if (method === 'card') {
+    return 'Stripe / Card'
   }
   return 'Other'
 }
@@ -486,12 +490,29 @@ export function InvoiceDetailModal({
               <dd>{formatTimestamp(invoice.updatedAt)}</dd>
             </div>
             <div>
-              <dt>Paid</dt>
-              <dd>
-                {formatTimestamp(invoice.paidAt)}
-                {invoice.paidMethod ? ` · ${methodLabel(invoice.paidMethod)}` : ''}
-              </dd>
+              <dt>Paid via</dt>
+              <dd>{methodLabel(invoice.paidMethod)}</dd>
             </div>
+            <div>
+              <dt>Paid</dt>
+              <dd>{formatTimestamp(invoice.paidAt)}</dd>
+            </div>
+            {invoice.paidMethod === 'card' || invoice.stripePaymentIntentId ? (
+              <>
+                <div>
+                  <dt>Amount paid</dt>
+                  <dd>
+                    {invoice.paidAmountCents != null
+                      ? `${formatMoney(invoice.paidAmountCents, invoice.currency)} ${invoice.currency}`
+                      : '—'}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Stripe PaymentIntent</dt>
+                  <dd>{invoice.stripePaymentIntentId || '—'}</dd>
+                </div>
+              </>
+            ) : null}
             {invoice.voidedAt ? (
               <div>
                 <dt>Voided</dt>

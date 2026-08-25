@@ -53,6 +53,8 @@ type InvoiceRow = {
   last_sent_at: string | null
   send_count: number | null
   format_json: string | null
+  stripe_payment_intent_id: string | null
+  paid_amount_cents: number | null
   created_at: string
   updated_at: string
 }
@@ -124,7 +126,12 @@ function mapLine(row: LineRow): InvoiceLineRecord {
 }
 
 function isPaidMethod(value: string | null): value is PaidMethod {
-  return value === 'zelle' || value === 'manual' || value === 'other'
+  return (
+    value === 'zelle' ||
+    value === 'manual' ||
+    value === 'other' ||
+    value === 'card'
+  )
 }
 
 function mapInvoice(row: InvoiceRow, lines: InvoiceLineRecord[]): InvoiceRecord {
@@ -159,6 +166,8 @@ function mapInvoice(row: InvoiceRow, lines: InvoiceLineRecord[]): InvoiceRecord 
     lastSentAt: row.last_sent_at,
     sendCount: row.send_count ?? 0,
     format: row.format_json ? parseFormatJson(row.format_json) : null,
+    stripePaymentIntentId: row.stripe_payment_intent_id,
+    paidAmountCents: row.paid_amount_cents,
     lineItems: [...lines].sort((a, b) => a.sortOrder - b.sortOrder),
   }
 }
@@ -442,15 +451,42 @@ export function createD1InvoiceStore(db: D1Database): InvoiceStore {
         db
           .prepare(
             `UPDATE invoices
-             SET status = 'paid', paid_at = ?, paid_method = ?, updated_at = ?
+             SET status = 'paid', paid_at = ?, paid_method = ?, updated_at = ?,
+                 stripe_payment_intent_id = COALESCE(?, stripe_payment_intent_id),
+                 paid_amount_cents = COALESCE(?, paid_amount_cents)
              WHERE id = ?`,
           )
-          .bind(fields.paidAt, fields.paidMethod, fields.updatedAt, id),
+          .bind(
+            fields.paidAt,
+            fields.paidMethod,
+            fields.updatedAt,
+            fields.stripePaymentIntentId ?? null,
+            fields.paidAmountCents ?? null,
+            id,
+          ),
         db
           .prepare(REVOKE_ACTIVE_TOKENS_SQL)
           .bind(fields.updatedAt, 'paid', id),
       ])
       return 'ok'
+    },
+
+    async attachStripeReceipt(id, fields) {
+      await db
+        .prepare(
+          `UPDATE invoices
+           SET stripe_payment_intent_id = COALESCE(stripe_payment_intent_id, ?),
+               paid_amount_cents = COALESCE(paid_amount_cents, ?),
+               updated_at = ?
+           WHERE id = ?`,
+        )
+        .bind(
+          fields.stripePaymentIntentId,
+          fields.paidAmountCents,
+          fields.updatedAt,
+          id,
+        )
+        .run()
     },
 
     async voidInvoice(id, fields) {

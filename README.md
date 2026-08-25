@@ -124,6 +124,58 @@ Health checks:
 - `GET/PUT /api/settings/smtp` and `POST /api/settings/smtp/test` (no password in responses)
 - `GET/POST /api/invoices` and `GET/PUT/DELETE /api/invoices/:id` — saved invoices (delete is draft-only)
 - `POST /api/invoices/:id/mark-paid` and `POST /api/invoices/:id/void` — status transitions
+- `GET /api/public/invoices/:token` and `POST /api/public/invoices/:token/payment-intent` — public payment page
+- `POST /api/webhooks/stripe` — Stripe PaymentIntent finalization (signature required)
+
+## Stripe payments and webhooks
+
+Card payment on the public page (`/i/:token`) uses Stripe Payment Element. Creating a PaymentIntent does **not** mark the invoice paid. The Worker endpoint `POST /api/webhooks/stripe` is authoritative:
+
+1. Reads the raw request body
+2. Verifies `Stripe-Signature` with `STRIPE_WEBHOOK_SECRET` (HMAC SHA-256, 5-minute tolerance)
+3. Handles `payment_intent.succeeded` (mark paid), plus `payment_intent.payment_failed` / `payment_intent.canceled` (audit only)
+4. Recalculates the expected card total from the saved invoice snapshot and compares amount/currency
+5. Writes `invoice_payments`, sets `paid_method = card`, stores the PaymentIntent id and amount paid, and revokes the public token
+
+Do not process unsigned JSON. Do not trust Stripe metadata for the charge amount.
+
+**Race with admin Mark Paid:** if an admin marks the invoice paid at about the same time Stripe succeeds, `paid_method` / `paid_at` stay as the admin set them. The Stripe payment is still recorded in `invoice_payments`, receipt fields are attached with `COALESCE`, and the token is revoked. Void invoices are never un-voided.
+
+Set Worker secrets (never commit them, never store in D1):
+
+```bash
+npx wrangler secret put STRIPE_SECRET_KEY
+npx wrangler secret put STRIPE_WEBHOOK_SECRET
+npx wrangler secret put PAYMENT_LINK_KEY
+```
+
+Local `.dev.vars` (gitignored):
+
+```text
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+PAYMENT_LINK_KEY=...
+```
+
+Forward events with the Stripe CLI while `npm run dev` is running:
+
+```bash
+stripe listen --forward-to localhost:5173/api/webhooks/stripe
+```
+
+Use the printed `whsec_...` as `STRIPE_WEBHOOK_SECRET`. Optionally trigger:
+
+```bash
+stripe trigger payment_intent.succeeded
+```
+
+Cloudflare Access must allow unauthenticated access to `/i/*`, `/api/public/*`, and `POST /api/webhooks/stripe`.
+
+Webhook/payment schema is `migrations/0008_stripe_webhook_payments.sql`. After reviewing it, apply **only** with:
+
+```bash
+npx wrangler d1 migrations apply bitz-designs-invoicing --remote
+```
 
 ## Tests
 
