@@ -1,6 +1,6 @@
 {
 	"$schema": "./node_modules/wrangler/config-schema.json",
-	"name": "bitz-designs-invoicing",
+	"name": "invoice-creator",
 	"compatibility_date": "2026-08-25",
 	"compatibility_flags": [
 		"nodejs_compat"
