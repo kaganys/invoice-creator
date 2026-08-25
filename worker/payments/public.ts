@@ -59,8 +59,6 @@ export async function getPublicInvoiceByToken(
       invoice: {
         ...invoice,
         lineItems: [],
-        paymentMemo: '',
-        zelleEmail: '',
         cardPaymentAvailable: false,
         stripePublishableKey: null,
       } satisfies PublicInvoicePayload,
@@ -73,8 +71,6 @@ export async function getPublicInvoiceByToken(
       invoice: {
         ...invoice,
         lineItems: [],
-        paymentMemo: '',
-        zelleEmail: '',
         cardPaymentAvailable: false,
         stripePublishableKey: null,
       } satisfies PublicInvoicePayload,
@@ -126,8 +122,6 @@ function toPublicPayload(
     cardTotalCents: totals.cardTotalCents,
     cardFee: formatMoney(totals.cardFeeCents, invoice.currency),
     cardTotal: formatMoney(totals.cardTotalCents, invoice.currency),
-    paymentMemo: invoice.payment.memo,
-    zelleEmail: invoice.payment.zelleEmail,
     cardPaymentAvailable: cardReady,
     stripePublishableKey: cardReady ? payments?.publishableKey ?? null : null,
     logoPath: invoiceLogoPath(invoice.invoiceLogo),

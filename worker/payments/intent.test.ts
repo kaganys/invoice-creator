@@ -220,6 +220,18 @@ describe('card charge from invoice snapshot', () => {
     expect(fixed.feeCents).toBe(30)
     expect(fixed.cardCents).toBe(5030)
 
+    const mixed = calculateCardCharge(
+      invoiceRecord({
+        payment: {
+          ...invoiceRecord().payment,
+          cardFeePercentScaled: 290,
+          cardFeeFixedCents: 30,
+        },
+      }),
+    )
+    expect(mixed.feeCents).toBe(175)
+    expect(mixed.cardCents).toBe(5175)
+
     const zero = calculateCardCharge(
       invoiceRecord({
         payment: {
@@ -231,6 +243,22 @@ describe('card charge from invoice snapshot', () => {
     )
     expect(zero.feeCents).toBe(0)
     expect(zero.cardCents).toBe(5000)
+  })
+
+  it('does not change an existing invoice fee when Settings would differ', () => {
+    const createdAt3Percent = invoiceRecord({
+      payment: {
+        ...invoiceRecord().payment,
+        cardFeePercentScaled: 300,
+        cardFeeFixedCents: 0,
+      },
+    })
+    const laterSettingsPercentScaled = 250
+    expect(createdAt3Percent.payment.cardFeePercentScaled).toBe(300)
+    expect(createdAt3Percent.payment.cardFeePercentScaled).not.toBe(
+      laterSettingsPercentScaled,
+    )
+    expect(calculateCardCharge(createdAt3Percent).cardCents).toBe(5150)
   })
 })
 

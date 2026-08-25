@@ -99,6 +99,7 @@ export function CardCheckout({
   const onPaidRef = useRef(onAuthoritativePaid)
   onPaidRef.current = onAuthoritativePaid
   const publishableKey = invoice.stripePublishableKey
+  const amountLabel = `${invoice.cardTotal} ${invoice.currency}`
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -173,7 +174,7 @@ export function CardCheckout({
   if (!invoice.cardPaymentAvailable || !publishableKey) {
     return (
       <p className="public-pay__card-note">
-        Card payment is not available. Please pay by Zelle.
+        Card payment is not available for this invoice.
       </p>
     )
   }
@@ -204,33 +205,17 @@ export function CardCheckout({
     return <p className="public-pay__error">{error}</p>
   }
   if (!clientSecret || !stripe) {
-    return <p>Preparing secure card payment…</p>
+    return (
+      <div>
+        <ChargeSummary invoice={invoice} />
+        <p>Preparing secure card payment…</p>
+      </div>
+    )
   }
 
   return (
     <div aria-busy={busy}>
-      <dl className="public-pay__totals">
-        <div>
-          <dt>Invoice amount</dt>
-          <dd>
-            {invoice.amountDue} {invoice.currency}
-          </dd>
-        </div>
-        <div>
-          <dt>Card processing amount</dt>
-          <dd>
-            {invoice.cardTotal} {invoice.currency}
-          </dd>
-        </div>
-        {invoice.cardFeeCents > 0 ? (
-          <div>
-            <dt>Includes card processing fee</dt>
-            <dd>
-              {invoice.cardFee} {invoice.currency}
-            </dd>
-          </div>
-        ) : null}
-      </dl>
+      <ChargeSummary invoice={invoice} />
       <Elements
         stripe={stripe}
         options={{
@@ -239,11 +224,38 @@ export function CardCheckout({
         }}
       >
         <CheckoutForm
-          amountLabel={`${invoice.cardTotal} ${invoice.currency}`}
+          amountLabel={amountLabel}
           onBusy={setBusy}
           onSubmitted={() => setConfirming(true)}
         />
       </Elements>
     </div>
+  )
+}
+
+function ChargeSummary({ invoice }: { invoice: PublicInvoice }) {
+  return (
+    <dl className="public-pay__totals">
+      <div>
+        <dt>Invoice amount</dt>
+        <dd>
+          {invoice.amountDue} {invoice.currency}
+        </dd>
+      </div>
+      {invoice.cardFeeCents > 0 ? (
+        <div>
+          <dt>Card processing fee</dt>
+          <dd>
+            {invoice.cardFee} {invoice.currency}
+          </dd>
+        </div>
+      ) : null}
+      <div className="public-pay__totals-total">
+        <dt>Total charged</dt>
+        <dd>
+          {invoice.cardTotal} {invoice.currency}
+        </dd>
+      </div>
+    </dl>
   )
 }

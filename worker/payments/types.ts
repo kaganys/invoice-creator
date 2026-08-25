@@ -47,8 +47,6 @@ export type PublicInvoicePayload = {
   cardTotalCents: number
   cardFee: string
   cardTotal: string
-  paymentMemo: string
-  zelleEmail: string
   cardPaymentAvailable: boolean
   stripePublishableKey: string | null
   logoPath: string

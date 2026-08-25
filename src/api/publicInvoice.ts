@@ -21,8 +21,6 @@ export type PublicInvoice = {
   cardTotalCents: number
   cardFee: string
   cardTotal: string
-  paymentMemo: string
-  zelleEmail: string
   cardPaymentAvailable: boolean
   stripePublishableKey: string | null
   logoPath: string

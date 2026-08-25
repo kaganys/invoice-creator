@@ -713,10 +713,10 @@ describe('invoice send', () => {
     )
     expect(match?.[0]).toBeTruthy()
     expect(emailHtml).toContain(`href="${match?.[0]}"`)
-    expect(emailHtml).toContain('Pay this invoice')
+    expect(emailHtml).toContain('Pay Online')
     expect(emailText).toContain(match?.[0] ?? '')
     expect(captured.html).toContain(`href="${match?.[0]}"`)
-    expect(captured.html).toContain('Pay this invoice')
+    expect(captured.html).toContain('Pay Online')
     expect(JSON.stringify({ emailHtml, emailText, pdfHtml: captured.html })).not.toContain(
       rows[0]?.tokenHash ?? '',
     )
@@ -725,7 +725,7 @@ describe('invoice send', () => {
     )
   })
 
-  it('appends a server-side payment CTA for older saved templates that lack payment_url', async () => {
+  it('sends older templates that lack payment_url without inventing a payment CTA', async () => {
     const store = createStore(
       record({
         status: 'sent',
@@ -804,14 +804,10 @@ describe('invoice send', () => {
     )
 
     expect(response.status).toBe(200)
-    const match = /https:\/\/pay\.example\.com\/i\/[A-Za-z0-9_-]{43}/.exec(emailHtml)
-    expect(match?.[0]).toBeTruthy()
     expect(emailHtml).toContain('Custom intro only.')
-    expect(emailHtml).toContain('Pay this invoice')
-    expect(emailHtml).toContain(`href="${match?.[0]}"`)
     expect(emailText).toContain('Custom intro only.')
-    expect(emailText).toContain('Pay this invoice')
-    expect(emailText).toContain(match?.[0] ?? '')
+    expect(emailHtml).not.toContain('Pay Online')
+    expect(emailHtml).not.toMatch(/https:\/\/pay\.example\.com\/i\//)
   })
 
   it('does not email a localhost payment URL when PUBLIC_PAYMENT_BASE_URL is missing', async () => {

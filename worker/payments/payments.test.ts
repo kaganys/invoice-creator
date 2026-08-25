@@ -259,7 +259,119 @@ describe('public payment tokens', () => {
     expect(body).not.toContain('smtp')
     expect(body).not.toContain('sendCount')
     expect(body).not.toContain('ada@example.com')
+    expect(body).not.toContain('zelleEmail')
+    expect(body).not.toContain('billing@bitzdesigns.co')
+    expect(body).not.toContain('paymentMemo')
+    expect(body).not.toContain('Pay by Zelle')
     expect(publicInvoice.cardPaymentAvailable).toBe(false)
+  })
+
+  it('exposes snapshotted card fees for a card-only public payment page', async () => {
+    const tokens = createTokenStore()
+    const invoices = createInvoiceStore(
+      invoiceRecord({
+        payment: {
+          memo: 'Pay by Zelle',
+          zelleEmail: 'billing@bitzdesigns.co',
+          cardFeePercentScaled: 300,
+          cardFeeFixedCents: 0,
+        },
+      }),
+    )
+    const ensured = await issueToken(
+      tokens,
+      'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    )
+    const response = await getPublicInvoiceByToken(ensured.rawToken, {
+      tokens,
+      invoices,
+      payments: {
+        stripeEnabled: true,
+        cardPaymentsEnabled: true,
+        publishableKey: 'pk_test_51ABC',
+        statementDescriptor: 'BITZ',
+      },
+      stripeSecretConfigured: true,
+    })
+    const payload = await readJson(response)
+    const invoice = payload.invoice as {
+      amountDueCents: number
+      cardFeeCents: number
+      cardTotalCents: number
+      cardPaymentAvailable: boolean
+      zelleEmail?: string
+      paymentMemo?: string
+    }
+    expect(payload.state).toBe('payable')
+    expect(invoice.amountDueCents).toBe(5000)
+    expect(invoice.cardFeeCents).toBe(150)
+    expect(invoice.cardTotalCents).toBe(5150)
+    expect(invoice.cardPaymentAvailable).toBe(true)
+    expect(invoice.zelleEmail).toBeUndefined()
+    expect(invoice.paymentMemo).toBeUndefined()
+    expect(JSON.stringify(payload)).not.toMatch(/zelle/i)
+  })
+
+  it('uses percent plus fixed fee from the saved invoice, not later settings', async () => {
+    const tokens = createTokenStore()
+    const snapshot = invoiceRecord({
+      payment: {
+        memo: 'Memo',
+        zelleEmail: 'billing@bitzdesigns.co',
+        cardFeePercentScaled: 290,
+        cardFeeFixedCents: 30,
+      },
+    })
+    const invoices = createInvoiceStore(snapshot)
+    const ensured = await issueToken(
+      tokens,
+      'cccccccc-cccc-4ccc-8ccc-cccccccccc01',
+    )
+
+    // Simulate Settings later changing to 2.5% — the stored invoice is unchanged.
+    const settingsWouldBe = { cardFeePercentScaled: 250, cardFeeFixedCents: 0 }
+    expect(snapshot.payment.cardFeePercentScaled).not.toBe(
+      settingsWouldBe.cardFeePercentScaled,
+    )
+
+    const response = await getPublicInvoiceByToken(ensured.rawToken, {
+      tokens,
+      invoices,
+    })
+    const invoice = (await readJson(response)).invoice as {
+      cardFeeCents: number
+      cardTotalCents: number
+      amountDueCents: number
+    }
+    expect(invoice.amountDueCents).toBe(5000)
+    expect(invoice.cardFeeCents).toBe(175)
+    expect(invoice.cardTotalCents).toBe(5175)
+
+    const zeroTokens = createTokenStore()
+    const zeroInvoices = createInvoiceStore(
+      invoiceRecord({
+        payment: {
+          memo: 'Memo',
+          zelleEmail: 'billing@bitzdesigns.co',
+          cardFeePercentScaled: 0,
+          cardFeeFixedCents: 0,
+        },
+      }),
+    )
+    const zeroToken = await issueToken(
+      zeroTokens,
+      'cccccccc-cccc-4ccc-8ccc-cccccccccc02',
+    )
+    const zero = await getPublicInvoiceByToken(zeroToken.rawToken, {
+      tokens: zeroTokens,
+      invoices: zeroInvoices,
+    })
+    const zeroInvoice = (await readJson(zero)).invoice as {
+      cardFeeCents: number
+      cardTotalCents: number
+    }
+    expect(zeroInvoice.cardFeeCents).toBe(0)
+    expect(zeroInvoice.cardTotalCents).toBe(5000)
   })
 
   it('returns invalid for unknown tokens and sequential invoice numbers', async () => {

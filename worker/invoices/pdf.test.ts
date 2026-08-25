@@ -269,7 +269,7 @@ describe('invoice PDF endpoint', () => {
 
     expect(response.status).toBe(200)
     expect(html).toContain(`href="https://pay.example.com/i/${ensured.rawToken}"`)
-    expect(html).toContain('Pay this invoice')
+    expect(html).toContain('Pay Online')
   })
 
   it('omits the Pay Online button in saved PDFs when no active payment URL exists', async () => {
@@ -291,7 +291,7 @@ describe('invoice PDF endpoint', () => {
 
     expect(response.status).toBe(200)
     expect(html).not.toContain('<p class="invoice-sheet__pay">')
-    expect(html).not.toContain('>Pay this invoice<')
+    expect(html).not.toContain('>Pay Online<')
     expect(html).not.toContain('/i/')
   })
 

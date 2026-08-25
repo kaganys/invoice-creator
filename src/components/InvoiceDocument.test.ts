@@ -41,7 +41,7 @@ describe('canonical invoice document data', () => {
     )
 
     expect(html).toContain(`href="${paymentUrl}"`)
-    expect(html).toContain('Pay this invoice')
+    expect(html).toContain('Pay Online')
     expect(html).toContain('target="_blank"')
     expect(html).toContain('rel="noreferrer noopener"')
   })
@@ -51,6 +51,6 @@ describe('canonical invoice document data', () => {
     const html = renderToStaticMarkup(createElement(InvoiceDocument, { invoice }))
 
     expect(html).not.toContain('<p class="invoice-sheet__pay">')
-    expect(html).not.toContain('>Pay this invoice<')
+    expect(html).not.toContain('>Pay Online<')
   })
 })
