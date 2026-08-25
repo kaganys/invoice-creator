@@ -135,29 +135,44 @@ export function CardCheckout({
     }
     let cancelled = false
     let attempts = 0
+    let timer: number | undefined
+
     const poll = async () => {
-      const result = await fetchPublicInvoice(token)
+      try {
+        const result = await fetchPublicInvoice(token)
+        if (cancelled) {
+          return
+        }
+        if (result.state === 'paid') {
+          setPaid(true)
+          setConfirming(false)
+          setDelayed(false)
+          onPaidRef.current?.()
+          return
+        }
+      } catch {
+        // Keep polling — Access/network blips must not strand a successful charge.
+      }
       if (cancelled) {
         return
       }
-      if (result.state === 'paid') {
-        setPaid(true)
-        setConfirming(false)
-        onPaidRef.current?.()
-        return
-      }
       attempts += 1
-      if (attempts < 20) {
-        window.setTimeout(() => {
-          void poll()
-        }, 1500)
-      } else {
+      if (attempts === 8) {
         setDelayed(true)
       }
+      // ~2 minutes of retries, then slow background checks.
+      const waitMs = attempts < 40 ? 1500 : 5000
+      timer = window.setTimeout(() => {
+        void poll()
+      }, waitMs)
     }
+
     void poll()
     return () => {
       cancelled = true
+      if (timer !== undefined) {
+        window.clearTimeout(timer)
+      }
     }
   }, [confirming, paid, token])
 
@@ -214,10 +229,21 @@ export function CardCheckout({
         <p className="public-pay__success">
           Payment received. Confirming payment…
         </p>
+        <p className="public-pay__card-note">
+          {delayed
+            ? 'Your card was charged. We are waiting for final confirmation. You can refresh this page — if payment completed, it will show as already paid.'
+            : 'This usually takes a few seconds.'}
+        </p>
         {delayed ? (
-          <p className="public-pay__card-note">
-            This can take a few seconds. You can refresh this page.
-          </p>
+          <button
+            type="button"
+            className="btn btn--primary public-pay__pay"
+            onClick={() => {
+              window.location.reload()
+            }}
+          >
+            Refresh status
+          </button>
         ) : null}
       </div>
     )
