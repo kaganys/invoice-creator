@@ -25,6 +25,19 @@ export function classifyBrowserHostname(hostname = window.location.hostname): Si
 export function publicPaymentTokenFromPath(
   pathname = window.location.pathname,
 ): string | null {
-  const match = /^\/i\/([^/]+)$/.exec(pathname)
-  return match?.[1] ?? null
+  const normalized =
+    pathname.length > 1 && pathname.endsWith('/')
+      ? pathname.slice(0, -1)
+      : pathname
+  const withPrefix = /^\/i\/([^/]+)$/.exec(normalized)
+  if (withPrefix?.[1]) {
+    try {
+      return decodeURIComponent(withPrefix[1])
+    } catch {
+      return withPrefix[1]
+    }
+  }
+  // Bare /:token (some older/misconfigured links)
+  const bare = /^\/([A-Za-z0-9_-]{43})$/.exec(normalized)
+  return bare?.[1] ?? null
 }

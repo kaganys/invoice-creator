@@ -58,6 +58,12 @@ export default {
       if (path === '/' || path === '') {
         return publicLandingHtml()
       }
+      // Tolerate bare /:token links by sending them to /i/:token.
+      const bareToken = barePaymentTokenPath(path)
+      if (bareToken) {
+        const target = new URL(`/i/${bareToken}`, request.url).toString()
+        return Response.redirect(target, 302)
+      }
       if (isPublicPaymentPagePath(path)) {
         return servePaymentSpa(env, request)
       }
@@ -80,8 +86,25 @@ async function servePaymentSpa(env: Env, request: Request): Promise<Response> {
   if (!assets) {
     return hostNotFoundHtml('Payment page assets are unavailable.')
   }
-  // Fetch index.html explicitly so SPA not_found_handling cannot revive admin routes.
-  return assets.fetch(new URL('/index.html', request.url), request)
+  // Load the SPA shell explicitly. ASSETS may 302 /index.html → / under html_handling;
+  // follow that internally and return 200 HTML so the browser stays on /i/:token.
+  let assetResponse = await assets.fetch(new URL('/index.html', request.url))
+  if (assetResponse.status >= 300 && assetResponse.status < 400) {
+    const location = assetResponse.headers.get('Location')
+    if (location) {
+      assetResponse = await assets.fetch(new URL(location, request.url))
+    }
+  }
+  if (!assetResponse.ok) {
+    return hostNotFoundHtml('Payment page assets are unavailable.')
+  }
+  const headers = new Headers(assetResponse.headers)
+  headers.delete('Location')
+  headers.set('cache-control', 'no-store')
+  return new Response(assetResponse.body, {
+    status: 200,
+    headers,
+  })
 }
 
 async function serveAssets(env: Env, request: Request): Promise<Response> {
@@ -90,4 +113,14 @@ async function serveAssets(env: Env, request: Request): Promise<Response> {
     return new Response(null, { status: 404 })
   }
   return assets.fetch(request)
+}
+
+/** Match a root path that is only a well-formed payment token (no /i/ prefix). */
+function barePaymentTokenPath(pathname: string): string | null {
+  const normalized =
+    pathname.length > 1 && pathname.endsWith('/')
+      ? pathname.slice(0, -1)
+      : pathname
+  const match = /^\/([A-Za-z0-9_-]{43})$/.exec(normalized)
+  return match?.[1] ?? null
 }

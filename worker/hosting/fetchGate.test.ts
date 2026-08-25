@@ -41,7 +41,43 @@ describe('Worker hostname gate', () => {
       {} as ExecutionContext,
     )
     expect(payPage.status).toBe(200)
+    expect(payPage.headers.get('Location')).toBeNull()
     expect(await payPage.text()).toContain('SPA')
+
+    // ASSETS may try to redirect /index.html → / ; payment SPA must still be 200 on /i/:token.
+    const redirectingAssets = {
+      ASSETS: {
+        async fetch(input: RequestInfo | URL) {
+          const url =
+            typeof input === 'string'
+              ? new URL(input)
+              : input instanceof URL
+                ? input
+                : new URL(input.url)
+          if (url.pathname === '/index.html') {
+            return new Response(null, {
+              status: 302,
+              headers: { Location: '/' },
+            })
+          }
+          if (url.pathname === '/') {
+            return new Response('<html><body>SPA</body></html>', {
+              status: 200,
+              headers: { 'content-type': 'text/html' },
+            })
+          }
+          return new Response('asset', { status: 200 })
+        },
+      },
+    } as unknown as Env
+    const followed = await worker.default.fetch(
+      new Request('https://pay.vrfnw.com/i/tok_test_value'),
+      redirectingAssets,
+      {} as ExecutionContext,
+    )
+    expect(followed.status).toBe(200)
+    expect(followed.headers.get('Location')).toBeNull()
+    expect(await followed.text()).toContain('SPA')
 
     const landing = await worker.default.fetch(
       new Request('https://pay.vrfnw.com/'),
