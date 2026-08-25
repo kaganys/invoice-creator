@@ -17,6 +17,26 @@ export type PaymentLinkAdminDeps = {
   idFactory?: () => string
 }
 
+export async function getActivePaymentLink(
+  invoiceId: string,
+  deps: Pick<PaymentLinkAdminDeps, 'tokens' | 'paymentLinkKey' | 'baseUrl'>,
+): Promise<{
+  createdAt: string
+  status: 'active'
+  url: string | null
+} | null> {
+  const active = await deps.tokens.getActiveByInvoiceId(invoiceId)
+  if (!active) {
+    return null
+  }
+  const raw = await decryptPaymentToken(active.encryptedToken, deps.paymentLinkKey)
+  return {
+    createdAt: active.createdAt,
+    status: 'active',
+    url: raw ? paymentPageUrl(deps.baseUrl, raw) : null,
+  }
+}
+
 export async function getInvoicePaymentLink(
   invoiceId: string,
   deps: PaymentLinkAdminDeps,
@@ -28,19 +48,14 @@ export async function getInvoicePaymentLink(
   if (!invoice) {
     return errorJson('Invoice not found.', 404)
   }
-  const active = await deps.tokens.getActiveByInvoiceId(invoiceId)
+  const active = await getActivePaymentLink(invoiceId, deps)
   if (!active) {
     return json({
       paymentLink: null,
     })
   }
-  const raw = await decryptPaymentToken(active.encryptedToken, deps.paymentLinkKey)
   return json({
-    paymentLink: {
-      url: raw ? paymentPageUrl(deps.baseUrl, raw) : null,
-      createdAt: active.createdAt,
-      status: active.status,
-    },
+    paymentLink: active,
   })
 }
 

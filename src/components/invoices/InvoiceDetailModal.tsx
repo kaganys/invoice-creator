@@ -13,8 +13,6 @@ import {
 } from '../../api/invoices.ts'
 import { prepareInvoiceEmail } from '../../invoice/emailHtml.ts'
 import {
-  applyEmailTemplate,
-  applyEmailTemplateHtml,
   invoiceTemplateVars,
 } from '../../invoice/emailTemplates.ts'
 import { EmailTemplateEditor } from '../settings/EmailTemplateEditor.tsx'
@@ -250,10 +248,9 @@ export function InvoiceDetailModal({
     if (!invoice) {
       return
     }
-    const vars = invoiceTemplateVars(invoice)
     setRecipient(invoice.customer.email)
-    setSubject(applyEmailTemplate(smtp.subjectTemplate, vars))
-    setEmailBody(applyEmailTemplateHtml(smtp.bodyTemplate, vars))
+    setSubject(smtp.subjectTemplate)
+    setEmailBody(smtp.bodyTemplate)
     setIdempotencyKey(crypto.randomUUID())
     setSendOpen(true)
     setConfirmPaid(false)
@@ -659,7 +656,14 @@ export function InvoiceDetailModal({
             <iframe
               className="invoice-send__preview"
               title="Invoice email preview"
-              srcDoc={prepareInvoiceEmail(emailBody, invoiceTemplateVars(invoice)).html}
+              srcDoc={
+                prepareInvoiceEmail(
+                  emailBody,
+                  invoiceTemplateVars(invoice, {
+                    paymentUrl: paymentLink?.url ?? '',
+                  }),
+                ).html
+              }
             />
             <div className="invoice-detail-modal__confirm">
               <button
@@ -716,6 +720,7 @@ export function InvoiceDetailModal({
               ref={documentRef}
               invoice={invoice}
               format={documentFormat}
+              paymentUrl={paymentLink?.status === 'active' ? paymentLink.url ?? '' : ''}
             />
           ) : null}
         </div>

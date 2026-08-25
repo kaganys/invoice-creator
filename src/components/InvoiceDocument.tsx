@@ -101,10 +101,14 @@ function Memo({ text }: { text: string }) {
 type InvoiceDocumentProps = {
   invoice: Invoice
   format?: InvoiceFormat
+  paymentUrl?: string
 }
 
 export const InvoiceDocument = forwardRef<HTMLElement, InvoiceDocumentProps>(
-  function InvoiceDocument({ invoice, format = defaultInvoiceFormat() }, ref) {
+  function InvoiceDocument(
+    { invoice, format = defaultInvoiceFormat(), paymentUrl = '' },
+    ref,
+  ) {
   const totals = calculateInvoiceTotals(invoice)
   const logoSrc = invoiceLogoPath(invoice.invoiceLogo)
   const cssVars = formatToCssVars(format)
@@ -114,6 +118,7 @@ export const InvoiceDocument = forwardRef<HTMLElement, InvoiceDocumentProps>(
   const dueDate = formatInvoiceDate(invoice.dueDate)
   const showFrom = hasPartyContent(invoice.from)
   const showBillTo = hasPartyContent(invoice.customer)
+  const payUrl = paymentUrl.trim()
 
   return (
     <article
@@ -172,9 +177,18 @@ export const InvoiceDocument = forwardRef<HTMLElement, InvoiceDocumentProps>(
         </p>
       ) : null}
 
-      <p className="invoice-sheet__pay">
-        <span className="invoice-sheet__pay-link">Pay online</span>
-      </p>
+      {payUrl ? (
+        <p className="invoice-sheet__pay">
+          <a
+            className="invoice-sheet__pay-link"
+            href={payUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            Pay Online
+          </a>
+        </p>
+      ) : null}
 
       <Memo text={invoice.payment.memo} />
 

@@ -98,6 +98,8 @@ describe('HTML invoice email', () => {
     expect(DEFAULT_EMAIL_BODY).toContain('Amount due')
     expect(DEFAULT_EMAIL_BODY).toContain('{{invoice_number}}')
     expect(DEFAULT_EMAIL_BODY).toContain('{{amount}}')
+    expect(DEFAULT_EMAIL_BODY).toContain('{{payment_url}}')
+    expect(DEFAULT_EMAIL_BODY).toContain('Pay Online')
   })
 
   it('prepares multipart HTML and text from a template', () => {
@@ -116,5 +118,39 @@ describe('HTML invoice email', () => {
     expect(prepared.html).toContain('width=device-width')
     expect(prepared.text).toContain('BD2026-0051')
     expect(htmlToPlainText('<p>Hello <strong>Ada</strong></p>')).toContain('Hello Ada')
+  })
+
+  it('renders a clickable Pay Online button and visible fallback URL in the default email', () => {
+    const invoice = createDefaultInvoice()
+    invoice.number = 'BD2026-0051'
+    invoice.customer.name = 'Ada'
+    invoice.lineItems = [
+      createEmptyLineItem({ quantity: '1', unitPrice: '50.00' }),
+    ]
+    const paymentUrl =
+      'https://pay.example.com/i/abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG'
+
+    const prepared = prepareInvoiceEmail(
+      DEFAULT_EMAIL_BODY,
+      invoiceTemplateVars(invoice, { paymentUrl }),
+    )
+
+    expect(prepared.html).toContain(`href="${paymentUrl}"`)
+    expect(prepared.html).toContain('Pay Online')
+    expect(prepared.html).toContain(paymentUrl)
+    expect(prepared.text).toContain('Pay Online')
+    expect(prepared.text).toContain(paymentUrl)
+  })
+
+  it('hides the default payment CTA block when no payment URL is available', () => {
+    const invoice = createDefaultInvoice()
+    const prepared = prepareInvoiceEmail(
+      DEFAULT_EMAIL_BODY,
+      invoiceTemplateVars(invoice),
+    )
+
+    expect(prepared.html).not.toContain('href=""')
+    expect(prepared.html).not.toContain('Pay Online')
+    expect(prepared.html).not.toContain('/i/')
   })
 })

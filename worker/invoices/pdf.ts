@@ -10,19 +10,25 @@ import {
 import { errorJson } from '../http.ts'
 import { isUuid, nowIso } from '../lib/ids.ts'
 import type { PdfRenderer } from '../pdf/types.ts'
+import { getActivePaymentLink } from '../payments/admin.ts'
 import { parseFormatJson, serializeFormat } from '../settings/format.ts'
 import type { SettingsKvStore } from '../settings/types.ts'
 import { SETTINGS_KEYS } from '../settings/keys.ts'
+import type { PaymentTokenStore } from '../payments/types.ts'
 import { invoiceFromRecord } from './document.ts'
 import { validateInvoiceWrite } from './validation.ts'
 import { readJsonBody } from '../lib/json.ts'
 import type { InvoiceRecord, InvoiceStore } from './types.ts'
+import { parsePublicPaymentBaseUrl } from '../payments/tokenCrypto.ts'
 
 export type PdfDeps = {
   store: InvoiceStore
   settings: SettingsKvStore
   pdf: PdfRenderer
   origin: string
+  tokens?: PaymentTokenStore
+  paymentLinkKey?: string
+  paymentBaseUrl?: string
   clock?: () => string
 }
 
@@ -56,12 +62,13 @@ export function invoiceHtmlForPdf(
   invoice: Invoice,
   format: InvoiceFormat,
   origin: string,
+  paymentUrl?: string,
 ): string {
   const logoPath = invoiceLogoPath(invoice.invoiceLogo)
   const logoSrc = logoPath.startsWith('http')
     ? logoPath
     : `${origin.replace(/\/$/, '')}${logoPath}`
-  return renderInvoiceHtml(invoice, format, { origin, logoSrc })
+  return renderInvoiceHtml(invoice, format, { origin, logoSrc, paymentUrl })
 }
 
 function pdfResponse(bytes: Uint8Array, filename: string): Response {
@@ -79,8 +86,14 @@ export async function renderInvoicePdfBytes(
   invoice: Invoice,
   format: InvoiceFormat,
   deps: Pick<PdfDeps, 'pdf' | 'origin'>,
+  options: { paymentUrl?: string } = {},
 ): Promise<Uint8Array> {
-  const html = invoiceHtmlForPdf(invoice, format, deps.origin)
+  const html = invoiceHtmlForPdf(
+    invoice,
+    format,
+    deps.origin,
+    options.paymentUrl,
+  )
   try {
     return await deps.pdf.renderHtml(html)
   } catch (error) {
@@ -102,8 +115,20 @@ export async function getInvoicePdf(
   }
   const format = await resolveInvoiceFormat(record, deps)
   const invoice = invoiceFromRecord(record)
+  let paymentUrl = ''
+  const parsedBase = parsePublicPaymentBaseUrl(deps.paymentBaseUrl)
+  if (deps.tokens && parsedBase.ok && record.status !== 'paid' && record.status !== 'void') {
+    paymentUrl =
+      (await getActivePaymentLink(record.id, {
+        tokens: deps.tokens,
+        paymentLinkKey: deps.paymentLinkKey,
+        baseUrl: parsedBase.value,
+      }))?.url ?? ''
+  }
   try {
-    const bytes = await renderInvoicePdfBytes(invoice, format, deps)
+    const bytes = await renderInvoicePdfBytes(invoice, format, deps, {
+      paymentUrl,
+    })
     return pdfResponse(
       bytes,
       invoicePdfFilename(invoice.number, { draft: record.status === 'draft' }),
@@ -169,5 +194,4 @@ export async function previewInvoicePdf(
     return errorJson(message, 502)
   }
 }
-
 

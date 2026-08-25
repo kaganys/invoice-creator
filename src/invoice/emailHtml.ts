@@ -31,6 +31,13 @@ export function plainTextToHtml(text: string): string {
     .join('')
 }
 
+function normalizePaymentUrlBlocks(html: string, paymentUrl: string): string {
+  if (!paymentUrl.trim()) {
+    return html.replace(/<!--payment-url:start-->[\s\S]*?<!--payment-url:end-->/g, '')
+  }
+  return html.replace(/<!--payment-url:(start|end)-->/g, '')
+}
+
 export function sanitizeEmailHtml(html: string): string {
   return html
     .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
@@ -156,9 +163,10 @@ export function prepareInvoiceEmail(
     : '<p></p>'
   const fragment = looksLikeHtml(source) ? source : plainTextToHtml(source)
   const applied = applyEmailTemplateHtml(fragment, vars)
-  const clean = sanitizeEmailHtml(applied)
+  const normalized = normalizePaymentUrlBlocks(applied, vars.payment_url)
+  const clean = sanitizeEmailHtml(normalized)
   const textSource = looksLikeHtml(source)
-    ? htmlToPlainText(applied)
+    ? htmlToPlainText(normalized)
     : applyEmailTemplate(source, vars)
   return {
     html: wrapInvoiceEmailHtml(clean, {
@@ -178,5 +186,6 @@ export const SAMPLE_EMAIL_VARS: TemplateVars = {
   zelle_email: 'billing@bitzdesigns.co',
   payment_memo:
     'Please pay by Zelle using your invoice number as the memo.',
-  payment_url: '',
+  payment_url:
+    'https://pay.example.com/i/abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG',
 }

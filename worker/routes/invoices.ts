@@ -35,6 +35,9 @@ function pdfDeps(env: Env, request: Request) {
     settings: createD1SettingsStore(env.DB),
     pdf: createBrowserPdfRenderer(browserBinding(env)),
     origin: new URL(request.url).origin,
+    tokens: createD1PaymentTokenStore(env.DB),
+    paymentLinkKey: paymentLinkKeySecret(env),
+    paymentBaseUrl: publicPaymentBaseUrlConfig(env),
   }
 }
 

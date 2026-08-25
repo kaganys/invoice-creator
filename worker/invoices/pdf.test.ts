@@ -6,9 +6,12 @@ import { SETTINGS_KEYS } from '../settings/keys.ts'
 import type { InvoiceRecord, InvoiceStore } from './types.ts'
 import type { SettingsKvStore } from '../settings/types.ts'
 import type { PdfRenderer } from '../pdf/types.ts'
+import type { PaymentTokenRecord, PaymentTokenStore } from '../payments/types.ts'
+import { ensureActivePaymentToken } from '../payments/ensureToken.ts'
 
 const ID_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const NOW = '2026-08-25T15:00:00.000Z'
+const KEY = 'test-payment-link-key'
 
 function record(overrides: Partial<InvoiceRecord> = {}): InvoiceRecord {
   return {
@@ -130,6 +133,34 @@ function settings(): SettingsKvStore {
   }
 }
 
+function createTokenStore(): PaymentTokenStore & { rows: PaymentTokenRecord[] } {
+  const rows: PaymentTokenRecord[] = []
+  return {
+    rows,
+    async getActiveByInvoiceId(invoiceId) {
+      return rows.find((row) => row.invoiceId === invoiceId && row.status === 'active') ?? null
+    },
+    async getByHash(tokenHash) {
+      return rows.find((row) => row.tokenHash === tokenHash) ?? null
+    },
+    async insert(record) {
+      rows.push(structuredClone(record))
+    },
+    async revokeActive(invoiceId, reason, revokedAt) {
+      let count = 0
+      for (const row of rows) {
+        if (row.invoiceId === invoiceId && row.status === 'active') {
+          row.status = 'revoked'
+          row.revokedAt = revokedAt
+          row.revokedReason = reason
+          count += 1
+        }
+      }
+      return count
+    },
+  }
+}
+
 describe('invoice PDF endpoint', () => {
   it('returns 404 for a missing invoice', async () => {
     const response = await getInvoicePdf(ID_A, {
@@ -207,6 +238,62 @@ describe('invoice PDF endpoint', () => {
     })
     expect(html).toContain('Lora')
   })
+
+  it('renders the existing active payment URL as a clickable hyperlink in saved PDFs', async () => {
+    const tokens = createTokenStore()
+    const ensured = await ensureActivePaymentToken(ID_A, {
+      tokens,
+      paymentLinkKey: KEY,
+      clock: () => NOW,
+      idFactory: () => 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+    })
+    if (!ensured.ok) {
+      throw new Error(ensured.message)
+    }
+
+    let html = ''
+    const response = await getInvoicePdf(ID_A, {
+      store: emptyStore(async () => record()),
+      settings: settings(),
+      origin: 'https://example.test',
+      tokens,
+      paymentLinkKey: KEY,
+      paymentBaseUrl: 'https://pay.example.com',
+      pdf: {
+        async renderHtml(value) {
+          html = value
+          return new Uint8Array([0x25, 0x50, 0x44, 0x46])
+        },
+      },
+    })
+
+    expect(response.status).toBe(200)
+    expect(html).toContain(`href="https://pay.example.com/i/${ensured.rawToken}"`)
+    expect(html).toContain('Pay Online')
+  })
+
+  it('omits the Pay Online button in saved PDFs when no active payment URL exists', async () => {
+    let html = ''
+    const response = await getInvoicePdf(ID_A, {
+      store: emptyStore(async () => record()),
+      settings: settings(),
+      origin: 'https://example.test',
+      tokens: createTokenStore(),
+      paymentLinkKey: KEY,
+      paymentBaseUrl: 'https://pay.example.com',
+      pdf: {
+        async renderHtml(value) {
+          html = value
+          return new Uint8Array([0x25, 0x50, 0x44, 0x46])
+        },
+      },
+    })
+
+    expect(response.status).toBe(200)
+    expect(html).not.toContain('<p class="invoice-sheet__pay">')
+    expect(html).not.toContain('>Pay Online<')
+    expect(html).not.toContain('/i/')
+  })
 })
 
 describe('preview PDF', () => {
@@ -231,5 +318,3 @@ describe('preview PDF', () => {
     expect(response.status).toBe(400)
   })
 })
-
-

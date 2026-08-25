@@ -246,7 +246,9 @@ export async function sendInvoice(
   const filename = invoicePdfFilename(invoice.number)
   let pdfBytes: Uint8Array
   try {
-    pdfBytes = await renderInvoicePdfBytes(invoice, format, deps)
+    pdfBytes = await renderInvoicePdfBytes(invoice, format, deps, {
+      paymentUrl,
+    })
   } catch (error) {
     const message =
       error instanceof Error ? error.message : 'Could not generate the invoice PDF.'

@@ -85,7 +85,7 @@ export function fontFaceCss(origin: string): string {
 export function renderInvoiceHtml(
   invoice: Invoice,
   format: InvoiceFormat,
-  options: { origin: string; logoSrc: string },
+  options: { origin: string; logoSrc: string; paymentUrl?: string },
 ): string {
   const totals = calculateInvoiceTotals(invoice)
   const vars = cssVarsToStyle(formatToCssVars(format))
@@ -98,6 +98,7 @@ export function renderInvoiceHtml(
   const dueLine = dueDate
     ? `${amount} ${invoice.currency} due ${dueDate}`
     : `${amount} ${invoice.currency}`
+  const payUrl = options.paymentUrl?.trim() ?? ''
 
   const parties =
     showFrom || showBillTo
@@ -131,6 +132,10 @@ export function renderInvoiceHtml(
     ? `<section class="invoice-sheet__notes"><p class="invoice-sheet__notes-title">Notes</p><p class="invoice-sheet__notes-body">${escapeHtml(notes)}</p></section>`
     : ''
 
+  const payBlock = payUrl
+    ? `<p class="invoice-sheet__pay"><a class="invoice-sheet__pay-link" href="${escapeHtml(payUrl)}" target="_blank" rel="noreferrer noopener">Pay Online</a></p>`
+    : ''
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -155,7 +160,7 @@ ${INVOICE_DOCUMENT_CSS}
   </dl>
   ${parties}
   ${dueBlock}
-  <p class="invoice-sheet__pay"><span class="invoice-sheet__pay-link">Pay online</span></p>
+  ${payBlock}
   ${memoHtml(invoice.payment.memo)}
   <table class="invoice-sheet__table">
     <thead><tr><th>Description</th><th>Qty</th><th>Unit price</th><th>Amount</th></tr></thead>

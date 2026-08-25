@@ -80,10 +80,11 @@ export const EMAIL_BLOCKS: EmailBlock[] = [
   {
     id: 'button',
     label: 'Button',
-    hint: 'PDF attached pill',
-    html: `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px;"><tr><td align="center" style="padding:4px 0 8px;">
-<span style="display:inline-block;background:#0f766e;color:#ffffff;padding:12px 22px;border-radius:999px;font-size:14px;font-weight:700;letter-spacing:0.01em;">PDF attached to this email</span>
-</td></tr></table>`,
+    hint: 'Pay online CTA',
+    html: `<!--payment-url:start--><div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 16px;"><tr><td align="center" style="padding:4px 0 8px;">
+<a href="{{payment_url}}" target="_blank" rel="noreferrer noopener" style="display:inline-block;background:#0f766e;color:#ffffff;padding:12px 22px;border-radius:999px;font-size:14px;font-weight:700;letter-spacing:0.01em;text-decoration:none;">Pay Online</a>
+</td></tr></table>
+<p style="margin:0 0 18px;font-size:13px;line-height:1.6;color:#4b5563;text-align:center;">If the button above doesn&#39;t work, use this secure payment link:<br><a href="{{payment_url}}" target="_blank" rel="noreferrer noopener" style="color:#0f766e;word-break:break-all;">{{payment_url}}</a></p></div><!--payment-url:end-->`,
   },
   {
     id: 'divider',
