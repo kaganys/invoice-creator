@@ -6,37 +6,53 @@ import {
 import { CardCheckout } from './CardCheckout.tsx'
 import './PublicInvoicePage.css'
 
+const LOAD_TIMEOUT_MS = 15_000
+
 export function PublicInvoicePage({ token }: { token: string }) {
   const [payload, setPayload] = useState<PublicInvoiceResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
   function loadInvoice() {
-    return fetchPublicInvoice(token)
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => {
+      controller.abort()
+    }, LOAD_TIMEOUT_MS)
+
+    setLoading(true)
+    setError(null)
+
+    void fetchPublicInvoice(token, { signal: controller.signal })
       .then((result) => {
         setPayload(result)
         setError(null)
       })
-      .catch(() => {
-        setError('This payment link is invalid or expired.')
+      .catch((caught: unknown) => {
+        if (controller.signal.aborted) {
+          setError(
+            'Timed out loading this invoice. Confirm pay.vrfnw.com bypasses Cloudflare Access for /api/public/* , then try again.',
+          )
+          return
+        }
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : 'This payment link is invalid or expired.',
+        )
       })
+      .finally(() => {
+        window.clearTimeout(timeout)
+        setLoading(false)
+      })
+
+    return () => {
+      window.clearTimeout(timeout)
+      controller.abort()
+    }
   }
 
   useEffect(() => {
-    let cancelled = false
-    fetchPublicInvoice(token)
-      .then((result) => {
-        if (!cancelled) {
-          setPayload(result)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setError('This payment link is invalid or expired.')
-        }
-      })
-    return () => {
-      cancelled = true
-    }
+    return loadInvoice()
   }, [token])
 
   const state = payload?.state ?? (error ? 'invalid' : null)
@@ -48,8 +64,24 @@ export function PublicInvoicePage({ token }: { token: string }) {
         {invoice?.logoPath ? (
           <img className="public-pay__logo" src={invoice.logoPath} alt="" />
         ) : null}
-        {!payload && !error ? <p>Loading invoice…</p> : null}
-        {state === 'invalid' ? (
+        {loading && !payload && !error ? <p>Loading invoice…</p> : null}
+        {error && !invoice ? (
+          <div>
+            <h1>Link unavailable</h1>
+            <p>{error}</p>
+            <button
+              type="button"
+              className="btn btn--primary public-pay__pay"
+              onClick={() => {
+                setPayload(null)
+                loadInvoice()
+              }}
+            >
+              Try again
+            </button>
+          </div>
+        ) : null}
+        {state === 'invalid' && !error ? (
           <div>
             <h1>Link unavailable</h1>
             <p>This payment link is invalid or expired.</p>
@@ -91,7 +123,7 @@ export function PublicInvoicePage({ token }: { token: string }) {
               token={token}
               invoice={invoice}
               onAuthoritativePaid={() => {
-                void loadInvoice()
+                loadInvoice()
               }}
             />
           </div>

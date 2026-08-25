@@ -16,9 +16,7 @@ export function classifyBrowserHostname(hostname = window.location.hostname): Si
   if (host === 'pay.vrfnw.com') {
     return 'public'
   }
-  if (host.endsWith('.workers.dev')) {
-    return 'locked'
-  }
+  // Any other host (including *.workers.dev) is locked.
   return 'locked'
 }
 

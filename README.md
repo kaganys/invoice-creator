@@ -112,6 +112,22 @@ Port 25 is rejected. Use 465 (SSL / implicit TLS), 587 (STARTTLS), or 2525. The 
 
 The Worker enforces hostname access **before** SPA asset fallback. Visiting `https://pay.vrfnw.com/` shows a neutral payment landing page, not the admin dashboard.
 
+### Cloudflare Access (required for payments)
+
+Access must protect **`invoice.vrfnw.com` only**.
+
+On **`pay.vrfnw.com`**, bypass Access for at least:
+
+- `/i/*`
+- `/api/public/*`
+- `/api/webhooks/stripe`
+- `/api/branding/file/*`
+- `/assets/*`
+- `/branding/*`
+- `/fonts/*`
+
+If Access also covers `pay.vrfnw.com`, the payment page can sit on **Loading invoice…** forever (browser Access cookies interfere with `/api/public/*`). Public payment fetches use `credentials: 'omit'` as a safeguard, but path bypasses are still required.
+
 ## Local development
 
 ```bash
