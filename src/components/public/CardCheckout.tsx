@@ -5,7 +5,7 @@ import {
   useStripe,
 } from '@stripe/react-stripe-js'
 import { loadStripe, type Stripe } from '@stripe/stripe-js'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
   createPublicPaymentIntent,
   fetchPublicInvoice,
@@ -35,16 +35,26 @@ function CheckoutForm({
   const stripe = useStripe()
   const elements = useElements()
   const [submitting, setSubmitting] = useState(false)
+  const [elementReady, setElementReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  async function onPay() {
-    if (!stripe || !elements || submitting) {
+  async function onPay(event: FormEvent) {
+    event.preventDefault()
+    if (!stripe || !elements || submitting || !elementReady) {
       return
     }
     setSubmitting(true)
     onBusy(true)
     setError(null)
     try {
+      // Required so Stripe validates fields and the Payment Element is fully wired
+      // before confirmPayment looks up the mounted element.
+      const submitted = await elements.submit()
+      if (submitted.error) {
+        setError(submitted.error.message || 'Check your card details and try again.')
+        return
+      }
+
       const result = await stripe.confirmPayment({
         elements,
         confirmParams: {
@@ -65,19 +75,30 @@ function CheckoutForm({
     }
   }
 
+  const canPay = Boolean(stripe && elements && elementReady && !submitting)
+
   return (
-    <div className="public-pay__stripe">
-      <PaymentElement />
+    <form className="public-pay__stripe" onSubmit={(event) => void onPay(event)}>
+      <PaymentElement
+        onReady={() => {
+          setElementReady(true)
+        }}
+        options={{
+          layout: 'tabs',
+        }}
+      />
       {error ? <p className="public-pay__error">{error}</p> : null}
+      {!elementReady ? (
+        <p className="public-pay__card-note">Loading secure card form…</p>
+      ) : null}
       <button
-        type="button"
+        type="submit"
         className="btn btn--primary public-pay__pay"
-        disabled={!stripe || !elements || submitting}
-        onClick={() => void onPay()}
+        disabled={!canPay}
       >
         {submitting ? 'Processing…' : `Pay ${amountLabel}`}
       </button>
-    </div>
+    </form>
   )
 }
 
@@ -217,6 +238,7 @@ export function CardCheckout({
     <div aria-busy={busy}>
       <ChargeSummary invoice={invoice} />
       <Elements
+        key={clientSecret}
         stripe={stripe}
         options={{
           clientSecret,
