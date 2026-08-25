@@ -23,6 +23,7 @@
     "src/invoice/invoiceHtml.ts",
     "src/invoice/emailTemplates.ts",
     "src/invoice/emailHtml.ts",
+    "src/invoice/emailBlocks.ts",
     "src/utils/invoiceCalculations.ts",
     "src/utils/invoiceFilename.ts"
   ],

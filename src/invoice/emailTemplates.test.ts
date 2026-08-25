@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { createDefaultInvoice, createEmptyLineItem } from '../data/defaultInvoice.ts'
+import { EMAIL_BLOCKS } from './emailBlocks.ts'
 import {
   applyEmailTemplate,
   applyEmailTemplateHtml,
   containsHeaderInjection,
+  DEFAULT_EMAIL_BODY,
   invoiceTemplateVars,
 } from './emailTemplates.ts'
 import {
@@ -75,6 +77,13 @@ describe('HTML invoice email', () => {
     expect(sanitizeEmailHtml('<a href="javascript:alert(1)">x</a>')).not.toContain(
       'javascript:',
     )
+  })
+
+  it('ships graphical default blocks that still use merge fields', () => {
+    expect(EMAIL_BLOCKS.length).toBeGreaterThanOrEqual(8)
+    expect(DEFAULT_EMAIL_BODY).toContain('Amount due')
+    expect(DEFAULT_EMAIL_BODY).toContain('{{invoice_number}}')
+    expect(DEFAULT_EMAIL_BODY).toContain('{{amount}}')
   })
 
   it('prepares multipart HTML and text from a template', () => {

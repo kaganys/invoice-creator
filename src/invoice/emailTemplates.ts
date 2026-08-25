@@ -2,16 +2,12 @@ import { formatInvoiceDate } from '../utils/dates.ts'
 import { calculateInvoiceTotals } from '../utils/invoiceCalculations.ts'
 import { formatMoney } from '../utils/money.ts'
 import type { Invoice } from '../types/invoice.ts'
+import { defaultGraphicalEmailBody } from './emailBlocks.ts'
 
 export const DEFAULT_EMAIL_SUBJECT =
   'Invoice {{invoice_number}} from {{business_name}}'
 
-export const DEFAULT_EMAIL_BODY = `<p>Hello {{customer_name}},</p>
-<p>Please find invoice <strong>{{invoice_number}}</strong> attached as a PDF.</p>
-<p><strong>Amount due:</strong> {{amount}}<br><strong>Due date:</strong> {{due_date}}</p>
-<p>{{payment_memo}}</p>
-<p>If you prefer Zelle, send payment to <strong>{{zelle_email}}</strong>.</p>
-<p>Thank you,<br>{{business_name}}</p>`
+export const DEFAULT_EMAIL_BODY = defaultGraphicalEmailBody()
 
 export const EMAIL_VARIABLES = [
   { id: 'invoice_number', label: 'Invoice number' },

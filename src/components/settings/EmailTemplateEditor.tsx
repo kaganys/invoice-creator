@@ -1,9 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   EMAIL_VARIABLES,
-  emailVariableToken,
   type EmailVariableId,
 } from '../../invoice/emailTemplates.ts'
+import {
+  EMAIL_BLOCKS,
+  emailVariableChip,
+  type EmailBlockId,
+} from '../../invoice/emailBlocks.ts'
 import {
   prepareInvoiceEmail,
   SAMPLE_EMAIL_VARS,
@@ -24,6 +28,30 @@ function runCommand(command: string, value?: string) {
   document.execCommand(command, false, value)
 }
 
+function ToolButton({
+  label,
+  active,
+  onClick,
+  children,
+}: {
+  label: string
+  active?: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      className={active ? 'email-tool is-active' : 'email-tool'}
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  )
+}
+
 export function EmailTemplateEditor({
   open,
   subject,
@@ -36,6 +64,8 @@ export function EmailTemplateEditor({
   const [draftSubject, setDraftSubject] = useState(subject)
   const [previewMode, setPreviewMode] = useState<'mobile' | 'desktop'>('mobile')
   const [editorHtml, setEditorHtml] = useState(html)
+  const [textColor, setTextColor] = useState('#111111')
+  const [highlight, setHighlight] = useState('#fde68a')
 
   useFocusTrap(open, dialogRef, onClose)
 
@@ -59,16 +89,28 @@ export function EmailTemplateEditor({
 
   const preview = prepareInvoiceEmail(editorHtml, SAMPLE_EMAIL_VARS)
 
-  function insertVariable(id: EmailVariableId) {
-    editorRef.current?.focus()
-    runCommand('insertText', emailVariableToken(id))
+  function sync() {
     setEditorHtml(editorRef.current?.innerHTML ?? '')
+  }
+
+  function insertHtml(snippet: string) {
+    editorRef.current?.focus()
+    runCommand('insertHTML', snippet)
+    sync()
+  }
+
+  function insertVariable(id: EmailVariableId) {
+    insertHtml(`&nbsp;${emailVariableChip(id)}&nbsp;`)
+  }
+
+  function insertBlock(id: EmailBlockId) {
+    insertHtml(EMAIL_BLOCKS.find((block) => block.id === id)?.html ?? '')
   }
 
   function format(command: string, value?: string) {
     editorRef.current?.focus()
     runCommand(command, value)
-    setEditorHtml(editorRef.current?.innerHTML ?? '')
+    sync()
   }
 
   function addLink() {
@@ -98,10 +140,10 @@ export function EmailTemplateEditor({
       >
         <header className="email-editor-modal__header">
           <div>
-            <h2 id="email-editor-title">Customize invoice email</h2>
+            <h2 id="email-editor-title">Design invoice email</h2>
             <p>
-              Visual HTML email with mobile-friendly layout. Variables are replaced
-              when the invoice is sent.
+              Click blocks onto the canvas. The live preview is the mobile-friendly
+              HTML that customers receive.
             </p>
           </div>
           <button type="button" className="btn btn--ghost" onClick={onClose}>
@@ -112,7 +154,7 @@ export function EmailTemplateEditor({
 
         <div className="email-editor-modal__subject">
           <label className="field__label" htmlFor="email-editor-subject">
-            Subject
+            Subject line
           </label>
           <input
             id="email-editor-subject"
@@ -123,123 +165,123 @@ export function EmailTemplateEditor({
         </div>
 
         <div className="email-editor-toolbar" role="toolbar" aria-label="Formatting">
-          <button type="button" className="btn btn--ghost" onClick={() => format('bold')}>
-            Bold
-          </button>
-          <button type="button" className="btn btn--ghost" onClick={() => format('italic')}>
-            Italic
-          </button>
-          <button type="button" className="btn btn--ghost" onClick={() => format('underline')}>
-            Underline
-          </button>
-          <button
-            type="button"
-            className="btn btn--ghost"
-            onClick={() => format('strikeThrough')}
-          >
-            Strike
-          </button>
-          <button
-            type="button"
-            className="btn btn--ghost"
-            onClick={() => format('formatBlock', 'h2')}
-          >
-            Heading
-          </button>
-          <button
-            type="button"
-            className="btn btn--ghost"
-            onClick={() => format('formatBlock', 'p')}
-          >
-            Paragraph
-          </button>
-          <button
-            type="button"
-            className="btn btn--ghost"
-            onClick={() => format('insertUnorderedList')}
-          >
-            Bullets
-          </button>
-          <button
-            type="button"
-            className="btn btn--ghost"
-            onClick={() => format('insertOrderedList')}
-          >
-            Numbers
-          </button>
-          <button
-            type="button"
-            className="btn btn--ghost"
-            onClick={() => format('justifyLeft')}
-          >
-            Left
-          </button>
-          <button
-            type="button"
-            className="btn btn--ghost"
-            onClick={() => format('justifyCenter')}
-          >
-            Center
-          </button>
-          <button
-            type="button"
-            className="btn btn--ghost"
-            onClick={() => format('justifyRight')}
-          >
-            Right
-          </button>
-          <button type="button" className="btn btn--ghost" onClick={addLink}>
-            Link
-          </button>
-          <label className="email-editor-color">
-            Color
+          <ToolButton label="Bold" onClick={() => format('bold')}>
+            <strong>B</strong>
+          </ToolButton>
+          <ToolButton label="Italic" onClick={() => format('italic')}>
+            <em>I</em>
+          </ToolButton>
+          <ToolButton label="Underline" onClick={() => format('underline')}>
+            <span className="email-tool__u">U</span>
+          </ToolButton>
+          <ToolButton label="Heading" onClick={() => format('formatBlock', 'h2')}>
+            H
+          </ToolButton>
+          <ToolButton label="Paragraph" onClick={() => format('formatBlock', 'p')}>
+            ¶
+          </ToolButton>
+          <ToolButton label="Bulleted list" onClick={() => format('insertUnorderedList')}>
+            ••
+          </ToolButton>
+          <ToolButton label="Numbered list" onClick={() => format('insertOrderedList')}>
+            1.
+          </ToolButton>
+          <span className="email-toolbar-sep" />
+          <ToolButton label="Align left" onClick={() => format('justifyLeft')}>
+            ⇤
+          </ToolButton>
+          <ToolButton label="Align center" onClick={() => format('justifyCenter')}>
+            ≡
+          </ToolButton>
+          <ToolButton label="Align right" onClick={() => format('justifyRight')}>
+            ⇥
+          </ToolButton>
+          <ToolButton label="Link" onClick={addLink}>
+            ↗
+          </ToolButton>
+          <label className="email-tool email-tool--color" title="Text color">
+            <span>A</span>
             <input
               type="color"
-              defaultValue="#111111"
-              onChange={(event) => format('foreColor', event.target.value)}
+              value={textColor}
+              onChange={(event) => {
+                setTextColor(event.target.value)
+                format('foreColor', event.target.value)
+              }}
             />
           </label>
-          <button
-            type="button"
-            className="btn btn--ghost"
-            onClick={() => format('removeFormat')}
-          >
-            Clear
-          </button>
-          <button type="button" className="btn btn--ghost" onClick={() => format('undo')}>
-            Undo
-          </button>
-          <button type="button" className="btn btn--ghost" onClick={() => format('redo')}>
-            Redo
-          </button>
+          <label className="email-tool email-tool--color" title="Highlight">
+            <span>▮</span>
+            <input
+              type="color"
+              value={highlight}
+              onChange={(event) => {
+                setHighlight(event.target.value)
+                format('hiliteColor', event.target.value)
+              }}
+            />
+          </label>
+          <ToolButton label="Clear formatting" onClick={() => format('removeFormat')}>
+            ✕
+          </ToolButton>
+          <ToolButton label="Undo" onClick={() => format('undo')}>
+            ↺
+          </ToolButton>
+          <ToolButton label="Redo" onClick={() => format('redo')}>
+            ↻
+          </ToolButton>
         </div>
 
-        <div className="email-editor-vars" aria-label="Insert variables">
-          {EMAIL_VARIABLES.map((variable) => (
-            <button
-              key={variable.id}
-              type="button"
-              className="email-editor-var"
-              onClick={() => insertVariable(variable.id)}
-            >
-              {variable.label}
-            </button>
-          ))}
-        </div>
+        <div className="email-editor-workspace">
+          <aside className="email-editor-palette">
+            <p className="email-editor-palette__title">Blocks</p>
+            <div className="email-block-grid">
+              {EMAIL_BLOCKS.map((block) => (
+                <button
+                  key={block.id}
+                  type="button"
+                  className={`email-block-card email-block-card--${block.id}`}
+                  onClick={() => insertBlock(block.id)}
+                >
+                  <span className="email-block-card__preview" aria-hidden="true" />
+                  <span className="email-block-card__label">{block.label}</span>
+                  <span className="email-block-card__hint">{block.hint}</span>
+                </button>
+              ))}
+            </div>
+            <p className="email-editor-palette__title">Variables</p>
+            <div className="email-editor-vars">
+              {EMAIL_VARIABLES.map((variable) => (
+                <button
+                  key={variable.id}
+                  type="button"
+                  className="email-editor-var"
+                  onClick={() => insertVariable(variable.id)}
+                >
+                  {variable.label}
+                </button>
+              ))}
+            </div>
+          </aside>
 
-        <div className="email-editor-modal__split">
-          <div
-            ref={editorRef}
-            className="email-editor-canvas"
-            contentEditable
-            suppressContentEditableWarning
-            role="textbox"
-            aria-label="Email body"
-            onInput={() => setEditorHtml(editorRef.current?.innerHTML ?? '')}
-          />
+          <div className="email-editor-stage">
+            <div className="email-editor-card">
+              <div className="email-editor-card__chrome">Canvas</div>
+              <div
+                ref={editorRef}
+                className="email-editor-canvas"
+                contentEditable
+                suppressContentEditableWarning
+                role="textbox"
+                aria-label="Email body"
+                onInput={sync}
+              />
+            </div>
+          </div>
+
           <div className="email-editor-preview">
             <div className="email-editor-preview__bar">
-              <span>Preview</span>
+              <span>Customer view</span>
               <div>
                 <button
                   type="button"
@@ -250,7 +292,7 @@ export function EmailTemplateEditor({
                   }
                   onClick={() => setPreviewMode('mobile')}
                 >
-                  Mobile
+                  Phone
                 </button>
                 <button
                   type="button"
@@ -265,15 +307,22 @@ export function EmailTemplateEditor({
                 </button>
               </div>
             </div>
-            <iframe
+            <div
               className={
                 previewMode === 'mobile'
-                  ? 'email-editor-preview__frame is-mobile'
-                  : 'email-editor-preview__frame'
+                  ? 'email-device is-phone'
+                  : 'email-device is-desktop'
               }
-              title="Mobile-friendly email preview"
-              srcDoc={preview.html}
-            />
+            >
+              {previewMode === 'mobile' ? (
+                <div className="email-device__notch" aria-hidden="true" />
+              ) : null}
+              <iframe
+                className="email-editor-preview__frame"
+                title="Mobile-friendly email preview"
+                srcDoc={preview.html}
+              />
+            </div>
           </div>
         </div>
 
