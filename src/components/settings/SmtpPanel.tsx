@@ -210,12 +210,11 @@ export function SmtpPanel() {
       </div>
       <p className="settings-help">
         This application never returns, logs, or stores the SMTP password in D1.
-        Set or replace it with Wrangler:
+        Set or replace it as a Worker secret with Wrangler.
       </p>
-      <p className="settings-example">npx wrangler secret put SMTP_PASSWORD</p>
       <p className="settings-help">
-        For local development, put SMTP_PASSWORD in a gitignored .dev.vars file.
-        Do not commit credentials. Port 25 is rejected.
+        For local development, keep the SMTP password only in your gitignored
+        local Worker secret file. Do not commit credentials. Port 25 is rejected.
       </p>
       <Field label="Send a real test email to" htmlFor="smtp-test-to">
         <input

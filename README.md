@@ -97,9 +97,9 @@ For local `npm run dev`, put the same name in a gitignored `.dev.vars` file:
 SMTP_PASSWORD=your-local-dev-secret
 ```
 
-Do not commit `.dev.vars` or real credentials. The GUI can show `passwordConfigured: true` only. Replacing the secret is done with the same Wrangler command — not through the API.
+Use `.dev.vars.example` as the placeholder template for local setup. Do not commit `.dev.vars` or real credentials. The GUI can show `passwordConfigured: true` only. Replacing the secret is done with the same Wrangler command — not through the API.
 
-Port 25 is rejected. Use 465 (SSL / implicit TLS), 587 (STARTTLS), or 2525. The settings are provider-independent (Brevo, SMTP2GO, or any standard SMTP service). Live sending is not implemented in this phase; Test Configuration validates completeness and does not fake a send.
+Port 25 is rejected. Use 465 (SSL / implicit TLS), 587 (STARTTLS), or 2525. The settings are provider-independent (Brevo, SMTP2GO, or any standard SMTP service). `POST /api/settings/smtp/test` sends a real test email, and `POST /api/invoices/:id/send` sends the real invoice email with a PDF attachment.
 
 ## Local development
 
@@ -157,6 +157,8 @@ STRIPE_WEBHOOK_SECRET=whsec_...
 PAYMENT_LINK_KEY=...
 ```
 
+You can start from `.dev.vars.example`, then create your own gitignored `.dev.vars` with real local-only values.
+
 Forward events with the Stripe CLI while `npm run dev` is running:
 
 ```bash
@@ -189,11 +191,9 @@ Runs unit tests for money parsing, dates, invoice calculations, defaults snapsho
 
 Download PDF and Print use the **same canonical invoice document** as Preview and the Invoices detail modal (`InvoiceDocument`). There is no separate PDF template.
 
-PDF is generated in the browser with html2canvas + jsPDF from that rendered document (letter size, 0.5 in margins, extra pages for long line lists). Credit-card fees are never added to the printed total.
+Saved-invoice PDF download, preview PDF generation, and invoice email attachments all use Worker-side HTML rendering plus Cloudflare Browser Rendering / `@cloudflare/puppeteer` to produce the PDF (letter size, 0.5 in margins). Credit-card fees are never added to the printed invoice total.
 
 Saved-invoice downloads use the D1 snapshot already loaded in the modal. Unsaved Preview downloads are labeled `Invoice-…-DRAFT.pdf` and do not save to D1.
-
-**Future email attachments:** Cloudflare Workers cannot run Chrome in this project. A later sending phase should render the same `InvoiceDocument` HTML with Cloudflare Browser Rendering (or an equivalent HTML-to-PDF service), not a second hand-maintained PDF layout.
 
 ## Production build
 
@@ -202,6 +202,8 @@ npm run build
 ```
 
 This typechecks the frontend, Worker, and Vite config, then builds a Cloudflare Worker with static assets.
+
+The build is configured to strip local secret files such as `.dev.vars` and `.env*` from generated output. Local secrets must stay in your working copy or Wrangler secrets, never in `dist/`.
 
 Preview the production build locally:
 
