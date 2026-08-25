@@ -713,16 +713,105 @@ describe('invoice send', () => {
     )
     expect(match?.[0]).toBeTruthy()
     expect(emailHtml).toContain(`href="${match?.[0]}"`)
-    expect(emailHtml).toContain('Pay Online')
+    expect(emailHtml).toContain('Pay this invoice')
     expect(emailText).toContain(match?.[0] ?? '')
     expect(captured.html).toContain(`href="${match?.[0]}"`)
-    expect(captured.html).toContain('Pay Online')
+    expect(captured.html).toContain('Pay this invoice')
     expect(JSON.stringify({ emailHtml, emailText, pdfHtml: captured.html })).not.toContain(
       rows[0]?.tokenHash ?? '',
     )
     expect(JSON.stringify({ emailHtml, emailText, pdfHtml: captured.html })).not.toContain(
       rows[0]?.encryptedToken ?? '',
     )
+  })
+
+  it('appends a server-side payment CTA for older saved templates that lack payment_url', async () => {
+    const store = createStore(
+      record({
+        status: 'sent',
+        firstSentAt: NOW,
+        lastSentAt: NOW,
+        sendCount: 1,
+        format: defaultInvoiceFormat(),
+      }),
+    )
+    const rows: PaymentTokenRecord[] = []
+    const tokens: PaymentTokenStore = {
+      async getActiveByInvoiceId(invoiceId) {
+        return rows.find((row) => row.invoiceId === invoiceId && row.status === 'active') ?? null
+      },
+      async getByHash(tokenHash) {
+        return rows.find((row) => row.tokenHash === tokenHash) ?? null
+      },
+      async insert(record) {
+        rows.push(record)
+      },
+      async revokeActive(invoiceId, reason, revokedAt) {
+        let count = 0
+        for (const row of rows) {
+          if (row.invoiceId === invoiceId && row.status === 'active') {
+            row.status = 'revoked'
+            row.revokedReason = reason
+            row.revokedAt = revokedAt
+            count += 1
+          }
+        }
+        return count
+      },
+    }
+    let emailHtml = ''
+    let emailText = ''
+
+    const response = await sendInvoice(
+      ID_A,
+      jsonRequest({
+        recipient: 'ada@example.com',
+        subject: 'Invoice {{invoice_number}}',
+        body: '<p>Custom intro only.</p>',
+        idempotencyKey: 'legacy-template-payment-cta',
+      }),
+      {
+        store,
+        settings: settingsStore({
+          [SETTINGS_KEYS.smtp]: JSON.stringify({
+            host: 'smtp.example.com',
+            port: 587,
+            username: 'user',
+            security: 'starttls',
+            fromName: 'Bitz Designs',
+            fromEmail: 'billing@bitzdesigns.co',
+            replyTo: '',
+            subjectTemplate: 'Invoice {{invoice_number}}',
+            bodyTemplate: '<p>Custom intro only.</p>',
+          }),
+        }),
+        pdf: pdfMock({ html: '' }),
+        origin: 'https://example.test',
+        smtpPassword: 'secret',
+        clock: () => NOW,
+        idFactory: () => '12121212-1212-4212-8212-121212121212',
+        tokens,
+        paymentLinkKey: 'test-payment-link-key',
+        paymentBaseUrl: 'https://pay.example.com',
+        mailFactory: () => ({
+          async send(message) {
+            emailHtml = message.html ?? ''
+            emailText = message.text
+            return {}
+          },
+        }),
+      },
+    )
+
+    expect(response.status).toBe(200)
+    const match = /https:\/\/pay\.example\.com\/i\/[A-Za-z0-9_-]{43}/.exec(emailHtml)
+    expect(match?.[0]).toBeTruthy()
+    expect(emailHtml).toContain('Custom intro only.')
+    expect(emailHtml).toContain('Pay this invoice')
+    expect(emailHtml).toContain(`href="${match?.[0]}"`)
+    expect(emailText).toContain('Custom intro only.')
+    expect(emailText).toContain('Pay this invoice')
+    expect(emailText).toContain(match?.[0] ?? '')
   })
 
   it('does not email a localhost payment URL when PUBLIC_PAYMENT_BASE_URL is missing', async () => {

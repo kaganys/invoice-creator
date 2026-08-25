@@ -99,7 +99,7 @@ describe('HTML invoice email', () => {
     expect(DEFAULT_EMAIL_BODY).toContain('{{invoice_number}}')
     expect(DEFAULT_EMAIL_BODY).toContain('{{amount}}')
     expect(DEFAULT_EMAIL_BODY).toContain('{{payment_url}}')
-    expect(DEFAULT_EMAIL_BODY).toContain('Pay Online')
+    expect(DEFAULT_EMAIL_BODY).toContain('Pay this invoice')
   })
 
   it('prepares multipart HTML and text from a template', () => {
@@ -136,9 +136,10 @@ describe('HTML invoice email', () => {
     )
 
     expect(prepared.html).toContain(`href="${paymentUrl}"`)
-    expect(prepared.html).toContain('Pay Online')
+    expect(prepared.html).toContain('Pay this invoice')
+    expect(prepared.html).toContain('background:#14b8a6')
     expect(prepared.html).toContain(paymentUrl)
-    expect(prepared.text).toContain('Pay Online')
+    expect(prepared.text).toContain('Pay this invoice')
     expect(prepared.text).toContain(paymentUrl)
   })
 
@@ -150,7 +151,7 @@ describe('HTML invoice email', () => {
     )
 
     expect(prepared.html).not.toContain('href=""')
-    expect(prepared.html).not.toContain('Pay Online')
+    expect(prepared.html).not.toContain('Pay this invoice')
     expect(prepared.html).not.toContain('/i/')
   })
 })

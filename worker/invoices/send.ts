@@ -24,10 +24,9 @@ import {
   resolveInvoiceFormat,
   type PdfDeps,
 } from './pdf.ts'
-import { ensureActivePaymentToken } from '../payments/ensureToken.ts'
+import { ensureCustomerPaymentUrl } from '../payments/paymentUrl.ts'
 import {
   parsePublicPaymentBaseUrl,
-  paymentPageUrl,
   usesPaymentUrlPlaceholder,
 } from '../payments/tokenCrypto.ts'
 import type { PaymentTokenStore } from '../payments/types.ts'
@@ -138,9 +137,10 @@ export async function sendInvoice(
 
   let paymentUrl = ''
   if (deps.tokens && record.status !== 'paid') {
-    const ensured = await ensureActivePaymentToken(id, {
+    const ensured = await ensureCustomerPaymentUrl(id, {
       tokens: deps.tokens,
       paymentLinkKey: deps.paymentLinkKey,
+      baseUrl: customerBase.ok ? customerBase.value : '',
       clock: deps.clock,
       idFactory: deps.idFactory,
     })
@@ -148,7 +148,7 @@ export async function sendInvoice(
       return errorJson(ensured.message, 400)
     }
     if (customerBase.ok) {
-      paymentUrl = paymentPageUrl(customerBase.value, ensured.rawToken)
+      paymentUrl = ensured.url
     }
   }
   if (needsPaymentUrl && !paymentUrl) {

@@ -269,7 +269,7 @@ describe('invoice PDF endpoint', () => {
 
     expect(response.status).toBe(200)
     expect(html).toContain(`href="https://pay.example.com/i/${ensured.rawToken}"`)
-    expect(html).toContain('Pay Online')
+    expect(html).toContain('Pay this invoice')
   })
 
   it('omits the Pay Online button in saved PDFs when no active payment URL exists', async () => {
@@ -291,8 +291,38 @@ describe('invoice PDF endpoint', () => {
 
     expect(response.status).toBe(200)
     expect(html).not.toContain('<p class="invoice-sheet__pay">')
-    expect(html).not.toContain('>Pay Online<')
+    expect(html).not.toContain('>Pay this invoice<')
     expect(html).not.toContain('/i/')
+  })
+
+  it('omits the payment CTA for paid and void invoices even when a token store is present', async () => {
+    for (const status of ['paid', 'void'] as const) {
+      let html = ''
+      const response = await getInvoicePdf(ID_A, {
+        store: emptyStore(async () =>
+          record(
+            status === 'paid'
+              ? { status, paidAt: NOW }
+              : { status, voidedAt: NOW },
+          ),
+        ),
+        settings: settings(),
+        origin: 'https://example.test',
+        tokens: createTokenStore(),
+        paymentLinkKey: KEY,
+        paymentBaseUrl: 'https://pay.example.com',
+        pdf: {
+          async renderHtml(value) {
+            html = value
+            return new Uint8Array([0x25, 0x50, 0x44, 0x46])
+          },
+        },
+      })
+
+      expect(response.status).toBe(200)
+      expect(html).not.toContain('<p class="invoice-sheet__pay">')
+      expect(html).not.toContain('/i/')
+    }
   })
 })
 

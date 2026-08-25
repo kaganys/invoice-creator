@@ -10,7 +10,6 @@ import {
 import { errorJson } from '../http.ts'
 import { isUuid, nowIso } from '../lib/ids.ts'
 import type { PdfRenderer } from '../pdf/types.ts'
-import { getActivePaymentLink } from '../payments/admin.ts'
 import { parseFormatJson, serializeFormat } from '../settings/format.ts'
 import type { SettingsKvStore } from '../settings/types.ts'
 import { SETTINGS_KEYS } from '../settings/keys.ts'
@@ -20,6 +19,7 @@ import { validateInvoiceWrite } from './validation.ts'
 import { readJsonBody } from '../lib/json.ts'
 import type { InvoiceRecord, InvoiceStore } from './types.ts'
 import { parsePublicPaymentBaseUrl } from '../payments/tokenCrypto.ts'
+import { recoverCustomerPaymentUrl } from '../payments/paymentUrl.ts'
 
 export type PdfDeps = {
   store: InvoiceStore
@@ -119,11 +119,11 @@ export async function getInvoicePdf(
   const parsedBase = parsePublicPaymentBaseUrl(deps.paymentBaseUrl)
   if (deps.tokens && parsedBase.ok && record.status !== 'paid' && record.status !== 'void') {
     paymentUrl =
-      (await getActivePaymentLink(record.id, {
+      (await recoverCustomerPaymentUrl(record.id, {
         tokens: deps.tokens,
         paymentLinkKey: deps.paymentLinkKey,
         baseUrl: parsedBase.value,
-      }))?.url ?? ''
+      })) ?? ''
   }
   try {
     const bytes = await renderInvoicePdfBytes(invoice, format, deps, {
@@ -194,4 +194,3 @@ export async function previewInvoicePdf(
     return errorJson(message, 502)
   }
 }
-

@@ -2,10 +2,8 @@ import { errorJson, json } from '../http.ts'
 import { isUuid, nowIso } from '../lib/ids.ts'
 import type { InvoiceStore } from '../invoices/types.ts'
 import { ensureActivePaymentToken } from './ensureToken.ts'
-import {
-  decryptPaymentToken,
-  paymentPageUrl,
-} from './tokenCrypto.ts'
+import { paymentPageUrl } from './tokenCrypto.ts'
+import { recoverCustomerPaymentUrl } from './paymentUrl.ts'
 import type { PaymentTokenStore } from './types.ts'
 
 export type PaymentLinkAdminDeps = {
@@ -29,11 +27,11 @@ export async function getActivePaymentLink(
   if (!active) {
     return null
   }
-  const raw = await decryptPaymentToken(active.encryptedToken, deps.paymentLinkKey)
+  const url = await recoverCustomerPaymentUrl(invoiceId, deps)
   return {
     createdAt: active.createdAt,
     status: 'active',
-    url: raw ? paymentPageUrl(deps.baseUrl, raw) : null,
+    url,
   }
 }
 
