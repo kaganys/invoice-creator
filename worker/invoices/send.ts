@@ -1,7 +1,10 @@
+import { prepareInvoiceEmail } from '../../src/invoice/emailHtml.ts'
 import {
   applyEmailTemplate,
   containsHeaderInjection,
   invoiceTemplateVars,
+  MAX_EMAIL_BODY,
+  MAX_EMAIL_SUBJECT,
 } from '../../src/invoice/emailTemplates.ts'
 import { serializeFormat } from '../settings/format.ts'
 import { invoicePdfFilename } from '../../src/utils/invoiceFilename.ts'
@@ -24,8 +27,6 @@ import {
 import type { InvoiceStore } from './types.ts'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const MAX_SUBJECT = 200
-const MAX_BODY = 8000
 
 export type SendDeps = PdfDeps & {
   smtpPassword?: string
@@ -116,10 +117,13 @@ export async function sendInvoice(
   const subject =
     asTrimmedString(body.value.subject) ||
     applyEmailTemplate(smtp.subjectTemplate, vars)
-  const text =
+  const bodyTemplate =
     typeof body.value.body === 'string' && body.value.body.trim()
       ? body.value.body
-      : applyEmailTemplate(smtp.bodyTemplate, vars)
+      : smtp.bodyTemplate
+  const prepared = prepareInvoiceEmail(bodyTemplate, vars)
+  const text = prepared.text
+  const html = prepared.html
   const idempotencyKey = asTrimmedString(body.value.idempotencyKey)
 
   if (!isEmail(recipient)) {
@@ -143,10 +147,10 @@ export async function sendInvoice(
       return errorJson(injected, 400)
     }
   }
-  if (subject.length > MAX_SUBJECT) {
+  if (subject.length > MAX_EMAIL_SUBJECT) {
     return errorJson('Subject is too long.', 400)
   }
-  if (text.length > MAX_BODY) {
+  if (bodyTemplate.length > MAX_EMAIL_BODY) {
     return errorJson('Email body is too long.', 400)
   }
 
@@ -229,6 +233,7 @@ export async function sendInvoice(
       to: recipient,
       subject,
       text,
+      html,
       attachments: [
         {
           filename,

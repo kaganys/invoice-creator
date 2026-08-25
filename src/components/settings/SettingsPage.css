@@ -108,6 +108,21 @@
   min-height: 760px;
 }
 
+.email-customize-preview {
+  background: #e7eaee;
+  border-radius: var(--radius-md);
+  padding: 0.75rem;
+}
+
+.email-customize-preview__frame {
+  display: block;
+  width: min(390px, 100%);
+  height: 520px;
+  margin: 0 auto;
+  border: 0;
+  background: #ffffff;
+}
+
 .settings-actions {
   display: flex;
   flex-wrap: wrap;

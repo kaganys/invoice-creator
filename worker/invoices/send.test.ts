@@ -232,12 +232,16 @@ describe('invoice send', () => {
   it('sends a draft, attaches the base-total PDF, and marks the invoice sent', async () => {
     const store = createStore(record())
     const captured = { html: '' }
-    let sent: { to: string; filename?: string } = { to: '' }
+    let sent: { to: string; filename?: string; html?: string; text?: string } = {
+      to: '',
+    }
     const mail: MailTransport = {
       async send(message) {
         sent = {
           to: message.to,
           filename: message.attachments?.[0]?.filename,
+          html: message.html,
+          text: message.text,
         }
         expect(message.attachments?.[0]?.filename).toBe('Invoice-BD2026-0051.pdf')
         return { messageId: 'msg-1' }
@@ -271,6 +275,9 @@ describe('invoice send', () => {
     expect(captured.html).toContain('$50.00')
     expect(captured.html).not.toContain('$51.80')
     expect(sent.filename).toBe('Invoice-BD2026-0051.pdf')
+    expect(sent.html).toContain('width=device-width')
+    expect(sent.html).toContain('Please find the invoice attached.')
+    expect(sent.text).toContain('Please find the invoice attached.')
     expect(store.logs[0]?.success).toBe(true)
     expect(JSON.stringify(payload)).not.toContain('not-returned')
   })

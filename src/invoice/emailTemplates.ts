@@ -6,19 +6,24 @@ import type { Invoice } from '../types/invoice.ts'
 export const DEFAULT_EMAIL_SUBJECT =
   'Invoice {{invoice_number}} from {{business_name}}'
 
-export const DEFAULT_EMAIL_BODY = `Hello {{customer_name}},
+export const DEFAULT_EMAIL_BODY = `<p>Hello {{customer_name}},</p>
+<p>Please find invoice <strong>{{invoice_number}}</strong> attached as a PDF.</p>
+<p><strong>Amount due:</strong> {{amount}}<br><strong>Due date:</strong> {{due_date}}</p>
+<p>{{payment_memo}}</p>
+<p>If you prefer Zelle, send payment to <strong>{{zelle_email}}</strong>.</p>
+<p>Thank you,<br>{{business_name}}</p>`
 
-Please find invoice {{invoice_number}} attached.
+export const EMAIL_VARIABLES = [
+  { id: 'invoice_number', label: 'Invoice number' },
+  { id: 'customer_name', label: 'Customer name' },
+  { id: 'business_name', label: 'Business name' },
+  { id: 'amount', label: 'Amount due' },
+  { id: 'due_date', label: 'Due date' },
+  { id: 'zelle_email', label: 'Zelle email' },
+  { id: 'payment_memo', label: 'Payment memo' },
+] as const
 
-Amount due: {{amount}}
-Due date: {{due_date}}
-
-{{payment_memo}}
-
-If you prefer Zelle, send payment to {{zelle_email}}.
-
-Thank you,
-{{business_name}}`
+export type EmailVariableId = (typeof EMAIL_VARIABLES)[number]['id']
 
 const TOKEN = /\{\{\s*([a-z_]+)\s*\}\}/gi
 
@@ -52,6 +57,35 @@ export function applyEmailTemplate(template: string, vars: TemplateVars): string
   })
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+export function applyEmailTemplateHtml(
+  template: string,
+  vars: TemplateVars,
+): string {
+  return template.replace(TOKEN, (_full, key: string) => {
+    const value = vars[key as keyof TemplateVars]
+    if (value == null || value === '') {
+      return ''
+    }
+    return escapeHtml(value).replace(/\r\n|\n|\r/g, '<br>')
+  })
+}
+
+export function looksLikeHtml(value: string): boolean {
+  return /<\/?[a-z][\s\S]*>/i.test(value)
+}
+
+export function emailVariableToken(id: EmailVariableId): string {
+  return `{{${id}}}`
+}
+
 export function containsHeaderInjection(value: string): boolean {
   return /[\r\n]/.test(value)
 }
@@ -68,8 +102,8 @@ export function defaultEmailTemplates(): EmailTemplateSettings {
   }
 }
 
-const MAX_SUBJECT = 200
-const MAX_BODY = 8000
+export const MAX_EMAIL_SUBJECT = 200
+export const MAX_EMAIL_BODY = 50_000
 
 export function validateEmailTemplates(
   input: unknown,
@@ -87,10 +121,10 @@ export function validateEmailTemplates(
   const bodyRaw = typeof record.body === 'string' ? record.body : defaults.body
   const subject = subjectRaw.trim() || defaults.subject
   const body = bodyRaw.trim() || defaults.body
-  if (subject.length > MAX_SUBJECT) {
+  if (subject.length > MAX_EMAIL_SUBJECT) {
     return { ok: false, message: 'Email subject template is too long.' }
   }
-  if (body.length > MAX_BODY) {
+  if (body.length > MAX_EMAIL_BODY) {
     return { ok: false, message: 'Email body template is too long.' }
   }
   if (containsHeaderInjection(subject)) {

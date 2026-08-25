@@ -1,10 +1,18 @@
 import { useEffect, useState } from 'react'
 import { testSmtp } from '../../api/settings.ts'
 import { ApiError } from '../../api/http.ts'
+import {
+  prepareInvoiceEmail,
+  SAMPLE_EMAIL_VARS,
+} from '../../invoice/emailHtml.ts'
+import { defaultEmailTemplates } from '../../invoice/emailTemplates.ts'
 import { useSettings } from '../../settings/SettingsContext.tsx'
 import type { SmtpSecurity, SmtpSettingsPayload } from '../../types/settings.ts'
 import { Field } from '../Field.tsx'
 import { InvoiceSection } from '../InvoiceSection.tsx'
+import { EmailTemplateEditor } from './EmailTemplateEditor.tsx'
+
+type EmailTab = 'connection' | 'customize'
 
 const SECURITY_OPTIONS: Array<{ value: SmtpSecurity; label: string }> = [
   { value: 'none', label: 'None (unencrypted)' },
@@ -20,6 +28,8 @@ export function SmtpPanel() {
   const [testOk, setTestOk] = useState(false)
   const [testBusy, setTestBusy] = useState(false)
   const [testTo, setTestTo] = useState('')
+  const [tab, setTab] = useState<EmailTab>('connection')
+  const [editorOpen, setEditorOpen] = useState(false)
 
   useEffect(() => {
     setDraft(smtp)
@@ -70,12 +80,43 @@ export function SmtpPanel() {
     }
   }
 
+  const preview = prepareInvoiceEmail(
+    draft.bodyTemplate || defaultEmailTemplates().body,
+    SAMPLE_EMAIL_VARS,
+  )
+
   return (
     <InvoiceSection
       title="Email / SMTP"
-      description="Provider-independent SMTP settings. These work with Brevo, SMTP2GO, or any standard SMTP service. The password is a Worker secret, not a D1 value."
+      description="Provider-independent SMTP settings and a customizable mobile-friendly HTML invoice email."
     >
       {loading ? <p className="settings-status">Loading SMTP settings…</p> : null}
+      <nav className="format-subnav" aria-label="Email settings">
+        <button
+          type="button"
+          className={
+            tab === 'connection'
+              ? 'settings-nav__button is-active'
+              : 'settings-nav__button'
+          }
+          onClick={() => setTab('connection')}
+        >
+          Connection
+        </button>
+        <button
+          type="button"
+          className={
+            tab === 'customize'
+              ? 'settings-nav__button is-active'
+              : 'settings-nav__button'
+          }
+          onClick={() => setTab('customize')}
+        >
+          Customize
+        </button>
+      </nav>
+      {tab === 'connection' ? (
+      <>
       <div className="form-grid form-grid--2">
         <Field label="SMTP host / server" htmlFor="smtp-host">
           <input
@@ -176,30 +217,6 @@ export function SmtpPanel() {
         For local development, put SMTP_PASSWORD in a gitignored .dev.vars file.
         Do not commit credentials. Port 25 is rejected.
       </p>
-      <Field label="Default email subject" htmlFor="smtp-subject">
-        <input
-          id="smtp-subject"
-          className="field__input"
-          value={draft.subjectTemplate}
-          disabled={saving || loading}
-          onChange={(event) => patch({ subjectTemplate: event.target.value })}
-        />
-      </Field>
-      <Field label="Default email body" htmlFor="smtp-body">
-        <textarea
-          id="smtp-body"
-          className="field__input"
-          rows={10}
-          value={draft.bodyTemplate}
-          disabled={saving || loading}
-          onChange={(event) => patch({ bodyTemplate: event.target.value })}
-        />
-      </Field>
-      <p className="settings-help">
-        Variables: {'{{invoice_number}}'} {'{{customer_name}}'} {'{{business_name}}'}{' '}
-        {'{{amount}}'} {'{{due_date}}'} {'{{zelle_email}}'} {'{{payment_memo}}'}. Unknown
-        variables become empty.
-      </p>
       <Field label="Send a real test email to" htmlFor="smtp-test-to">
         <input
           id="smtp-test-to"
@@ -250,6 +267,68 @@ export function SmtpPanel() {
           </p>
         ) : null}
       </div>
+      </>
+      ) : (
+        <>
+          <Field label="Default email subject" htmlFor="smtp-subject">
+            <input
+              id="smtp-subject"
+              className="field__input"
+              value={draft.subjectTemplate}
+              disabled={saving || loading}
+              onChange={(event) => patch({ subjectTemplate: event.target.value })}
+            />
+          </Field>
+          <p className="settings-help">
+            The invoice email is HTML and is wrapped in a mobile-friendly layout when
+            sent. Open the editor to format text and insert variables.
+          </p>
+          <div className="settings-actions">
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={() => setEditorOpen(true)}
+            >
+              Open customize editor
+            </button>
+          </div>
+          <div className="email-customize-preview">
+            <iframe
+              title="Invoice email preview"
+              className="email-customize-preview__frame"
+              srcDoc={preview.html}
+            />
+          </div>
+        </>
+      )}
+      {tab === 'customize' ? (
+        <div className="settings-actions">
+          <button
+            type="button"
+            className="btn btn--primary"
+            disabled={saving || loading}
+            onClick={() => void onSave()}
+          >
+            {saving ? 'Saving…' : 'Save email'}
+          </button>
+          {success ? (
+            <p className="settings-status settings-status--success">{success}</p>
+          ) : null}
+          {error ? (
+            <p className="settings-status settings-status--error">{error}</p>
+          ) : null}
+        </div>
+      ) : null}
+      <EmailTemplateEditor
+        open={editorOpen}
+        subject={draft.subjectTemplate}
+        html={draft.bodyTemplate || defaultEmailTemplates().body}
+        onClose={() => setEditorOpen(false)}
+        onApply={({ subject, html }) => {
+          patch({ subjectTemplate: subject, bodyTemplate: html })
+          setEditorOpen(false)
+        }}
+      />
     </InvoiceSection>
   )
 }

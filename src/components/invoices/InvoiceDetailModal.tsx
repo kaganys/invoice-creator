@@ -7,10 +7,13 @@ import {
   sendInvoiceEmail,
   voidInvoice,
 } from '../../api/invoices.ts'
+import { prepareInvoiceEmail } from '../../invoice/emailHtml.ts'
 import {
   applyEmailTemplate,
+  applyEmailTemplateHtml,
   invoiceTemplateVars,
 } from '../../invoice/emailTemplates.ts'
+import { EmailTemplateEditor } from '../settings/EmailTemplateEditor.tsx'
 import { useSettings } from '../../settings/SettingsContext.tsx'
 import { invoicePdfFilename } from '../../utils/invoiceFilename.ts'
 import { downloadSavedInvoicePdf } from '../../utils/invoicePdf.ts'
@@ -81,6 +84,7 @@ export function InvoiceDetailModal({
   const [emailBody, setEmailBody] = useState('')
   const [idempotencyKey, setIdempotencyKey] = useState('')
   const [sending, setSending] = useState(false)
+  const [emailEditorOpen, setEmailEditorOpen] = useState(false)
   const [confirmPaid, setConfirmPaid] = useState(false)
   const [paidMethod, setPaidMethod] = useState<PaidMethod>('zelle')
   const [confirmVoid, setConfirmVoid] = useState(false)
@@ -227,7 +231,7 @@ export function InvoiceDetailModal({
     const vars = invoiceTemplateVars(invoice)
     setRecipient(invoice.customer.email)
     setSubject(applyEmailTemplate(smtp.subjectTemplate, vars))
-    setEmailBody(applyEmailTemplate(smtp.bodyTemplate, vars))
+    setEmailBody(applyEmailTemplateHtml(smtp.bodyTemplate, vars))
     setIdempotencyKey(crypto.randomUUID())
     setSendOpen(true)
     setConfirmPaid(false)
@@ -514,16 +518,21 @@ export function InvoiceDetailModal({
               disabled={sending}
               onChange={(event) => setSubject(event.target.value)}
             />
-            <label className="field__label" htmlFor="send-body">
-              Body
-            </label>
-            <textarea
-              id="send-body"
-              className="field__input"
-              rows={8}
-              value={emailBody}
-              disabled={sending}
-              onChange={(event) => setEmailBody(event.target.value)}
+            <div className="invoice-send__body-bar">
+              <label className="field__label">Email preview</label>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                disabled={sending}
+                onClick={() => setEmailEditorOpen(true)}
+              >
+                Customize
+              </button>
+            </div>
+            <iframe
+              className="invoice-send__preview"
+              title="Invoice email preview"
+              srcDoc={prepareInvoiceEmail(emailBody, invoiceTemplateVars(invoice)).html}
             />
             <div className="invoice-detail-modal__confirm">
               <button
@@ -543,6 +552,17 @@ export function InvoiceDetailModal({
                 {sending ? 'Sending…' : isResend ? 'Send again' : 'Send invoice'}
               </button>
             </div>
+            <EmailTemplateEditor
+              open={emailEditorOpen}
+              subject={subject}
+              html={emailBody}
+              onClose={() => setEmailEditorOpen(false)}
+              onApply={({ subject: nextSubject, html }) => {
+                setSubject(nextSubject)
+                setEmailBody(html)
+                setEmailEditorOpen(false)
+              }}
+            />
           </div>
         ) : null}
 
