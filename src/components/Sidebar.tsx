@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { BRAND } from '../branding.ts'
 import { useFocusTrap } from '../hooks/useFocusTrap.ts'
 import { useAppView } from '../nav/AppViewContext.tsx'
+import { useSettings } from '../settings/SettingsContext.tsx'
 import type { AppView } from '../types/person.ts'
 import { IconDocument, IconInvoices, IconPeople, IconSettings, IconX } from './icons.tsx'
 import { ThemeToggle } from './ThemeToggle.tsx'
@@ -18,6 +19,8 @@ export function Sidebar({ open, isDesktop, onClose }: SidebarProps) {
   const closeRef = useRef<HTMLButtonElement>(null)
   const isOverlay = open && !isDesktop
   const { view, setView } = useAppView()
+  const { branding } = useSettings()
+  const icon = branding.siteIcon.url || BRAND.icon
 
   useFocusTrap(isOverlay, sidebarRef, onClose)
 
@@ -47,7 +50,7 @@ export function Sidebar({ open, isDesktop, onClose }: SidebarProps) {
         <div className="sidebar__brand">
           <div className="brand-lockup sidebar__icon-wrap">
             <img
-              src={BRAND.icon}
+              src={icon}
               alt="Bitz Designs"
               width={51}
               height={40}

@@ -1,7 +1,9 @@
 import type {
   Invoice,
+  InvoiceEmailLogItem,
   InvoiceListItem,
   InvoiceStatus,
+  PaidMethod,
   SavedInvoice,
 } from '../types/invoice.ts'
 import { apiRequest } from './http.ts'
@@ -54,5 +56,57 @@ export async function updateInvoice(
 export async function deleteInvoice(id: string): Promise<void> {
   await apiRequest<{ ok: boolean }>(`/api/invoices/${id}`, {
     method: 'DELETE',
+  })
+}
+
+export async function markInvoicePaid(
+  id: string,
+  method: PaidMethod,
+): Promise<SavedInvoice> {
+  const payload = await apiRequest<{ invoice: SavedInvoice }>(
+    `/api/invoices/${id}/mark-paid`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ method }),
+    },
+  )
+  return payload.invoice
+}
+
+export async function voidInvoice(
+  id: string,
+  reason = '',
+): Promise<SavedInvoice> {
+  const payload = await apiRequest<{ invoice: SavedInvoice }>(
+    `/api/invoices/${id}/void`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    },
+  )
+  return payload.invoice
+}
+
+export async function fetchInvoiceEmails(id: string): Promise<{
+  firstSentAt: string | null
+  lastSentAt: string | null
+  sendCount: number
+  emails: InvoiceEmailLogItem[]
+}> {
+  return apiRequest(`/api/invoices/${id}/emails`)
+}
+
+export async function sendInvoiceEmail(
+  id: string,
+  payload: {
+    recipient: string
+    subject: string
+    body: string
+    idempotencyKey: string
+  },
+): Promise<{ invoice: SavedInvoice }> {
+  return apiRequest(`/api/invoices/${id}/send`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
   })
 }

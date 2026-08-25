@@ -27,9 +27,42 @@ export function publicInvoice(record: InvoiceRecord) {
           : centsToInputString(record.payment.cardFeeFixedCents),
     },
     notes: record.notes,
+    invoiceLogo: record.invoiceLogo,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
+    paidAt: record.paidAt,
+    paidMethod: record.paidMethod,
+    voidedAt: record.voidedAt,
+    voidReason: record.voidReason,
+    firstSentAt: record.firstSentAt,
+    lastSentAt: record.lastSentAt,
+    sendCount: record.sendCount,
+    format: record.format,
     lineItems: record.lineItems.map(publicLine),
+  }
+}
+
+export function publicEmailLog(record: {
+  id: string
+  attemptedAt: string
+  completedAt: string | null
+  recipient: string
+  subject: string
+  success: boolean
+  smtpMessageId: string | null
+  errorCategory: string | null
+  errorMessage: string | null
+}) {
+  return {
+    id: record.id,
+    attemptedAt: record.attemptedAt,
+    completedAt: record.completedAt,
+    recipient: record.recipient,
+    subject: record.subject,
+    success: record.success,
+    smtpMessageId: record.smtpMessageId,
+    errorCategory: record.errorCategory,
+    errorMessage: record.errorMessage,
   }
 }
 

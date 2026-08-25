@@ -215,6 +215,30 @@ textarea {
   text-transform: uppercase;
 }
 
+.badge--draft {
+  background: var(--nav-hover);
+  color: var(--text-muted);
+}
+
+.badge--sent {
+  background: var(--badge-bg);
+  color: var(--badge-text);
+}
+
+.badge--paid {
+  background: color-mix(in srgb, #16a34a 16%, transparent);
+  color: #15803d;
+}
+
+.badge--void {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
+:root[data-theme="dark"] .badge--paid {
+  color: #86efac;
+}
+
 .field {
   display: flex;
   flex-direction: column;

@@ -1,0 +1,30 @@
+import { describe, expect, it } from 'vitest'
+import { invoiceLogoPath } from '../branding.ts'
+import { createDefaultInvoice } from '../data/defaultInvoice.ts'
+import { DEFAULT_PAYMENT_MEMO } from '../utils/invoiceDefaults.ts'
+import { calculateInvoiceTotals } from '../utils/invoiceCalculations.ts'
+
+describe('canonical invoice document data', () => {
+  it('uses the static icon path for invoice logos', () => {
+    expect(invoiceLogoPath({ path: '/branding/bitz-designs-icon.png' })).toBe(
+      '/branding/bitz-designs-icon.png',
+    )
+    expect(invoiceLogoPath({ path: 'branding/invoice-logo/secret.png' })).toBe(
+      '/branding/bitz-designs-icon.png',
+    )
+    expect(
+      invoiceLogoPath({
+        path: '/api/branding/file/branding%2Finvoice-logo%2Faaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.png',
+      }),
+    ).toBe(
+      '/api/branding/file/branding%2Finvoice-logo%2Faaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.png',
+    )
+  })
+
+  it('includes the default payment memo on a new invoice snapshot', () => {
+    const invoice = createDefaultInvoice()
+    expect(invoice.payment.memo).toBe(DEFAULT_PAYMENT_MEMO)
+    const totals = calculateInvoiceTotals(invoice)
+    expect(totals.amountDueCents).toBe(0)
+  })
+})

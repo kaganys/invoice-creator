@@ -1,7 +1,16 @@
-import type { Invoice, InvoiceLineItem, InvoiceParty } from '../types/invoice.ts'
+import {
+  BUILTIN_INVOICE_LOGO,
+  type Invoice,
+  type InvoiceLineItem,
+  type InvoiceParty,
+} from '../types/invoice.ts'
 import { emptyAddress } from '../utils/address.ts'
 import { toIsoDate } from '../utils/dates.ts'
 import { createId } from '../utils/id.ts'
+
+export const DEFAULT_ZELLE_EMAIL = 'billing@bitzdesigns.co'
+export const DEFAULT_PAYMENT_MEMO =
+  'Looking forward to continued work together. Please submit payment using the secure payment link or via Zelle to billing@bitzdesigns.co'
 
 export { createId }
 
@@ -39,11 +48,12 @@ export function createDefaultInvoice(): Invoice {
     customer: createParty(),
     lineItems: [createEmptyLineItem()],
     payment: {
-      memo: '',
-      zelleEmail: '',
+      memo: DEFAULT_PAYMENT_MEMO,
+      zelleEmail: DEFAULT_ZELLE_EMAIL,
       cardFeePercent: '',
       cardFeeFixed: '',
     },
     notes: '',
+    invoiceLogo: { ...BUILTIN_INVOICE_LOGO },
   }
 }

@@ -3,8 +3,10 @@ import { InvoiceEditor } from './components/editor/InvoiceEditor.tsx'
 import { InvoicesPage } from './components/invoices/InvoicesPage.tsx'
 import { PeoplePage } from './components/people/PeoplePage.tsx'
 import { SettingsPage } from './components/settings/SettingsPage.tsx'
+import { BrandChrome } from './components/BrandChrome.tsx'
 import { DirectoryProvider } from './directory/DirectoryContext.tsx'
 import { InvoiceDraftProvider } from './invoice/InvoiceDraftContext.tsx'
+import { SettingsProvider } from './settings/SettingsContext.tsx'
 import { AppViewProvider, useAppView } from './nav/AppViewContext.tsx'
 import { ThemeProvider } from './theme/ThemeProvider.tsx'
 
@@ -27,13 +29,16 @@ export default function App() {
   return (
     <ThemeProvider>
       <DirectoryProvider>
-        <InvoiceDraftProvider>
-          <AppViewProvider>
-            <AppShell>
-              <AppContent />
-            </AppShell>
-          </AppViewProvider>
-        </InvoiceDraftProvider>
+        <SettingsProvider>
+          <InvoiceDraftProvider>
+            <AppViewProvider>
+              <BrandChrome />
+              <AppShell>
+                <AppContent />
+              </AppShell>
+            </AppViewProvider>
+          </InvoiceDraftProvider>
+        </SettingsProvider>
       </DirectoryProvider>
     </ThemeProvider>
   )

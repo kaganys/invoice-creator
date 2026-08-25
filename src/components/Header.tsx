@@ -1,6 +1,7 @@
 import { BRAND } from '../branding.ts'
 import { useInvoiceDraft } from '../invoice/InvoiceDraftContext.tsx'
 import { useAppView } from '../nav/AppViewContext.tsx'
+import { useSettings } from '../settings/SettingsContext.tsx'
 import { IconEye, IconMenu } from './icons.tsx'
 import './Header.css'
 
@@ -17,13 +18,15 @@ function InvoiceTitle() {
       <h1 className="header__title">
         {savedId ? 'Edit invoice' : 'New invoice'}
       </h1>
-      <span className="badge">{status}</span>
+      <span className={`badge badge--${status}`}>{status}</span>
     </>
   )
 }
 
 export function Header({ navOpen, onMenuClick, onPreview }: HeaderProps) {
   const { view } = useAppView()
+  const { branding } = useSettings()
+  const wordmark = branding.siteWordmark.url || BRAND.wordmark
   const title =
     view === 'invoices'
       ? 'Invoices'
@@ -48,7 +51,7 @@ export function Header({ navOpen, onMenuClick, onPreview }: HeaderProps) {
         </button>
         <div className="brand-lockup header__wordmark-wrap">
           <img
-            src={BRAND.wordmark}
+            src={wordmark}
             alt=""
             className="header__wordmark"
             width={151}

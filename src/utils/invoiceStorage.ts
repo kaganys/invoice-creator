@@ -3,19 +3,23 @@ import type {
   Address,
   Invoice,
   InvoiceLineItem,
+  InvoiceLogoSnapshot,
   InvoiceParty,
   InvoicePayment,
   InvoiceStatus,
 } from '../types/invoice.ts'
-import { INVOICE_STATUSES } from '../types/invoice.ts'
+import { isAllowedBrandingPath } from '../branding.ts'
+import { BUILTIN_INVOICE_LOGO, INVOICE_STATUSES } from '../types/invoice.ts'
+import { hasPartyContent } from './address.ts'
 
 export const INVOICE_DRAFT_STORAGE_KEY = 'bitz-designs-invoice-draft'
-export const INVOICE_DRAFT_VERSION = 3
+export const INVOICE_DRAFT_VERSION = 4
 
 export type WorkingDraft = {
   invoice: Invoice
   savedId: string | null
   status: InvoiceStatus
+  recovered: boolean
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -24,6 +28,34 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function asString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
+}
+
+/**
+ * True when the working copy has user/invoice content that must not be
+ * replaced by Settings defaults. A blank new invoice (dates/number only)
+ * is not meaningful — those are initialized automatically.
+ */
+export function hasMeaningfulDraftContent(invoice: Invoice): boolean {
+  if (hasPartyContent(invoice.from) || hasPartyContent(invoice.customer)) {
+    return true
+  }
+  if (invoice.notes.trim()) {
+    return true
+  }
+  if (
+    invoice.payment.memo.trim() ||
+    invoice.payment.zelleEmail.trim() ||
+    invoice.payment.cardFeePercent.trim() ||
+    invoice.payment.cardFeeFixed.trim()
+  ) {
+    return true
+  }
+  return invoice.lineItems.some(
+    (item) =>
+      item.description.trim() !== '' ||
+      item.quantity.trim() !== '' ||
+      item.unitPrice.trim() !== '',
+  )
 }
 
 function sanitizeAddress(value: unknown, fallback: Address): Address {
@@ -94,6 +126,16 @@ function sanitizeLineItems(value: unknown): InvoiceLineItem[] {
   return items.length > 0 ? items : [createEmptyLineItem()]
 }
 
+function sanitizeInvoiceLogo(value: unknown): InvoiceLogoSnapshot {
+  if (!isRecord(value)) {
+    return { ...BUILTIN_INVOICE_LOGO }
+  }
+  const path = asString(value.path, BUILTIN_INVOICE_LOGO.path)
+  return {
+    path: isAllowedBrandingPath(path) ? path : BUILTIN_INVOICE_LOGO.path,
+  }
+}
+
 function sanitizePayment(
   value: unknown,
   fallback: InvoicePayment,
@@ -127,6 +169,7 @@ export function sanitizeInvoice(value: unknown): Invoice | null {
     lineItems: sanitizeLineItems(value.lineItems),
     payment: sanitizePayment(value.payment, fallback.payment),
     notes: asString(value.notes, fallback.notes),
+    invoiceLogo: sanitizeInvoiceLogo(value.invoiceLogo),
   }
 }
 
@@ -158,6 +201,7 @@ export function loadWorkingDraft(): WorkingDraft {
     invoice: createDefaultInvoice(),
     savedId: null,
     status: 'draft' as const,
+    recovered: false,
   }
 
   try {
@@ -172,7 +216,7 @@ export function loadWorkingDraft(): WorkingDraft {
     }
 
     const version = parsed.version
-    if (version !== 2 && version !== 3) {
+    if (version !== 2 && version !== 3 && version !== 4) {
       return empty
     }
 
@@ -184,10 +228,14 @@ export function loadWorkingDraft(): WorkingDraft {
     return {
       invoice: sanitized,
       savedId:
-        version === 3 && typeof parsed.savedId === 'string' && parsed.savedId
+        (version === 3 || version === 4) &&
+        typeof parsed.savedId === 'string' &&
+        parsed.savedId
           ? parsed.savedId
           : null,
-      status: version === 3 ? asStatus(parsed.status) : 'draft',
+      status:
+        version === 3 || version === 4 ? asStatus(parsed.status) : 'draft',
+      recovered: true,
     }
   } catch {
     return empty
@@ -198,7 +246,7 @@ export function loadInvoiceDraft(): Invoice {
   return loadWorkingDraft().invoice
 }
 
-export function saveWorkingDraft(draft: WorkingDraft): void {
+export function saveWorkingDraft(draft: Omit<WorkingDraft, 'recovered'>): void {
   try {
     const payload = JSON.stringify({
       version: INVOICE_DRAFT_VERSION,

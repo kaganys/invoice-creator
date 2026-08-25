@@ -1,0 +1,255 @@
+import { useEffect, useState } from 'react'
+import { testSmtp } from '../../api/settings.ts'
+import { ApiError } from '../../api/http.ts'
+import { useSettings } from '../../settings/SettingsContext.tsx'
+import type { SmtpSecurity, SmtpSettingsPayload } from '../../types/settings.ts'
+import { Field } from '../Field.tsx'
+import { InvoiceSection } from '../InvoiceSection.tsx'
+
+const SECURITY_OPTIONS: Array<{ value: SmtpSecurity; label: string }> = [
+  { value: 'none', label: 'None (unencrypted)' },
+  { value: 'starttls', label: 'STARTTLS (upgrade to TLS)' },
+  { value: 'ssl', label: 'SSL / implicit TLS' },
+]
+
+export function SmtpPanel() {
+  const { smtp, loading, saving, error, saveSmtp } = useSettings()
+  const [draft, setDraft] = useState(smtp)
+  const [success, setSuccess] = useState<string | null>(null)
+  const [testMessage, setTestMessage] = useState<string | null>(null)
+  const [testOk, setTestOk] = useState(false)
+  const [testBusy, setTestBusy] = useState(false)
+  const [testTo, setTestTo] = useState('')
+
+  useEffect(() => {
+    setDraft(smtp)
+  }, [smtp])
+
+  function patch(partial: Partial<SmtpSettingsPayload>) {
+    setDraft((current) => ({ ...current, ...partial }))
+    setSuccess(null)
+  }
+
+  async function onSave() {
+    setSuccess(null)
+    setTestMessage(null)
+    try {
+      await saveSmtp({
+        host: draft.host,
+        port: Number(draft.port),
+        username: draft.username,
+        security: draft.security,
+        fromName: draft.fromName,
+        fromEmail: draft.fromEmail,
+        replyTo: draft.replyTo,
+        subjectTemplate: draft.subjectTemplate,
+        bodyTemplate: draft.bodyTemplate,
+      })
+      setSuccess('SMTP settings saved. The password is never stored in D1.')
+    } catch {
+      // Context error.
+    }
+  }
+
+  async function onTest() {
+    setTestBusy(true)
+    setTestMessage(null)
+    setTestOk(false)
+    try {
+      const result = await testSmtp(testTo)
+      setTestOk(true)
+      setTestMessage(result.message)
+    } catch (caught) {
+      const message =
+        caught instanceof ApiError || caught instanceof Error
+          ? caught.message
+          : 'SMTP test failed.'
+      setTestMessage(message)
+    } finally {
+      setTestBusy(false)
+    }
+  }
+
+  return (
+    <InvoiceSection
+      title="Email / SMTP"
+      description="Provider-independent SMTP settings. These work with Brevo, SMTP2GO, or any standard SMTP service. The password is a Worker secret, not a D1 value."
+    >
+      {loading ? <p className="settings-status">Loading SMTP settings…</p> : null}
+      <div className="form-grid form-grid--2">
+        <Field label="SMTP host / server" htmlFor="smtp-host">
+          <input
+            id="smtp-host"
+            className="field__input"
+            value={draft.host}
+            disabled={saving || loading}
+            placeholder="smtp.example.com"
+            onChange={(event) => patch({ host: event.target.value })}
+          />
+        </Field>
+        <Field label="Port" htmlFor="smtp-port">
+          <input
+            id="smtp-port"
+            className="field__input"
+            inputMode="numeric"
+            value={String(draft.port)}
+            disabled={saving || loading}
+            onChange={(event) => patch({ port: Number(event.target.value) || 0 })}
+          />
+        </Field>
+        <Field label="Username" htmlFor="smtp-username">
+          <input
+            id="smtp-username"
+            className="field__input"
+            autoComplete="off"
+            value={draft.username}
+            disabled={saving || loading}
+            onChange={(event) => patch({ username: event.target.value })}
+          />
+        </Field>
+        <Field label="Connection security" htmlFor="smtp-security">
+          <select
+            id="smtp-security"
+            className="field__select"
+            value={draft.security}
+            disabled={saving || loading}
+            onChange={(event) =>
+              patch({ security: event.target.value as SmtpSecurity })
+            }
+          >
+            {SECURITY_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Default From name" htmlFor="smtp-from-name">
+          <input
+            id="smtp-from-name"
+            className="field__input"
+            value={draft.fromName}
+            disabled={saving || loading}
+            onChange={(event) => patch({ fromName: event.target.value })}
+          />
+        </Field>
+        <Field label="Default From email" htmlFor="smtp-from-email">
+          <input
+            id="smtp-from-email"
+            className="field__input"
+            type="email"
+            value={draft.fromEmail}
+            disabled={saving || loading}
+            onChange={(event) => patch({ fromEmail: event.target.value })}
+          />
+        </Field>
+        <Field label="Reply-To address" htmlFor="smtp-reply-to">
+          <input
+            id="smtp-reply-to"
+            className="field__input"
+            type="email"
+            value={draft.replyTo}
+            disabled={saving || loading}
+            onChange={(event) => patch({ replyTo: event.target.value })}
+          />
+        </Field>
+        <div>
+          <p className="field__label">Password</p>
+          <div className="password-state">
+            {smtp.passwordConfigured ? (
+              <>
+                <span className="badge">Configured</span>
+                <code aria-hidden="true">••••••••</code>
+              </>
+            ) : (
+              <span className="settings-help">Not configured</span>
+            )}
+          </div>
+        </div>
+      </div>
+      <p className="settings-help">
+        This application never returns, logs, or stores the SMTP password in D1.
+        Set or replace it with Wrangler:
+      </p>
+      <p className="settings-example">npx wrangler secret put SMTP_PASSWORD</p>
+      <p className="settings-help">
+        For local development, put SMTP_PASSWORD in a gitignored .dev.vars file.
+        Do not commit credentials. Port 25 is rejected.
+      </p>
+      <Field label="Default email subject" htmlFor="smtp-subject">
+        <input
+          id="smtp-subject"
+          className="field__input"
+          value={draft.subjectTemplate}
+          disabled={saving || loading}
+          onChange={(event) => patch({ subjectTemplate: event.target.value })}
+        />
+      </Field>
+      <Field label="Default email body" htmlFor="smtp-body">
+        <textarea
+          id="smtp-body"
+          className="field__input"
+          rows={10}
+          value={draft.bodyTemplate}
+          disabled={saving || loading}
+          onChange={(event) => patch({ bodyTemplate: event.target.value })}
+        />
+      </Field>
+      <p className="settings-help">
+        Variables: {'{{invoice_number}}'} {'{{customer_name}}'} {'{{business_name}}'}{' '}
+        {'{{amount}}'} {'{{due_date}}'} {'{{zelle_email}}'} {'{{payment_memo}}'}. Unknown
+        variables become empty.
+      </p>
+      <Field label="Send a real test email to" htmlFor="smtp-test-to">
+        <input
+          id="smtp-test-to"
+          className="field__input"
+          type="email"
+          value={testTo}
+          disabled={saving || loading || testBusy}
+          placeholder="you@example.com"
+          onChange={(event) => setTestTo(event.target.value)}
+        />
+      </Field>
+      <p className="settings-help">
+        Test configuration sends a real message using the current SMTP settings and
+        Worker secret. Successful authentication alone is not enough.
+      </p>
+      <div className="settings-actions">
+        <button
+          type="button"
+          className="btn btn--primary"
+          disabled={saving || loading}
+          onClick={() => void onSave()}
+        >
+          {saving ? 'Saving…' : 'Save changes'}
+        </button>
+        <button
+          type="button"
+          className="btn btn--ghost"
+          disabled={saving || loading || testBusy}
+          onClick={() => void onTest()}
+        >
+          {testBusy ? 'Sending test…' : 'Send test email'}
+        </button>
+        {success ? (
+          <p className="settings-status settings-status--success">{success}</p>
+        ) : null}
+        {error ? (
+          <p className="settings-status settings-status--error">{error}</p>
+        ) : null}
+        {testMessage ? (
+          <p
+            className={
+              testOk
+                ? 'settings-status settings-status--success'
+                : 'settings-status settings-status--error'
+            }
+          >
+            {testMessage}
+          </p>
+        ) : null}
+      </div>
+    </InvoiceSection>
+  )
+}

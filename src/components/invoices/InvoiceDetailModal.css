@@ -1,0 +1,135 @@
+.invoice-detail-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  background: var(--overlay);
+}
+
+.invoice-detail-modal__dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1200px, calc(100vw - 2.5rem));
+  height: calc(100vh - 2.5rem);
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.invoice-detail-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-shrink: 0;
+  padding: 0.9rem 1.15rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--header-bg);
+}
+
+.invoice-detail-modal__header > div {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.invoice-detail-modal__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.invoice-detail-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  padding: 0.75rem 1.15rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.invoice-detail-modal__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.invoice-detail-modal__confirm .field__select,
+.invoice-detail-modal__confirm .field__input {
+  width: auto;
+  min-width: 9rem;
+}
+
+.invoice-detail-modal__meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.35rem 1rem;
+  margin: 0;
+  padding: 0.7rem 1.15rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.invoice-detail-modal__meta dt {
+  font-weight: 650;
+}
+
+.invoice-detail-modal__meta dd {
+  margin: 0.1rem 0 0;
+}
+
+.invoice-detail-modal__canvas {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 1.5rem 1.25rem 2rem;
+  background: var(--canvas);
+}
+
+.invoice-detail-modal .api-banner {
+  margin: 0.75rem 1.15rem 0;
+}
+
+.invoice-send,
+.invoice-email-history {
+  padding: 0.75rem 1.15rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.invoice-send h3,
+.invoice-email-history summary {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+.invoice-send .field__label {
+  margin-top: 0.55rem;
+}
+
+.invoice-email-history ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+@media (max-width: 720px) {
+  .invoice-detail-modal {
+    padding: 0;
+  }
+
+  .invoice-detail-modal__dialog {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    border: 0;
+    border-radius: 0;
+  }
+}

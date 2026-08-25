@@ -3,6 +3,11 @@ import {
   parsePercentScaled,
   parseQuantityScaled,
 } from '../../src/utils/money.ts'
+import { isAllowedBrandingPath } from '../../src/branding.ts'
+import {
+  BUILTIN_INVOICE_LOGO,
+  type InvoiceLogoSnapshot,
+} from '../../src/types/invoice.ts'
 import { asTrimmedString, isRecord } from '../lib/json.ts'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -55,12 +60,38 @@ export type InvoiceWrite = {
     cardFeeFixedCents: number
   }
   notes: string
+  invoiceLogo: InvoiceLogoSnapshot
   lineItems: InvoiceWriteLine[]
 }
 
 export type ValidationResult<T> =
   | { ok: true; value: T }
   | { ok: false; message: string }
+
+function parseInvoiceLogo(value: unknown): ValidationResult<InvoiceLogoSnapshot> {
+  if (value === undefined || value === null) {
+    return { ok: true, value: { ...BUILTIN_INVOICE_LOGO } }
+  }
+  if (typeof value === 'string') {
+    const path = value.trim()
+    return {
+      ok: true,
+      value: {
+        path: isAllowedBrandingPath(path) ? path : BUILTIN_INVOICE_LOGO.path,
+      },
+    }
+  }
+  if (!isRecord(value)) {
+    return { ok: false, message: 'Invoice logo snapshot is invalid.' }
+  }
+  const path = asTrimmedString(value.path)
+  return {
+    ok: true,
+    value: {
+      path: isAllowedBrandingPath(path) ? path : BUILTIN_INVOICE_LOGO.path,
+    },
+  }
+}
 
 function parseParty(value: unknown, label: string) {
   const record = isRecord(value) ? value : {}
@@ -167,6 +198,11 @@ export function validateInvoiceWrite(
     return { ok: false, message: 'Fixed card fee is invalid.' }
   }
 
+  const invoiceLogo = parseInvoiceLogo(input.invoiceLogo)
+  if (!invoiceLogo.ok) {
+    return invoiceLogo
+  }
+
   if (!Array.isArray(input.lineItems) || input.lineItems.length === 0) {
     return { ok: false, message: 'At least one line item is required.' }
   }
@@ -216,6 +252,7 @@ export function validateInvoiceWrite(
         cardFeeFixedCents,
       },
       notes: asTrimmedString(input.notes),
+      invoiceLogo: invoiceLogo.value,
       lineItems,
     },
   }

@@ -1,5 +1,11 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useInvoiceDraft } from '../invoice/InvoiceDraftContext.tsx'
 import { useFocusTrap } from '../hooks/useFocusTrap.ts'
+import {
+  downloadPreviewInvoicePdf,
+  downloadSavedInvoicePdf,
+} from '../utils/invoicePdf.ts'
+import { printInvoiceElement } from '../utils/invoicePrint.ts'
 import { IconX } from './icons.tsx'
 import { InvoicePreview } from './InvoicePreview.tsx'
 import './InvoicePreviewModal.css'
@@ -13,6 +19,11 @@ export function InvoicePreviewModal({ open, onClose }: InvoicePreviewModalProps)
   const dialogRef = useRef<HTMLDivElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   const previousFocus = useRef<HTMLElement | null>(null)
+  const documentRef = useRef<HTMLElement>(null)
+  const { invoice, savedId } = useInvoiceDraft()
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
+  const isDraftPreview = !savedId
 
   useFocusTrap(open, dialogRef, onClose)
 
@@ -68,19 +79,70 @@ export function InvoicePreviewModal({ open, onClose }: InvoicePreviewModalProps)
               Invoice preview
             </h2>
             <p id="invoice-preview-description" className="preview-modal__description">
-              Live preview of the current draft.
+              {isDraftPreview
+                ? 'Live preview of the unsaved working copy. This is not saved to D1.'
+                : 'Live preview of the invoice currently in the editor.'}
             </p>
           </div>
-          <button
-            ref={closeRef}
-            type="button"
-            className="btn btn--ghost"
-            onClick={onClose}
-          >
-            <IconX />
-            Close
-          </button>
+          <div className="preview-modal__actions">
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={exporting}
+              onClick={() => {
+                if (!documentRef.current) {
+                  setExportError('Invoice is not ready to print.')
+                  return
+                }
+                setExportError(null)
+                printInvoiceElement(documentRef.current)
+              }}
+            >
+              Print
+            </button>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={exporting}
+              onClick={() => {
+                if (!documentRef.current) {
+                  setExportError('Invoice is not ready to download.')
+                  return
+                }
+                setExporting(true)
+                setExportError(null)
+                void (savedId
+                  ? downloadSavedInvoicePdf(savedId)
+                  : downloadPreviewInvoicePdf(invoice)
+                )
+                  .catch((caught: unknown) => {
+                    setExportError(
+                      caught instanceof Error
+                        ? caught.message
+                        : 'Could not generate the PDF.',
+                    )
+                  })
+                  .finally(() => setExporting(false))
+              }}
+            >
+              {exporting ? 'Generating PDF…' : 'Download PDF'}
+            </button>
+            <button
+              ref={closeRef}
+              type="button"
+              className="btn btn--ghost"
+              onClick={onClose}
+            >
+              <IconX />
+              Close
+            </button>
+          </div>
         </div>
+        {exportError ? (
+          <p className="api-banner api-banner--error preview-modal__error">
+            {exportError}
+          </p>
+        ) : null}
         <div
           className="preview-modal__canvas"
           onMouseDown={(event) => {
@@ -89,7 +151,7 @@ export function InvoicePreviewModal({ open, onClose }: InvoicePreviewModalProps)
             }
           }}
         >
-          <InvoicePreview />
+          <InvoicePreview documentRef={documentRef} />
         </div>
       </div>
     </div>

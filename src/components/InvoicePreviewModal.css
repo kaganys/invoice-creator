@@ -32,6 +32,17 @@
   background: var(--header-bg);
 }
 
+.preview-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.preview-modal__error {
+  margin: 0.75rem 1.15rem 0;
+}
+
 .preview-modal__title {
   margin: 0;
   font-size: 0.98rem;

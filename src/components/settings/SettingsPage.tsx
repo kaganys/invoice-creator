@@ -1,53 +1,58 @@
-import { useDirectory } from '../../directory/DirectoryContext.tsx'
-import { personLabel } from '../../types/person.ts'
-import { Field } from '../Field.tsx'
-import { InvoiceSection } from '../InvoiceSection.tsx'
+import { useState } from 'react'
+import { useSettings } from '../../settings/SettingsContext.tsx'
+import {
+  SETTINGS_CATEGORIES,
+  type SettingsCategoryId,
+} from '../../types/settings.ts'
+import { BrandingPanel } from './BrandingPanel.tsx'
+import { DefaultsPanel } from './DefaultsPanel.tsx'
+import { FormatPanel } from './FormatPanel.tsx'
+import { NumberingPanel } from './NumberingPanel.tsx'
+import { SmtpPanel } from './SmtpPanel.tsx'
+import './SettingsPage.css'
 
 export function SettingsPage() {
-  const {
-    people,
-    defaultFromId,
-    loading,
-    saving,
-    error,
-    setDefaultFromId,
-  } = useDirectory()
+  const { loading, error } = useSettings()
+  const [category, setCategory] = useState<SettingsCategoryId>('defaults')
 
   return (
     <div className="app-page">
       {error ? <p className="api-banner api-banner--error">{error}</p> : null}
       {loading ? <p className="api-banner">Loading settings…</p> : null}
-
-      <InvoiceSection
-        title="Default From"
-        description="Used when you reset an invoice. Fields stay editable after they fill in. If that person is later deleted, the default is cleared."
-      >
-        {loading ? null : people.length === 0 ? (
-          <p className="people-empty">
-            Add someone in People before choosing a default From.
-          </p>
-        ) : (
-          <Field label="Default From person" htmlFor="default-from">
-            <select
-              id="default-from"
-              className="field__select"
-              value={defaultFromId ?? ''}
-              disabled={saving}
-              onChange={(event) => {
-                void setDefaultFromId(event.target.value || null)
-              }}
+      <div className="settings-layout">
+        <nav className="settings-nav" aria-label="Settings categories">
+          {SETTINGS_CATEGORIES.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              className={
+                category === entry.id
+                  ? 'settings-nav__button is-active'
+                  : 'settings-nav__button'
+              }
+              aria-current={category === entry.id ? 'page' : undefined}
+              onClick={() => setCategory(entry.id)}
             >
-              <option value="">None</option>
-              {people.map((person) => (
-                <option key={person.id} value={person.id}>
-                  {personLabel(person)}
-                </option>
-              ))}
-            </select>
-          </Field>
-        )}
-        {saving ? <p className="people-empty">Saving…</p> : null}
-      </InvoiceSection>
+              {entry.label}
+            </button>
+          ))}
+        </nav>
+        <div
+          className={
+            category === 'format'
+              ? 'settings-panel settings-panel--wide'
+              : 'settings-panel'
+          }
+          role="region"
+          aria-label="Settings"
+        >
+          {category === 'defaults' ? <DefaultsPanel /> : null}
+          {category === 'email' ? <SmtpPanel /> : null}
+          {category === 'branding' ? <BrandingPanel /> : null}
+          {category === 'numbering' ? <NumberingPanel /> : null}
+          {category === 'format' ? <FormatPanel /> : null}
+        </div>
+      </div>
     </div>
   )
 }

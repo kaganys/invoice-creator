@@ -1,3 +1,5 @@
+import type { InvoiceFormat } from '../invoice/format.ts'
+
 export type Address = {
   line1: string
   line2: string
@@ -27,6 +29,18 @@ export type InvoicePayment = {
   cardFeeFixed: string
 }
 
+export type InvoiceLogoSnapshot = {
+  path: string
+}
+
+export const BUILTIN_INVOICE_LOGO: InvoiceLogoSnapshot = {
+  path: '/branding/bitz-designs-icon.png',
+}
+
+export const PAID_METHODS = ['zelle', 'manual', 'other'] as const
+
+export type PaidMethod = (typeof PAID_METHODS)[number]
+
 export const INVOICE_STATUSES = ['draft', 'sent', 'paid', 'void'] as const
 
 export type InvoiceStatus = (typeof INVOICE_STATUSES)[number]
@@ -41,6 +55,7 @@ export type Invoice = {
   lineItems: InvoiceLineItem[]
   payment: InvoicePayment
   notes: string
+  invoiceLogo: InvoiceLogoSnapshot
 }
 
 export type SavedInvoice = Invoice & {
@@ -48,6 +63,26 @@ export type SavedInvoice = Invoice & {
   status: InvoiceStatus
   createdAt: string
   updatedAt: string
+  paidAt: string | null
+  paidMethod: PaidMethod | null
+  voidedAt: string | null
+  voidReason: string | null
+  firstSentAt: string | null
+  lastSentAt: string | null
+  sendCount: number
+  format: InvoiceFormat | null
+}
+
+export type InvoiceEmailLogItem = {
+  id: string
+  attemptedAt: string
+  completedAt: string | null
+  recipient: string
+  subject: string
+  success: boolean
+  smtpMessageId: string | null
+  errorCategory: string | null
+  errorMessage: string | null
 }
 
 export type InvoiceListItem = {

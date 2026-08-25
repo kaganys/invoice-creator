@@ -1,10 +1,15 @@
+import { isAllowedBrandingPath } from '../../src/branding.ts'
+import { BUILTIN_INVOICE_LOGO } from '../../src/types/invoice.ts'
 import { lineAmountCents } from '../../src/utils/money.ts'
+import { parseFormatJson } from '../settings/format.ts'
 import type {
+  EmailLogRecord,
   InvoiceLineRecord,
   InvoiceListRecord,
   InvoiceRecord,
   InvoiceStatus,
   InvoiceStore,
+  PaidMethod,
 } from './types.ts'
 
 type InvoiceRow = {
@@ -35,8 +40,34 @@ type InvoiceRow = {
   card_fee_percent_scaled: number
   card_fee_fixed_cents: number
   notes: string
+  invoice_logo_source: string
+  invoice_logo_object_key: string
+  invoice_logo_content_type: string
+  invoice_logo_path: string | null
+  paid_at: string | null
+  paid_method: string | null
+  voided_at: string | null
+  void_reason: string | null
+  first_sent_at: string | null
+  last_sent_at: string | null
+  send_count: number | null
+  format_json: string | null
   created_at: string
   updated_at: string
+}
+
+type EmailLogRow = {
+  id: string
+  invoice_id: string
+  attempted_at: string
+  completed_at: string | null
+  recipient: string
+  subject: string
+  success: number
+  smtp_message_id: string | null
+  error_category: string | null
+  error_message: string | null
+  idempotency_key: string | null
 }
 
 type LineRow = {
@@ -91,6 +122,10 @@ function mapLine(row: LineRow): InvoiceLineRecord {
   }
 }
 
+function isPaidMethod(value: string | null): value is PaidMethod {
+  return value === 'zelle' || value === 'manual' || value === 'other'
+}
+
 function mapInvoice(row: InvoiceRow, lines: InvoiceLineRecord[]): InvoiceRecord {
   return {
     id: row.id,
@@ -108,9 +143,38 @@ function mapInvoice(row: InvoiceRow, lines: InvoiceLineRecord[]): InvoiceRecord 
       cardFeeFixedCents: row.card_fee_fixed_cents,
     },
     notes: row.notes,
+    invoiceLogo: {
+      path: isAllowedBrandingPath(row.invoice_logo_path ?? '')
+        ? (row.invoice_logo_path as string)
+        : BUILTIN_INVOICE_LOGO.path,
+    },
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    paidAt: row.paid_at,
+    paidMethod: isPaidMethod(row.paid_method) ? row.paid_method : null,
+    voidedAt: row.voided_at,
+    voidReason: row.void_reason,
+    firstSentAt: row.first_sent_at,
+    lastSentAt: row.last_sent_at,
+    sendCount: row.send_count ?? 0,
+    format: row.format_json ? parseFormatJson(row.format_json) : null,
     lineItems: [...lines].sort((a, b) => a.sortOrder - b.sortOrder),
+  }
+}
+
+function mapEmailLog(row: EmailLogRow): EmailLogRecord {
+  return {
+    id: row.id,
+    invoiceId: row.invoice_id,
+    attemptedAt: row.attempted_at,
+    completedAt: row.completed_at,
+    recipient: row.recipient,
+    subject: row.subject,
+    success: row.success === 1,
+    smtpMessageId: row.smtp_message_id,
+    errorCategory: row.error_category,
+    errorMessage: row.error_message,
+    idempotencyKey: row.idempotency_key,
   }
 }
 
@@ -142,6 +206,14 @@ function invoiceBinds(record: InvoiceRecord): unknown[] {
     record.payment.cardFeePercentScaled,
     record.payment.cardFeeFixedCents,
     record.notes,
+    'builtin',
+    '',
+    'image/png',
+    record.invoiceLogo?.path ?? BUILTIN_INVOICE_LOGO.path,
+    record.paidAt,
+    record.paidMethod,
+    record.voidedAt,
+    record.voidReason,
     record.updatedAt,
     record.id,
   ]
@@ -151,14 +223,21 @@ const INSERT_SQL = `INSERT INTO invoices (
   id, invoice_number, status, issue_date, due_date, currency,
   from_name, from_email, from_address_line1, from_address_line2, from_city, from_state_region, from_postal_code, from_country,
   customer_name, customer_email, customer_address_line1, customer_address_line2, customer_city, customer_state_region, customer_postal_code, customer_country,
-  payment_memo, zelle_email, card_fee_percent_scaled, card_fee_fixed_cents, notes, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  payment_memo, zelle_email, card_fee_percent_scaled, card_fee_fixed_cents, notes,
+  invoice_logo_source, invoice_logo_object_key, invoice_logo_content_type,
+  invoice_logo_path, paid_at, paid_method, voided_at, void_reason,
+  format_json, first_sent_at, last_sent_at, send_count,
+  created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 const UPDATE_SQL = `UPDATE invoices SET
   invoice_number = ?, status = ?, issue_date = ?, due_date = ?, currency = ?,
   from_name = ?, from_email = ?, from_address_line1 = ?, from_address_line2 = ?, from_city = ?, from_state_region = ?, from_postal_code = ?, from_country = ?,
   customer_name = ?, customer_email = ?, customer_address_line1 = ?, customer_address_line2 = ?, customer_city = ?, customer_state_region = ?, customer_postal_code = ?, customer_country = ?,
-  payment_memo = ?, zelle_email = ?, card_fee_percent_scaled = ?, card_fee_fixed_cents = ?, notes = ?, updated_at = ?
+  payment_memo = ?, zelle_email = ?, card_fee_percent_scaled = ?, card_fee_fixed_cents = ?, notes = ?,
+  invoice_logo_source = ?, invoice_logo_object_key = ?, invoice_logo_content_type = ?,
+  invoice_logo_path = ?, paid_at = ?, paid_method = ?, voided_at = ?, void_reason = ?,
+  updated_at = ?
   WHERE id = ?`
 
 const LINE_INSERT_SQL = `INSERT INTO invoice_line_items (
@@ -263,6 +342,18 @@ export function createD1InvoiceStore(db: D1Database): InvoiceStore {
           record.payment.cardFeePercentScaled,
           record.payment.cardFeeFixedCents,
           record.notes,
+          'builtin',
+          '',
+          'image/png',
+          record.invoiceLogo?.path ?? BUILTIN_INVOICE_LOGO.path,
+          record.paidAt,
+          record.paidMethod,
+          record.voidedAt,
+          record.voidReason,
+          record.format ? JSON.stringify(record.format) : null,
+          record.firstSentAt,
+          record.lastSentAt,
+          record.sendCount,
           record.createdAt,
           record.updatedAt,
         ),
@@ -330,6 +421,166 @@ export function createD1InvoiceStore(db: D1Database): InvoiceStore {
         db.prepare('DELETE FROM invoices WHERE id = ?').bind(id),
       ])
       return 'deleted'
+    },
+
+    async markPaid(id, fields) {
+      const row = await db
+        .prepare('SELECT status FROM invoices WHERE id = ?')
+        .bind(id)
+        .first<{ status: InvoiceStatus }>()
+      if (!row) {
+        return 'not_found'
+      }
+      if (row.status === 'paid') {
+        return 'already_paid'
+      }
+      if (row.status === 'void') {
+        return 'void'
+      }
+      await db
+        .prepare(
+          `UPDATE invoices
+           SET status = 'paid', paid_at = ?, paid_method = ?, updated_at = ?
+           WHERE id = ?`,
+        )
+        .bind(fields.paidAt, fields.paidMethod, fields.updatedAt, id)
+        .run()
+      return 'ok'
+    },
+
+    async voidInvoice(id, fields) {
+      const row = await db
+        .prepare('SELECT status FROM invoices WHERE id = ?')
+        .bind(id)
+        .first<{ status: InvoiceStatus }>()
+      if (!row) {
+        return 'not_found'
+      }
+      if (row.status === 'void') {
+        return 'already_void'
+      }
+      if (row.status === 'paid') {
+        return 'paid'
+      }
+      await db
+        .prepare(
+          `UPDATE invoices
+           SET status = 'void', voided_at = ?, void_reason = ?, updated_at = ?
+           WHERE id = ?`,
+        )
+        .bind(fields.voidedAt, fields.voidReason, fields.updatedAt, id)
+        .run()
+      return 'ok'
+    },
+
+    async snapshotFormat(id, formatJson, updatedAt) {
+      await db
+        .prepare(
+          `UPDATE invoices
+           SET format_json = COALESCE(format_json, ?), updated_at = ?
+           WHERE id = ?`,
+        )
+        .bind(formatJson, updatedAt, id)
+        .run()
+    },
+
+    async applySendSuccess(id, fields) {
+      await db
+        .prepare(
+          `UPDATE invoices
+           SET status = ?,
+               first_sent_at = COALESCE(first_sent_at, ?),
+               last_sent_at = ?,
+               send_count = ?,
+               format_json = COALESCE(format_json, ?),
+               updated_at = ?
+           WHERE id = ?`,
+        )
+        .bind(
+          fields.status,
+          fields.firstSentAt,
+          fields.lastSentAt,
+          fields.sendCount,
+          fields.formatJson,
+          fields.updatedAt,
+          id,
+        )
+        .run()
+    },
+
+    async insertEmailLog(record) {
+      try {
+        await db
+          .prepare(
+            `INSERT INTO invoice_email_log (
+              id, invoice_id, attempted_at, completed_at, recipient, subject,
+              success, smtp_message_id, error_category, error_message, idempotency_key
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            record.id,
+            record.invoiceId,
+            record.attemptedAt,
+            record.completedAt,
+            record.recipient,
+            record.subject,
+            record.success ? 1 : 0,
+            record.smtpMessageId,
+            record.errorCategory,
+            record.errorMessage,
+            record.idempotencyKey,
+          )
+          .run()
+        return 'ok'
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (/unique/i.test(message)) {
+          return 'duplicate'
+        }
+        throw error
+      }
+    },
+
+    async updateEmailLog(id, fields) {
+      await db
+        .prepare(
+          `UPDATE invoice_email_log
+           SET completed_at = ?, success = ?, smtp_message_id = ?,
+               error_category = ?, error_message = ?
+           WHERE id = ?`,
+        )
+        .bind(
+          fields.completedAt,
+          fields.success ? 1 : 0,
+          fields.smtpMessageId,
+          fields.errorCategory,
+          fields.errorMessage,
+          id,
+        )
+        .run()
+    },
+
+    async getEmailLogByIdempotency(key) {
+      const row = await db
+        .prepare(
+          `SELECT * FROM invoice_email_log WHERE idempotency_key = ? LIMIT 1`,
+        )
+        .bind(key)
+        .first<EmailLogRow>()
+      return row ? mapEmailLog(row) : null
+    },
+
+    async listEmailLogs(invoiceId, limit = 20) {
+      const rows = await db
+        .prepare(
+          `SELECT * FROM invoice_email_log
+           WHERE invoice_id = ?
+           ORDER BY attempted_at DESC
+           LIMIT ?`,
+        )
+        .bind(invoiceId, limit)
+        .all<EmailLogRow>()
+      return (rows.results ?? []).map(mapEmailLog)
     },
   }
 }

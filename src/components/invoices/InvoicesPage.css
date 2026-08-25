@@ -44,6 +44,14 @@
   border-bottom: 0;
 }
 
+.invoices-table__row {
+  cursor: pointer;
+}
+
+.invoices-table__row:hover td {
+  background: var(--nav-hover);
+}
+
 .invoices-table__link {
   border: 0;
   background: transparent;

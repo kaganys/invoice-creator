@@ -15,25 +15,31 @@ import {
   fetchInvoice,
   updateInvoice,
 } from '../api/invoices.ts'
-import { createDefaultInvoice, createEmptyLineItem } from '../data/defaultInvoice.ts'
+import { createEmptyLineItem } from '../data/defaultInvoice.ts'
 import { useDirectory } from '../directory/DirectoryContext.tsx'
+import { useSettings } from '../settings/SettingsContext.tsx'
 import { partyFromPerson } from '../types/person.ts'
-import type {
-  Address,
-  Invoice,
-  InvoiceErrors,
-  InvoiceLineItem,
-  InvoiceParty,
-  InvoicePayment,
-  InvoiceStatus,
-  SavedInvoice,
+import {
+  payloadToInvoiceDefaults,
+  snapshotNewInvoice,
+} from '../utils/invoiceDefaults.ts'
+import {
+  BUILTIN_INVOICE_LOGO,
+  type Address,
+  type Invoice,
+  type InvoiceErrors,
+  type InvoiceLineItem,
+  type InvoiceParty,
+  type InvoicePayment,
+  type InvoiceStatus,
+  type SavedInvoice,
 } from '../types/invoice.ts'
 import { calculateInvoiceTotals, type InvoiceTotals } from '../utils/invoiceCalculations.ts'
 import {
+  hasMeaningfulDraftContent,
   loadWorkingDraft,
   saveWorkingDraft,
 } from '../utils/invoiceStorage.ts'
-import { hasPartyContent } from '../utils/address.ts'
 import { hasInvoiceErrors, validateInvoice } from '../utils/invoiceValidation.ts'
 
 type InvoiceDraftContextValue = {
@@ -90,41 +96,113 @@ function savedToInvoice(saved: SavedInvoice): Invoice {
     lineItems: saved.lineItems.map((item) => ({ ...item })),
     payment: { ...saved.payment },
     notes: saved.notes,
+    invoiceLogo: { ...(saved.invoiceLogo ?? BUILTIN_INVOICE_LOGO) },
   }
 }
 
 export function InvoiceDraftProvider({ children }: { children: ReactNode }) {
-  const { defaultFromId, getPerson, loading: directoryLoading } = useDirectory()
+  const {
+    people,
+    defaultFromId: directoryDefaultFromId,
+    loading: directoryLoading,
+  } = useDirectory()
+  const {
+    defaults,
+    loading: settingsLoading,
+    allocateNumber,
+    currentInvoiceLogo,
+  } = useSettings()
   const initial = loadWorkingDraft()
+  const persistEnabled = useRef(
+    Boolean(initial.savedId) ||
+      (initial.recovered && hasMeaningfulDraftContent(initial.invoice)),
+  )
+  const keepInitialDraft = persistEnabled.current
   const [invoice, setInvoice] = useState<Invoice>(initial.invoice)
   const [savedId, setSavedId] = useState<string | null>(initial.savedId)
   const [status, setStatus] = useState<InvoiceStatus>(initial.status)
   const [touched, setTouched] = useState<Record<string, boolean>>({})
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const appliedDefaultFrom = useRef(false)
+  const appliedDefaults = useRef(false)
 
   useEffect(() => {
+    if (!persistEnabled.current) {
+      return
+    }
     saveWorkingDraft({ invoice, savedId, status })
   }, [invoice, savedId, status])
 
+  const applyFreshDraft = useCallback(async () => {
+    const fromId = defaults.defaultFromId || directoryDefaultFromId
+    const person = fromId
+      ? people.find((entry) => entry.id === fromId)
+      : undefined
+    let number = ''
+    try {
+      number = await allocateNumber()
+    } catch {
+      number = ''
+    }
+    const next = snapshotNewInvoice({
+      defaults: payloadToInvoiceDefaults(defaults),
+      fromPerson: person ? partyFromPerson(person) : null,
+      number,
+      invoiceLogo: currentInvoiceLogo,
+    })
+    persistEnabled.current = true
+    setInvoice(next)
+    setSavedId(null)
+    setStatus('draft')
+    setTouched({})
+    setSaveError(null)
+  }, [
+    allocateNumber,
+    currentInvoiceLogo,
+    defaults,
+    directoryDefaultFromId,
+    people,
+  ])
+
   useEffect(() => {
-    if (directoryLoading || appliedDefaultFrom.current) {
+    if (directoryLoading || settingsLoading || appliedDefaults.current) {
       return
     }
-    appliedDefaultFrom.current = true
-    if (savedId || hasPartyContent(invoice.from)) {
+
+    if (keepInitialDraft || savedId) {
+      appliedDefaults.current = true
+      persistEnabled.current = true
       return
     }
-    const person = defaultFromId ? getPerson(defaultFromId) : undefined
-    if (person) {
-      setInvoice((current) =>
-        hasPartyContent(current.from)
-          ? current
-          : { ...current, from: partyFromPerson(person) },
-      )
+
+    appliedDefaults.current = true
+    void applyFreshDraft()
+  }, [
+    applyFreshDraft,
+    directoryLoading,
+    keepInitialDraft,
+    savedId,
+    settingsLoading,
+  ])
+
+  useEffect(() => {
+    if (settingsLoading || savedId) {
+      return
     }
-  }, [directoryLoading, defaultFromId, getPerson, invoice.from, savedId])
+    const memo = payloadToInvoiceDefaults(defaults).paymentMemo
+    if (!memo) {
+      return
+    }
+    setInvoice((current) => {
+      if (current.payment.memo.trim()) {
+        return current
+      }
+      return {
+        ...current,
+        payment: { ...current.payment, memo },
+      }
+    })
+  }, [defaults, savedId, settingsLoading])
 
   const totals = useMemo(() => calculateInvoiceTotals(invoice), [invoice])
   const errors = useMemo(() => validateInvoice(invoice), [invoice])
@@ -252,22 +330,12 @@ export function InvoiceDraftProvider({ children }: { children: ReactNode }) {
     [touched],
   )
 
-  const applyFreshDraft = useCallback(() => {
-    const next = createDefaultInvoice()
-    const person = defaultFromId ? getPerson(defaultFromId) : undefined
-    setInvoice(person ? { ...next, from: partyFromPerson(person) } : next)
-    setSavedId(null)
-    setStatus('draft')
-    setTouched({})
-    setSaveError(null)
-  }, [defaultFromId, getPerson])
-
   const resetDraft = useCallback(() => {
-    applyFreshDraft()
+    void applyFreshDraft()
   }, [applyFreshDraft])
 
   const startNewInvoice = useCallback(() => {
-    applyFreshDraft()
+    void applyFreshDraft()
   }, [applyFreshDraft])
 
   const saveInvoice = useCallback(async () => {
@@ -350,7 +418,7 @@ export function InvoiceDraftProvider({ children }: { children: ReactNode }) {
       try {
         await deleteInvoice(targetId)
         if (savedId === targetId) {
-          applyFreshDraft()
+          await applyFreshDraft()
         }
         return true
       } catch (error) {

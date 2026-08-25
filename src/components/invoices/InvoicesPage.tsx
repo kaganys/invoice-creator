@@ -6,16 +6,18 @@ import { useAppView } from '../../nav/AppViewContext.tsx'
 import type { InvoiceListItem } from '../../types/invoice.ts'
 import { formatInvoiceDate } from '../../utils/dates.ts'
 import { formatMoney } from '../../utils/money.ts'
+import { InvoiceDetailModal } from './InvoiceDetailModal.tsx'
 import './InvoicesPage.css'
 
 export function InvoicesPage() {
   const { setView } = useAppView()
-  const { startNewInvoice, loadSavedInvoice, deleteSavedDraft, saving } =
+  const { startNewInvoice, deleteSavedDraft, saving } =
     useInvoiceDraft()
   const [invoices, setInvoices] = useState<InvoiceListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [openId, setOpenId] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     const rows = await fetchInvoices()
@@ -50,15 +52,8 @@ export function InvoicesPage() {
     }
   }, [refresh])
 
-  async function openInvoice(id: string) {
-    try {
-      await loadSavedInvoice(id)
-      setView('invoice')
-    } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : 'Could not open invoice.',
-      )
-    }
+  function openInvoice(id: string) {
+    setOpenId(id)
   }
 
   async function confirmDelete(id: string) {
@@ -123,12 +118,19 @@ export function InvoicesPage() {
               {invoices.map((row) => {
                 const deleting = pendingDeleteId === row.id
                 return (
-                  <tr key={row.id}>
+                  <tr
+                    key={row.id}
+                    className="invoices-table__row"
+                    onClick={() => openInvoice(row.id)}
+                  >
                     <td>
                       <button
                         type="button"
                         className="invoices-table__link"
-                        onClick={() => void openInvoice(row.id)}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          openInvoice(row.id)
+                        }}
                       >
                         {row.number}
                       </button>
@@ -138,7 +140,9 @@ export function InvoicesPage() {
                     <td>{row.dueDate ? formatInvoiceDate(row.dueDate) : '—'}</td>
                     <td>{formatMoney(row.amountCents, row.currency)}</td>
                     <td>
-                      <span className="badge">{row.status}</span>
+                      <span className={`badge badge--${row.status}`}>
+                        {row.status}
+                      </span>
                     </td>
                     <td>
                       {row.status === 'draft' ? (
@@ -148,7 +152,10 @@ export function InvoicesPage() {
                               type="button"
                               className="btn btn--ghost"
                               disabled={saving}
-                              onClick={() => setPendingDeleteId(null)}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                setPendingDeleteId(null)
+                              }}
                             >
                               Cancel
                             </button>
@@ -156,7 +163,10 @@ export function InvoicesPage() {
                               type="button"
                               className="btn btn--danger"
                               disabled={saving}
-                              onClick={() => void confirmDelete(row.id)}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                void confirmDelete(row.id)
+                              }}
                             >
                               Confirm
                             </button>
@@ -165,7 +175,10 @@ export function InvoicesPage() {
                           <button
                             type="button"
                             className="btn btn--ghost"
-                            onClick={() => setPendingDeleteId(row.id)}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              setPendingDeleteId(row.id)
+                            }}
                           >
                             Delete
                           </button>
@@ -179,6 +192,14 @@ export function InvoicesPage() {
           </table>
         </div>
       ) : null}
+
+      <InvoiceDetailModal
+        invoiceId={openId}
+        onClose={() => setOpenId(null)}
+        onChanged={() => {
+          void refresh()
+        }}
+      />
     </div>
   )
 }

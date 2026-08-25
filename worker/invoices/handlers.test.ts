@@ -5,7 +5,9 @@ import {
   deleteInvoice,
   getInvoice,
   listInvoices,
+  markInvoicePaid,
   updateInvoice,
+  voidInvoice,
 } from './handlers.ts'
 import type { InvoiceRecord, InvoiceStore } from './types.ts'
 
@@ -111,6 +113,70 @@ function createMemoryStore(): InvoiceStore {
       }
       invoices.delete(id)
       return 'deleted'
+    },
+    async markPaid(id, fields) {
+      const existing = invoices.get(id)
+      if (!existing) {
+        return 'not_found'
+      }
+      if (existing.status === 'paid') {
+        return 'already_paid'
+      }
+      if (existing.status === 'void') {
+        return 'void'
+      }
+      existing.status = 'paid'
+      existing.paidAt = fields.paidAt
+      existing.paidMethod = fields.paidMethod
+      existing.updatedAt = fields.updatedAt
+      return 'ok'
+    },
+    async voidInvoice(id, fields) {
+      const existing = invoices.get(id)
+      if (!existing) {
+        return 'not_found'
+      }
+      if (existing.status === 'void') {
+        return 'already_void'
+      }
+      if (existing.status === 'paid') {
+        return 'paid'
+      }
+      existing.status = 'void'
+      existing.voidedAt = fields.voidedAt
+      existing.voidReason = fields.voidReason
+      existing.updatedAt = fields.updatedAt
+      return 'ok'
+    },
+    async snapshotFormat(id, formatJson, updatedAt) {
+      const existing = invoices.get(id)
+      if (!existing || existing.format) {
+        return
+      }
+      existing.format = JSON.parse(formatJson)
+      existing.updatedAt = updatedAt
+    },
+    async applySendSuccess(id, fields) {
+      const existing = invoices.get(id)
+      if (!existing) {
+        return
+      }
+      existing.status = fields.status
+      existing.firstSentAt = existing.firstSentAt ?? fields.firstSentAt
+      existing.lastSentAt = fields.lastSentAt
+      existing.sendCount = fields.sendCount
+      existing.format = existing.format ?? JSON.parse(fields.formatJson)
+      existing.updatedAt = fields.updatedAt
+    },
+    async insertEmailLog() {
+      return 'ok'
+    },
+    async updateEmailLog() {},
+    async getEmailLogByIdempotency() {
+      return null
+    },
+    async listEmailLogs() {
+      return []
     },
   }
 }
@@ -275,5 +341,144 @@ describe('invoice API handlers', () => {
     expect(invalidLine.status).toBe(400)
     const malformed = await createInvoice(jsonRequest('{nope', 'POST'), store)
     expect(malformed.status).toBe(400)
+  })
+
+  it('marks an invoice paid with method and timestamp', async () => {
+    const store = createMemoryStore()
+    await createInvoice(
+      jsonRequest(body()),
+      store,
+      () => NOW,
+      () => ID_A,
+    )
+    const paid = await markInvoicePaid(
+      ID_A,
+      jsonRequest({ method: 'zelle' }, 'POST'),
+      store,
+      () => '2026-08-26T10:00:00.000Z',
+    )
+    expect(paid.status).toBe(200)
+    const record = await store.get(ID_A)
+    expect(record?.status).toBe('paid')
+    expect(record?.paidMethod).toBe('zelle')
+    expect(record?.paidAt).toBe('2026-08-26T10:00:00.000Z')
+    expect(record?.payment.cardFeePercentScaled).toBe(300)
+  })
+
+  it('rejects marking paid twice and marking a void invoice paid', async () => {
+    const store = createMemoryStore()
+    await createInvoice(
+      jsonRequest(body()),
+      store,
+      () => NOW,
+      () => ID_A,
+    )
+    await createInvoice(
+      jsonRequest(body({ number: 'VOID-1' })),
+      store,
+      () => NOW,
+      () => ID_B,
+    )
+    await markInvoicePaid(
+      ID_A,
+      jsonRequest({ method: 'manual' }, 'POST'),
+      store,
+    )
+    const twice = await markInvoicePaid(
+      ID_A,
+      jsonRequest({ method: 'other' }, 'POST'),
+      store,
+    )
+    expect(twice.status).toBe(409)
+    await voidInvoice(ID_B, jsonRequest({ reason: 'cancelled' }, 'POST'), store)
+    const paidVoid = await markInvoicePaid(
+      ID_B,
+      jsonRequest({ method: 'zelle' }, 'POST'),
+      store,
+    )
+    expect(paidVoid.status).toBe(409)
+  })
+
+  it('voids an invoice and keeps it in the store', async () => {
+    const store = createMemoryStore()
+    await createInvoice(
+      jsonRequest(body()),
+      store,
+      () => NOW,
+      () => ID_A,
+    )
+    const voided = await voidInvoice(
+      ID_A,
+      jsonRequest({ reason: 'Duplicate' }, 'POST'),
+      store,
+      () => '2026-08-26T11:00:00.000Z',
+    )
+    expect(voided.status).toBe(200)
+    const record = await store.get(ID_A)
+    expect(record?.status).toBe('void')
+    expect(record?.voidReason).toBe('Duplicate')
+    expect(record?.voidedAt).toBe('2026-08-26T11:00:00.000Z')
+  })
+
+  it('rejects voiding a paid invoice and editing a void invoice', async () => {
+    const store = createMemoryStore()
+    await createInvoice(
+      jsonRequest(body()),
+      store,
+      () => NOW,
+      () => ID_A,
+    )
+    await markInvoicePaid(
+      ID_A,
+      jsonRequest({ method: 'zelle' }, 'POST'),
+      store,
+    )
+    const voidPaid = await voidInvoice(
+      ID_A,
+      jsonRequest({ reason: 'nope' }, 'POST'),
+      store,
+    )
+    expect(voidPaid.status).toBe(409)
+
+    await createInvoice(
+      jsonRequest(body({ number: 'VOID-2' })),
+      store,
+      () => NOW,
+      () => ID_B,
+    )
+    await voidInvoice(ID_B, jsonRequest({ reason: '' }, 'POST'), store)
+    const edited = await updateInvoice(
+      ID_B,
+      jsonRequest(body({ number: 'VOID-2', customer: { name: 'X' } }), 'PUT'),
+      store,
+    )
+    expect(edited.status).toBe(409)
+  })
+
+  it('updates an existing invoice rather than creating a duplicate', async () => {
+    const store = createMemoryStore()
+    await createInvoice(
+      jsonRequest(body()),
+      store,
+      () => NOW,
+      () => ID_A,
+    )
+    await updateInvoice(
+      ID_A,
+      jsonRequest(
+        body({ customer: { name: 'Updated Customer' } }),
+        'PUT',
+      ),
+      store,
+      () => '2026-08-25T16:00:00.000Z',
+      () => LINE_B,
+    )
+    expect(await store.get(ID_A)).toMatchObject({
+      id: ID_A,
+      customer: { name: 'Updated Customer' },
+    })
+    expect(await store.findIdByNumber('BD2026-0100')).toBe(ID_A)
+    const listed = await readJson(await listInvoices(store))
+    expect((listed.invoices as unknown[]).length).toBe(1)
   })
 })
