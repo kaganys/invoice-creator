@@ -10,10 +10,22 @@ import {
 } from '../invoices/handlers.ts'
 import { getInvoicePdf, loadCurrentFormat, previewInvoicePdf } from '../invoices/pdf.ts'
 import { listInvoiceEmails, sendInvoice } from '../invoices/send.ts'
+import {
+  getInvoicePaymentLink,
+  regenerateInvoicePaymentLink,
+  revokeInvoicePaymentLink,
+} from '../payments/admin.ts'
+import { createD1PaymentTokenStore } from '../payments/d1Store.ts'
+import { adminDisplayPaymentBaseUrl } from '../payments/tokenCrypto.ts'
 import { createBrowserPdfRenderer } from '../pdf/browserPdf.ts'
 import type { Router } from '../router.ts'
 import { createD1SettingsStore } from '../settings/d1Store.ts'
-import { browserBinding, smtpPasswordSecret } from '../settings/env.ts'
+import {
+  browserBinding,
+  paymentLinkKeySecret,
+  publicPaymentBaseUrlConfig,
+  smtpPasswordSecret,
+} from '../settings/env.ts'
 import { serializeFormat } from '../settings/format.ts'
 import { nowIso } from '../lib/ids.ts'
 
@@ -23,6 +35,18 @@ function pdfDeps(env: Env, request: Request) {
     settings: createD1SettingsStore(env.DB),
     pdf: createBrowserPdfRenderer(browserBinding(env)),
     origin: new URL(request.url).origin,
+  }
+}
+
+function paymentLinkDeps(env: Env, request: Request) {
+  return {
+    invoices: createD1InvoiceStore(env.DB),
+    tokens: createD1PaymentTokenStore(env.DB),
+    paymentLinkKey: paymentLinkKeySecret(env),
+    baseUrl: adminDisplayPaymentBaseUrl(
+      publicPaymentBaseUrlConfig(env),
+      new URL(request.url).origin,
+    ),
   }
 }
 
@@ -63,7 +87,26 @@ export function registerInvoiceRoutes(router: Router): void {
     sendInvoice(params.id ?? '', request, {
       ...pdfDeps(env, request),
       smtpPassword: smtpPasswordSecret(env),
+      tokens: createD1PaymentTokenStore(env.DB),
+      paymentLinkKey: paymentLinkKeySecret(env),
+      paymentBaseUrl: publicPaymentBaseUrlConfig(env),
     }),
+  )
+
+  router.get('/api/invoices/:id/payment-link', (request, env, _ctx, params) =>
+    getInvoicePaymentLink(params.id ?? '', paymentLinkDeps(env, request)),
+  )
+
+  router.post(
+    '/api/invoices/:id/payment-link/regenerate',
+    (request, env, _ctx, params) =>
+      regenerateInvoicePaymentLink(params.id ?? '', paymentLinkDeps(env, request)),
+  )
+
+  router.post(
+    '/api/invoices/:id/payment-link/revoke',
+    (request, env, _ctx, params) =>
+      revokeInvoicePaymentLink(params.id ?? '', paymentLinkDeps(env, request)),
   )
 
   router.post('/api/invoices/:id/mark-paid', async (request, env, _ctx, params) => {

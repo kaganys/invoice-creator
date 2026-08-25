@@ -15,6 +15,7 @@ import {
   updateDefaults,
   updateNumbering,
   updateFormat,
+  updatePayments,
   updateSmtp,
   uploadBrandingAsset,
 } from '../api/settings.ts'
@@ -29,6 +30,7 @@ import type {
   BrandingSettingsPayload,
   InvoiceDefaultsPayload,
   NumberingSettingsPayload,
+  PaymentsSettingsPayload,
   SmtpSettingsPayload,
 } from '../types/settings.ts'
 import {
@@ -96,6 +98,13 @@ export const FALLBACK_SETTINGS: AppSettingsPayload = {
     passwordConfigured: false,
   },
   format: defaultInvoiceFormat(),
+  payments: {
+    stripeEnabled: false,
+    cardPaymentsEnabled: false,
+    publishableKey: '',
+    statementDescriptor: 'BITZ DESIGNS',
+    secretConfigured: false,
+  },
 }
 
 type SettingsContextValue = {
@@ -105,6 +114,7 @@ type SettingsContextValue = {
   branding: BrandingSettingsPayload
   smtp: SmtpSettingsPayload
   format: InvoiceFormat
+  payments: PaymentsSettingsPayload
   loading: boolean
   saving: boolean
   error: string | null
@@ -119,6 +129,9 @@ type SettingsContextValue = {
   saveNextSequence: (nextSequence: number) => Promise<void>
   saveSmtp: (payload: Omit<SmtpSettingsPayload, 'passwordConfigured'>) => Promise<void>
   saveFormat: (payload: InvoiceFormat) => Promise<void>
+  savePayments: (
+    payload: Omit<PaymentsSettingsPayload, 'secretConfigured'>,
+  ) => Promise<void>
   uploadAsset: (kind: BrandingKind, file: File) => Promise<void>
   restoreAsset: (kind: BrandingKind) => Promise<void>
   allocateNumber: () => Promise<string>
@@ -167,6 +180,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       },
       smtp: { ...FALLBACK_SETTINGS.smtp, ...payload.smtp },
       format: payload.format ?? FALLBACK_SETTINGS.format,
+      payments: { ...FALLBACK_SETTINGS.payments, ...payload.payments },
     })
   }, [])
 
@@ -264,6 +278,18 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     [runMutation],
   )
 
+  const savePayments = useCallback(
+    (payload: Omit<PaymentsSettingsPayload, 'secretConfigured'>) =>
+      runMutation(async () => {
+        const result = await updatePayments(payload)
+        setSettings((current) => ({
+          ...current,
+          payments: result.payments,
+        }))
+      }),
+    [runMutation],
+  )
+
   const saveFormat = useCallback(
     (payload: InvoiceFormat) =>
       runMutation(async () => {
@@ -337,6 +363,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       branding: settings.branding,
       smtp: settings.smtp,
       format: settings.format,
+      payments: settings.payments,
       loading,
       saving,
       error,
@@ -346,6 +373,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       saveNextSequence,
       saveSmtp,
       saveFormat,
+      savePayments,
       uploadAsset,
       restoreAsset,
       allocateNumber,
@@ -362,6 +390,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       saveNextSequence,
       saveSmtp,
       saveFormat,
+      savePayments,
       uploadAsset,
       restoreAsset,
       allocateNumber,

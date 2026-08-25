@@ -5,6 +5,7 @@ import type {
   BrandingSettingsPayload,
   InvoiceDefaultsPayload,
   NumberingSettingsPayload,
+  PaymentsSettingsPayload,
   SmtpSettingsPayload,
 } from '../types/settings.ts'
 import { ApiError, apiRequest } from './http.ts'
@@ -63,6 +64,15 @@ export async function testSmtp(to: string): Promise<{ message: string; to: strin
   return apiRequest('/api/settings/smtp/test', {
     method: 'POST',
     body: JSON.stringify({ to }),
+  })
+}
+
+export async function updatePayments(
+  payments: Omit<PaymentsSettingsPayload, 'secretConfigured'>,
+): Promise<{ payments: PaymentsSettingsPayload }> {
+  return apiRequest('/api/settings/payments', {
+    method: 'PUT',
+    body: JSON.stringify(payments),
   })
 }
 

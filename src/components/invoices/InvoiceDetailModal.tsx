@@ -3,9 +3,13 @@ import { ApiError } from '../../api/http.ts'
 import {
   fetchInvoice,
   fetchInvoiceEmails,
+  fetchPaymentLink,
   markInvoicePaid,
+  regeneratePaymentLink,
+  revokePaymentLink,
   sendInvoiceEmail,
   voidInvoice,
+  type PaymentLinkPayload,
 } from '../../api/invoices.ts'
 import { prepareInvoiceEmail } from '../../invoice/emailHtml.ts'
 import {
@@ -85,6 +89,9 @@ export function InvoiceDetailModal({
   const [idempotencyKey, setIdempotencyKey] = useState('')
   const [sending, setSending] = useState(false)
   const [emailEditorOpen, setEmailEditorOpen] = useState(false)
+  const [paymentLink, setPaymentLink] = useState<PaymentLinkPayload | null>(null)
+  const [linkBusy, setLinkBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
   const [confirmPaid, setConfirmPaid] = useState(false)
   const [paidMethod, setPaidMethod] = useState<PaidMethod>('zelle')
   const [confirmVoid, setConfirmVoid] = useState(false)
@@ -123,6 +130,16 @@ export function InvoiceDetailModal({
         } catch {
           if (!cancelled) {
             setEmails([])
+          }
+        }
+        try {
+          const link = await fetchPaymentLink(invoiceId)
+          if (!cancelled) {
+            setPaymentLink(link.paymentLink)
+          }
+        } catch {
+          if (!cancelled) {
+            setPaymentLink(null)
           }
         }
       })
@@ -193,6 +210,7 @@ export function InvoiceDetailModal({
     try {
       const next = await markInvoicePaid(invoiceId, paidMethod)
       setInvoice(next)
+      setPaymentLink(null)
       setConfirmPaid(false)
       onChanged()
     } catch (caught) {
@@ -255,6 +273,12 @@ export function InvoiceDetailModal({
       setSendOpen(false)
       const history = await fetchInvoiceEmails(invoiceId)
       setEmails(history.emails)
+      try {
+        const link = await fetchPaymentLink(invoiceId)
+        setPaymentLink(link.paymentLink)
+      } catch {
+        setPaymentLink(null)
+      }
       onChanged()
     } catch (caught) {
       setError(
@@ -282,6 +306,7 @@ export function InvoiceDetailModal({
     try {
       const next = await voidInvoice(invoiceId, voidReason)
       setInvoice(next)
+      setPaymentLink(null)
       setConfirmVoid(false)
       onChanged()
     } catch (caught) {
@@ -489,6 +514,87 @@ export function InvoiceDetailModal({
               <dd>{invoice.sendCount}</dd>
             </div>
           </dl>
+        ) : null}
+
+        {invoice && (status === 'sent' || paymentLink) ? (
+          <div className="invoice-payment-link">
+            <h3>Payment link</h3>
+            {paymentLink?.url && paymentLink.status === 'active' ? (
+              <>
+                <p className="invoice-payment-link__url">{paymentLink.url}</p>
+                <div className="invoice-detail-modal__confirm">
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(paymentLink.url ?? '')
+                      setCopied(true)
+                      window.setTimeout(() => setCopied(false), 1500)
+                    }}
+                  >
+                    {copied ? 'Copied' : 'Copy'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    disabled={linkBusy || status === 'paid' || status === 'void'}
+                    onClick={() => {
+                      if (
+                        !invoiceId ||
+                        !window.confirm(
+                          'Regenerate this payment link? The previous link will stop working.',
+                        )
+                      ) {
+                        return
+                      }
+                      setLinkBusy(true)
+                      void regeneratePaymentLink(invoiceId)
+                        .then((result) => setPaymentLink(result.paymentLink))
+                        .catch((caught: unknown) =>
+                          setError(
+                            caught instanceof Error
+                              ? caught.message
+                              : 'Could not regenerate the payment link.',
+                          ),
+                        )
+                        .finally(() => setLinkBusy(false))
+                    }}
+                  >
+                    Regenerate link
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    disabled={linkBusy}
+                    onClick={() => {
+                      if (!invoiceId) {
+                        return
+                      }
+                      setLinkBusy(true)
+                      void revokePaymentLink(invoiceId)
+                        .then(() => setPaymentLink(null))
+                        .catch((caught: unknown) =>
+                          setError(
+                            caught instanceof Error
+                              ? caught.message
+                              : 'Could not revoke the payment link.',
+                          ),
+                        )
+                        .finally(() => setLinkBusy(false))
+                    }}
+                  >
+                    Revoke link
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="settings-help">
+                {status === 'sent'
+                  ? 'No active payment link. Send the invoice or regenerate a link.'
+                  : 'This invoice does not have an active payment link.'}
+              </p>
+            )}
+          </div>
         ) : null}
 
         {sendOpen && invoice ? (

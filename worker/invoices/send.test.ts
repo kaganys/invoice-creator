@@ -6,6 +6,7 @@ import type { EmailLogRecord, InvoiceRecord, InvoiceStore } from './types.ts'
 import type { PdfRenderer } from '../pdf/types.ts'
 import type { SettingsKvStore } from '../settings/types.ts'
 import type { MailTransport } from '../mail/types.ts'
+import type { PaymentTokenRecord, PaymentTokenStore } from '../payments/types.ts'
 import { serializeFormat } from '../settings/format.ts'
 import { SETTINGS_KEYS } from '../settings/keys.ts'
 
@@ -549,5 +550,232 @@ describe('invoice send', () => {
     )
     const latest = await store.get(ID_A)
     expect(latest?.customer.email).toBe('ada@example.com')
+  })
+
+  it('creates a payment token on first send and reuses it on resend', async () => {
+    const store = createStore(record())
+    const rows: PaymentTokenRecord[] = []
+    const tokens: PaymentTokenStore = {
+      async getActiveByInvoiceId(invoiceId) {
+        return rows.find((row) => row.invoiceId === invoiceId && row.status === 'active') ?? null
+      },
+      async getByHash(tokenHash) {
+        return rows.find((row) => row.tokenHash === tokenHash) ?? null
+      },
+      async insert(record) {
+        rows.push(record)
+      },
+      async revokeActive(invoiceId, reason, revokedAt) {
+        let count = 0
+        for (const row of rows) {
+          if (row.invoiceId === invoiceId && row.status === 'active') {
+            row.status = 'revoked'
+            row.revokedReason = reason
+            row.revokedAt = revokedAt
+            count += 1
+          }
+        }
+        return count
+      },
+    }
+    const urls: string[] = []
+    const deps = {
+      store,
+      settings: settingsStore({ [SETTINGS_KEYS.smtp]: smtpConfig() }),
+      pdf: pdfMock({ html: '' }),
+      origin: 'https://example.test',
+      smtpPassword: 'secret',
+      clock: () => NOW,
+      idFactory: () => 'abababab-abab-4aba-8aba-abababababab',
+      tokens,
+      paymentLinkKey: 'test-payment-link-key',
+      paymentBaseUrl: 'https://pay.example.com',
+      mailFactory: () => ({
+        async send(message) {
+          const match = /https:\/\/pay\.example\.com\/i\/[A-Za-z0-9_-]+/.exec(
+            `${message.text}\n${message.html ?? ''}`,
+          )
+          if (match) {
+            urls.push(match[0])
+          }
+          return {}
+        },
+      }),
+    }
+    const first = await sendInvoice(
+      ID_A,
+      jsonRequest({
+        recipient: 'ada@example.com',
+        subject: 'Invoice',
+        body: 'Pay at {{payment_url}}',
+        idempotencyKey: 'pay-1',
+      }),
+      deps,
+    )
+    expect(first.status).toBe(200)
+    expect(rows.filter((row) => row.status === 'active')).toHaveLength(1)
+    const second = await sendInvoice(
+      ID_A,
+      jsonRequest({
+        recipient: 'ada@example.com',
+        subject: 'Invoice',
+        body: 'Pay at {{payment_url}}',
+        idempotencyKey: 'pay-2',
+      }),
+      { ...deps, clock: () => LATER, idFactory: () => 'cdcdcdcd-cdcd-4cdc-8cdc-cdcdcdcdcdcd' },
+    )
+    expect(second.status).toBe(200)
+    expect(rows.filter((row) => row.status === 'active')).toHaveLength(1)
+    expect(urls[0]).toBe(urls[1])
+    expect(urls[0]).toMatch(/^https:\/\/pay\.example\.com\/i\/[A-Za-z0-9_-]{43}$/)
+    expect(urls[0]).not.toContain('localhost')
+    expect(JSON.stringify(rows)).not.toMatch(/plain\./)
+  })
+
+  it('does not email a localhost payment URL when PUBLIC_PAYMENT_BASE_URL is missing', async () => {
+    const store = createStore(record())
+    let sent = false
+    const response = await sendInvoice(
+      ID_A,
+      jsonRequest({
+        recipient: 'ada@example.com',
+        subject: 'Invoice',
+        body: 'Pay at {{payment_url}}',
+        idempotencyKey: 'pay-missing-base',
+      }),
+      {
+        store,
+        settings: settingsStore({ [SETTINGS_KEYS.smtp]: smtpConfig() }),
+        pdf: pdfMock({ html: '' }),
+        origin: 'http://localhost:5173',
+        smtpPassword: 'secret',
+        clock: () => NOW,
+        idFactory: () => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa11',
+        tokens: {
+          async getActiveByInvoiceId() {
+            return null
+          },
+          async getByHash() {
+            return null
+          },
+          async insert() {},
+          async revokeActive() {
+            return 0
+          },
+        },
+        paymentLinkKey: 'test-payment-link-key',
+        paymentBaseUrl: undefined,
+        mailFactory: () => ({
+          async send() {
+            sent = true
+            return {}
+          },
+        }),
+      },
+    )
+    expect(response.status).toBe(400)
+    const payload = (await response.json()) as { error: string }
+    expect(payload.error).toMatch(/PUBLIC_PAYMENT_BASE_URL/)
+    expect(payload.error).not.toMatch(/localhost/)
+    expect(sent).toBe(false)
+  })
+
+  it('rejects a malformed PUBLIC_PAYMENT_BASE_URL before SMTP', async () => {
+    const store = createStore(record())
+    let sent = false
+    const response = await sendInvoice(
+      ID_A,
+      jsonRequest({
+        recipient: 'ada@example.com',
+        subject: 'Invoice',
+        body: 'Pay at {{payment_url}}',
+        idempotencyKey: 'pay-bad-base',
+      }),
+      {
+        store,
+        settings: settingsStore({ [SETTINGS_KEYS.smtp]: smtpConfig() }),
+        pdf: pdfMock({ html: '' }),
+        origin: 'https://example.test',
+        smtpPassword: 'secret',
+        clock: () => NOW,
+        idFactory: () => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa12',
+        tokens: {
+          async getActiveByInvoiceId() {
+            return null
+          },
+          async getByHash() {
+            return null
+          },
+          async insert() {},
+          async revokeActive() {
+            return 0
+          },
+        },
+        paymentLinkKey: 'test-payment-link-key',
+        paymentBaseUrl: 'pay.bitzdesigns.co',
+        mailFactory: () => ({
+          async send() {
+            sent = true
+            return {}
+          },
+        }),
+      },
+    )
+    expect(response.status).toBe(400)
+    expect(sent).toBe(false)
+    const payload = (await response.json()) as { error: string }
+    expect(payload.error).toMatch(/PUBLIC_PAYMENT_BASE_URL|absolute/i)
+  })
+
+  it('does not create a payment token when PAYMENT_LINK_KEY is missing', async () => {
+    const store = createStore(record())
+    const inserted: unknown[] = []
+    let sent = false
+    const response = await sendInvoice(
+      ID_A,
+      jsonRequest({
+        recipient: 'ada@example.com',
+        subject: 'Invoice',
+        body: 'Hello',
+        idempotencyKey: 'pay-missing-key',
+      }),
+      {
+        store,
+        settings: settingsStore({ [SETTINGS_KEYS.smtp]: smtpConfig() }),
+        pdf: pdfMock({ html: '' }),
+        origin: 'http://localhost:5173',
+        smtpPassword: 'secret',
+        clock: () => NOW,
+        idFactory: () => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa13',
+        tokens: {
+          async getActiveByInvoiceId() {
+            return null
+          },
+          async getByHash() {
+            return null
+          },
+          async insert(record) {
+            inserted.push(record)
+          },
+          async revokeActive() {
+            return 0
+          },
+        },
+        paymentLinkKey: undefined,
+        paymentBaseUrl: 'https://pay.bitzdesigns.co',
+        mailFactory: () => ({
+          async send() {
+            sent = true
+            return {}
+          },
+        }),
+      },
+    )
+    expect(response.status).toBe(400)
+    expect(sent).toBe(false)
+    expect(inserted).toHaveLength(0)
+    const payload = (await response.json()) as { error: string }
+    expect(payload.error).toMatch(/PAYMENT_LINK_KEY/)
+    expect(JSON.stringify(inserted)).not.toMatch(/plain\./)
   })
 })

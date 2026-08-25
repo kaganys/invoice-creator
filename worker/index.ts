@@ -3,6 +3,7 @@ import { Router } from './router.ts'
 import { registerHealthRoutes } from './routes/health.ts'
 import { registerInvoiceRoutes } from './routes/invoices.ts'
 import { registerPeopleRoutes } from './routes/people.ts'
+import { registerPublicRoutes } from './routes/public.ts'
 import { registerSettingsRoutes } from './routes/settings.ts'
 
 const router = new Router()
@@ -10,6 +11,7 @@ registerHealthRoutes(router)
 registerPeopleRoutes(router)
 registerSettingsRoutes(router)
 registerInvoiceRoutes(router)
+registerPublicRoutes(router)
 
 export default {
   async fetch(request, env, ctx) {

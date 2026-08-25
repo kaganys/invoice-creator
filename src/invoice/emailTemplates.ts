@@ -17,6 +17,7 @@ export const EMAIL_VARIABLES = [
   { id: 'due_date', label: 'Due date' },
   { id: 'zelle_email', label: 'Zelle email' },
   { id: 'payment_memo', label: 'Payment memo' },
+  { id: 'payment_url', label: 'Payment URL' },
 ] as const
 
 export type EmailVariableId = (typeof EMAIL_VARIABLES)[number]['id']
@@ -31,10 +32,15 @@ export type TemplateVars = {
   due_date: string
   zelle_email: string
   payment_memo: string
+  payment_url: string
 }
 
-export function invoiceTemplateVars(invoice: Invoice): TemplateVars {
+export function invoiceTemplateVars(
+  invoice: Invoice,
+  extras: { paymentUrl?: string } = {},
+): TemplateVars {
   const totals = calculateInvoiceTotals(invoice)
+  const paymentUrl = extras.paymentUrl?.trim() ?? ''
   return {
     invoice_number: invoice.number.trim() || 'invoice',
     customer_name: invoice.customer.name.trim() || 'there',
@@ -43,6 +49,7 @@ export function invoiceTemplateVars(invoice: Invoice): TemplateVars {
     due_date: formatInvoiceDate(invoice.dueDate) || 'upon receipt',
     zelle_email: invoice.payment.zelleEmail.trim() || 'billing@bitzdesigns.co',
     payment_memo: invoice.payment.memo.trim(),
+    payment_url: paymentUrl,
   }
 }
 

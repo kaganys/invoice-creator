@@ -35,6 +35,19 @@ describe('email templates', () => {
     expect(text).not.toContain('unknown_token')
   })
 
+  it('substitutes payment_url only when provided', () => {
+    const invoice = createDefaultInvoice()
+    const blank = invoiceTemplateVars(invoice)
+    expect(blank.payment_url).toBe('')
+    expect(applyEmailTemplate('Pay {{payment_url}}', blank)).toBe('Pay ')
+    const withUrl = invoiceTemplateVars(invoice, {
+      paymentUrl: 'https://pay.example.com/i/abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG',
+    })
+    expect(applyEmailTemplate('Pay {{payment_url}}', withUrl)).toContain(
+      'https://pay.example.com/i/',
+    )
+  })
+
   it('detects header injection', () => {
     expect(containsHeaderInjection('hello\nbcc: evil@x.com')).toBe(true)
     expect(containsHeaderInjection('hello\r\nSubject: x')).toBe(true)
@@ -52,6 +65,7 @@ describe('email templates', () => {
         due_date: 'soon',
         zelle_email: 'a@b.co',
         payment_memo: 'Line 1\nLine 2',
+        payment_url: '',
       },
     )
     expect(html).toContain('&lt;script&gt;')

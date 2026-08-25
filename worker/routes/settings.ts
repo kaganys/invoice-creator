@@ -7,7 +7,11 @@ import {
   createD1SettingsStore,
   createR2ObjectStore,
 } from '../settings/d1Store.ts'
-import { brandingBucket, smtpPasswordSecret } from '../settings/env.ts'
+import {
+  brandingBucket,
+  smtpPasswordSecret,
+  stripeSecretKey,
+} from '../settings/env.ts'
 import {
   allocateInvoiceNumber,
   changeNextSequence,
@@ -18,10 +22,12 @@ import {
   serveBrandingFile,
   getNumberingSettings,
   getFormatSettings,
+  getPaymentsSettings,
   getSmtpSettings,
   testSmtpSettings,
   updateDefaults,
   updateFormatSettings,
+  updatePaymentsSettings,
   updateNumberingSettings,
   updateSmtpSettings,
   uploadBrandingAsset,
@@ -37,6 +43,7 @@ function deps(env: Env): SettingsDeps {
     invoices: createD1InvoiceStore(env.DB),
     objects: bucket ? createR2ObjectStore(bucket) : undefined,
     smtpPassword: smtpPasswordSecret(env),
+    stripeSecret: stripeSecretKey(env),
   }
 }
 
@@ -94,5 +101,12 @@ export function registerSettingsRoutes(router: Router): void {
   )
   router.put('/api/settings/format', (request, env) =>
     updateFormatSettings(request, deps(env)),
+  )
+
+  router.get('/api/settings/payments', (_request, env) =>
+    getPaymentsSettings(deps(env)),
+  )
+  router.put('/api/settings/payments', (request, env) =>
+    updatePaymentsSettings(request, deps(env)),
   )
 }

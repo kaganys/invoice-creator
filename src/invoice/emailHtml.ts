@@ -178,4 +178,5 @@ export const SAMPLE_EMAIL_VARS: TemplateVars = {
   zelle_email: 'billing@bitzdesigns.co',
   payment_memo:
     'Please pay by Zelle using your invoice number as the memo.',
+  payment_url: '',
 }

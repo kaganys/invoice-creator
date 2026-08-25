@@ -1,6 +1,7 @@
 import { isAllowedBrandingPath } from '../../src/branding.ts'
 import { BUILTIN_INVOICE_LOGO } from '../../src/types/invoice.ts'
 import { lineAmountCents } from '../../src/utils/money.ts'
+import { REVOKE_ACTIVE_TOKENS_SQL } from '../payments/d1Store.ts'
 import { parseFormatJson } from '../settings/format.ts'
 import type {
   EmailLogRecord,
@@ -437,14 +438,18 @@ export function createD1InvoiceStore(db: D1Database): InvoiceStore {
       if (row.status === 'void') {
         return 'void'
       }
-      await db
-        .prepare(
-          `UPDATE invoices
-           SET status = 'paid', paid_at = ?, paid_method = ?, updated_at = ?
-           WHERE id = ?`,
-        )
-        .bind(fields.paidAt, fields.paidMethod, fields.updatedAt, id)
-        .run()
+      await db.batch([
+        db
+          .prepare(
+            `UPDATE invoices
+             SET status = 'paid', paid_at = ?, paid_method = ?, updated_at = ?
+             WHERE id = ?`,
+          )
+          .bind(fields.paidAt, fields.paidMethod, fields.updatedAt, id),
+        db
+          .prepare(REVOKE_ACTIVE_TOKENS_SQL)
+          .bind(fields.updatedAt, 'paid', id),
+      ])
       return 'ok'
     },
 
@@ -462,14 +467,18 @@ export function createD1InvoiceStore(db: D1Database): InvoiceStore {
       if (row.status === 'paid') {
         return 'paid'
       }
-      await db
-        .prepare(
-          `UPDATE invoices
-           SET status = 'void', voided_at = ?, void_reason = ?, updated_at = ?
-           WHERE id = ?`,
-        )
-        .bind(fields.voidedAt, fields.voidReason, fields.updatedAt, id)
-        .run()
+      await db.batch([
+        db
+          .prepare(
+            `UPDATE invoices
+             SET status = 'void', voided_at = ?, void_reason = ?, updated_at = ?
+             WHERE id = ?`,
+          )
+          .bind(fields.voidedAt, fields.voidReason, fields.updatedAt, id),
+        db
+          .prepare(REVOKE_ACTIVE_TOKENS_SQL)
+          .bind(fields.updatedAt, 'void', id),
+      ])
       return 'ok'
     },
 

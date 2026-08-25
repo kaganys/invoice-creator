@@ -8,6 +8,7 @@ import { BrandingPanel } from './BrandingPanel.tsx'
 import { DefaultsPanel } from './DefaultsPanel.tsx'
 import { FormatPanel } from './FormatPanel.tsx'
 import { NumberingPanel } from './NumberingPanel.tsx'
+import { PaymentsPanel } from './PaymentsPanel.tsx'
 import { SmtpPanel } from './SmtpPanel.tsx'
 import './SettingsPage.css'
 
@@ -48,6 +49,7 @@ export function SettingsPage() {
         >
           {category === 'defaults' ? <DefaultsPanel /> : null}
           {category === 'email' ? <SmtpPanel /> : null}
+          {category === 'payments' ? <PaymentsPanel /> : null}
           {category === 'branding' ? <BrandingPanel /> : null}
           {category === 'numbering' ? <NumberingPanel /> : null}
           {category === 'format' ? <FormatPanel /> : null}

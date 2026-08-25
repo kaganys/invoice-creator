@@ -6,6 +6,10 @@ interface __BaseEnv_Env {
 	DB: D1Database;
 	BROWSER?: Fetcher;
 	SMTP_PASSWORD?: string;
+	PUBLIC_PAYMENT_BASE_URL?: string;
+	PAYMENT_LINK_KEY?: string;
+	STRIPE_SECRET_KEY?: string;
+	STRIPE_WEBHOOK_SECRET?: string;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {

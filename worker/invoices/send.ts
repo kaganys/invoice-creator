@@ -24,6 +24,13 @@ import {
   resolveInvoiceFormat,
   type PdfDeps,
 } from './pdf.ts'
+import { ensureActivePaymentToken } from '../payments/ensureToken.ts'
+import {
+  parsePublicPaymentBaseUrl,
+  paymentPageUrl,
+  usesPaymentUrlPlaceholder,
+} from '../payments/tokenCrypto.ts'
+import type { PaymentTokenStore } from '../payments/types.ts'
 import type { InvoiceStore } from './types.ts'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -32,6 +39,9 @@ export type SendDeps = PdfDeps & {
   smtpPassword?: string
   idFactory?: () => string
   mailFactory?: (config: ReturnType<typeof parseSmtpJson>, password: string) => MailTransport
+  tokens?: PaymentTokenStore
+  paymentLinkKey?: string
+  paymentBaseUrl?: string
 }
 
 function isEmail(value: string): boolean {
@@ -112,15 +122,45 @@ export async function sendInvoice(
   }
 
   const invoice = invoiceFromRecord(record)
-  const vars = invoiceTemplateVars(invoice)
-  const recipient = asTrimmedString(body.value.recipient) || invoice.customer.email
-  const subject =
-    asTrimmedString(body.value.subject) ||
-    applyEmailTemplate(smtp.subjectTemplate, vars)
+  const subjectTemplate =
+    asTrimmedString(body.value.subject) || smtp.subjectTemplate
   const bodyTemplate =
     typeof body.value.body === 'string' && body.value.body.trim()
       ? body.value.body
       : smtp.bodyTemplate
+  const needsPaymentUrl =
+    usesPaymentUrlPlaceholder(subjectTemplate) ||
+    usesPaymentUrlPlaceholder(bodyTemplate)
+  const customerBase = parsePublicPaymentBaseUrl(deps.paymentBaseUrl)
+  if (needsPaymentUrl && !customerBase.ok) {
+    return errorJson(customerBase.message, 400)
+  }
+
+  let paymentUrl = ''
+  if (deps.tokens && record.status !== 'paid') {
+    const ensured = await ensureActivePaymentToken(id, {
+      tokens: deps.tokens,
+      paymentLinkKey: deps.paymentLinkKey,
+      clock: deps.clock,
+      idFactory: deps.idFactory,
+    })
+    if (!ensured.ok) {
+      return errorJson(ensured.message, 400)
+    }
+    if (customerBase.ok) {
+      paymentUrl = paymentPageUrl(customerBase.value, ensured.rawToken)
+    }
+  }
+  if (needsPaymentUrl && !paymentUrl) {
+    return errorJson(
+      'Cannot send this email because {{payment_url}} is used but no customer-facing payment URL could be built. Set PUBLIC_PAYMENT_BASE_URL and PAYMENT_LINK_KEY.',
+      400,
+    )
+  }
+
+  const vars = invoiceTemplateVars(invoice, { paymentUrl })
+  const recipient = asTrimmedString(body.value.recipient) || invoice.customer.email
+  const subject = applyEmailTemplate(subjectTemplate, vars)
   const prepared = prepareInvoiceEmail(bodyTemplate, vars)
   const text = prepared.text
   const html = prepared.html

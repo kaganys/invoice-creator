@@ -6,6 +6,7 @@ export type { BrandingKind }
 export const SETTINGS_CATEGORIES = [
   { id: 'defaults', label: 'Defaults' },
   { id: 'email', label: 'Email / SMTP' },
+  { id: 'payments', label: 'Payments' },
   { id: 'branding', label: 'Branding' },
   { id: 'numbering', label: 'Invoice Numbering' },
   { id: 'format', label: 'Format' },
@@ -62,6 +63,14 @@ export type BrandingSettingsPayload = {
   invoiceLogo: BrandingAssetPayload
 }
 
+export type PaymentsSettingsPayload = {
+  stripeEnabled: boolean
+  cardPaymentsEnabled: boolean
+  publishableKey: string
+  statementDescriptor: string
+  secretConfigured: boolean
+}
+
 export type AppSettingsPayload = {
   defaultFromId: string | null
   defaults: InvoiceDefaultsPayload
@@ -69,4 +78,5 @@ export type AppSettingsPayload = {
   branding: BrandingSettingsPayload
   smtp: SmtpSettingsPayload
   format: InvoiceFormat
+  payments: PaymentsSettingsPayload
 }

@@ -110,3 +110,31 @@ export async function sendInvoiceEmail(
     body: JSON.stringify(payload),
   })
 }
+
+export type PaymentLinkPayload = {
+  url: string | null
+  createdAt: string
+  status: 'active' | 'revoked'
+}
+
+export async function fetchPaymentLink(
+  id: string,
+): Promise<{ paymentLink: PaymentLinkPayload | null }> {
+  return apiRequest(`/api/invoices/${id}/payment-link`)
+}
+
+export async function regeneratePaymentLink(
+  id: string,
+): Promise<{ paymentLink: PaymentLinkPayload }> {
+  return apiRequest(`/api/invoices/${id}/payment-link/regenerate`, {
+    method: 'POST',
+  })
+}
+
+export async function revokePaymentLink(
+  id: string,
+): Promise<{ paymentLink: null; revoked: boolean }> {
+  return apiRequest(`/api/invoices/${id}/payment-link/revoke`, {
+    method: 'POST',
+  })
+}

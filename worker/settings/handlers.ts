@@ -54,6 +54,12 @@ import {
 } from '../../src/invoice/emailTemplates.ts'
 import type { MailTransport } from '../mail/types.ts'
 import { createSmtpTransport } from '../mail/smtpTransport.ts'
+import {
+  parsePaymentsJson,
+  publicPayments,
+  serializePayments,
+  validatePaymentsWrite,
+} from './payments.ts'
 import type { ObjectStore, SequenceStore, SettingsKvStore, SmtpConfig } from './types.ts'
 
 
@@ -68,6 +74,7 @@ export type SettingsDeps = {
   now?: () => Date
   idFactory?: () => string
   mailFactory?: (config: SmtpConfig, password: string) => MailTransport
+  stripeSecret?: string
 }
 
 async function loadDefaultFromId(
@@ -114,12 +121,13 @@ async function loadSmtp(deps: SettingsDeps) {
 
 export async function getAllSettings(deps: SettingsDeps): Promise<Response> {
   const now = (deps.now ?? (() => new Date()))()
-  const [defaults, numbering, branding, smtp, format] = await Promise.all([
+  const [defaults, numbering, branding, smtp, format, payments] = await Promise.all([
     loadDefaults(deps),
     loadNumbering(deps),
     loadBranding(deps),
     loadSmtp(deps),
     loadFormat(deps),
+    loadPayments(deps),
   ])
   return json({
     defaultFromId: defaults.defaultFromId,
@@ -128,7 +136,16 @@ export async function getAllSettings(deps: SettingsDeps): Promise<Response> {
     branding: publicBranding(branding),
     smtp: publicSmtp(smtp, smtpPasswordConfigured(deps.smtpPassword)),
     format: publicFormat(format),
+    payments: publicPayments(
+      payments,
+      typeof deps.stripeSecret === 'string' && deps.stripeSecret.length > 0,
+    ),
   })
+}
+
+async function loadPayments(deps: SettingsDeps) {
+  const raw = await deps.settings.get(SETTINGS_KEYS.payments)
+  return parsePaymentsJson(raw)
 }
 
 async function loadFormat(deps: SettingsDeps) {
@@ -421,6 +438,42 @@ export async function updateFormatSettings(
   return json({ format: publicFormat(parsed.value) })
 }
 
+export async function getPaymentsSettings(deps: SettingsDeps): Promise<Response> {
+  const payments = await loadPayments(deps)
+  return json({
+    payments: publicPayments(
+      payments,
+      typeof deps.stripeSecret === 'string' && deps.stripeSecret.length > 0,
+    ),
+  })
+}
+
+export async function updatePaymentsSettings(
+  request: Request,
+  deps: SettingsDeps,
+): Promise<Response> {
+  const body = await readJsonBody(request)
+  if (!body.ok) {
+    return body.response
+  }
+  const parsed = validatePaymentsWrite(body.value)
+  if (!parsed.ok) {
+    return errorJson(parsed.message, 400)
+  }
+  const clock = deps.clock ?? nowIso
+  await deps.settings.set(
+    SETTINGS_KEYS.payments,
+    serializePayments(parsed.value),
+    clock(),
+  )
+  return json({
+    payments: publicPayments(
+      parsed.value,
+      typeof deps.stripeSecret === 'string' && deps.stripeSecret.length > 0,
+    ),
+  })
+}
+
 const TEST_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export async function testSmtpSettings(
@@ -471,6 +524,7 @@ export async function testSmtpSettings(
     due_date: '',
     zelle_email: '',
     payment_memo: '',
+    payment_url: '',
   })
   const text = `This is a real SMTP test from the Bitz Designs invoicing application.\n\nIf you received this, the configured SMTP host can deliver mail.\n\n${templates.subject}`
 
