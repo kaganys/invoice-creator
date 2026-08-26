@@ -10,7 +10,14 @@ export type InvoiceLineRecord = {
   unitPriceCents: number
 }
 
-export type PaidMethod = 'zelle' | 'manual' | 'other' | 'card'
+export type PaidMethod =
+  | 'zelle'
+  | 'manual'
+  | 'other'
+  | 'card'
+  | 'ach'
+  | 'apple_pay'
+  | 'google_pay'
 
 export type InvoiceRecord = {
   id: string
@@ -36,6 +43,9 @@ export type InvoiceRecord = {
   format: InvoiceFormat | null
   stripePaymentIntentId: string | null
   paidAmountCents: number | null
+  stripePaymentMethod: string | null
+  stripeWalletType: string | null
+  stripePaymentStatus: string | null
   lineItems: InvoiceLineRecord[]
 }
 
@@ -92,6 +102,9 @@ export interface InvoiceStore {
       updatedAt: string
       stripePaymentIntentId?: string | null
       paidAmountCents?: number | null
+      stripePaymentMethod?: string | null
+      stripeWalletType?: string | null
+      stripePaymentStatus?: string | null
     },
   ): Promise<MarkPaidResult>
   attachStripeReceipt(
@@ -100,8 +113,30 @@ export interface InvoiceStore {
       stripePaymentIntentId: string
       paidAmountCents: number
       updatedAt: string
+      stripePaymentMethod?: string | null
+      stripeWalletType?: string | null
+      stripePaymentStatus?: string | null
     },
   ): Promise<void>
+  updateStripeProgress(
+    id: string,
+    fields: {
+      stripePaymentIntentId?: string | null
+      stripePaymentMethod?: string | null
+      stripeWalletType?: string | null
+      stripePaymentStatus?: string | null
+      updatedAt: string
+    },
+  ): Promise<void>
+  claimStripeAttempt(
+    id: string,
+    fields: {
+      stripePaymentMethod?: string | null
+      stripeWalletType?: string | null
+      stripePaymentStatus: string
+      updatedAt: string
+    },
+  ): Promise<boolean>
   voidInvoice(
     id: string,
     fields: { voidedAt: string; voidReason: string; updatedAt: string },

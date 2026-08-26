@@ -6,7 +6,10 @@ import { json } from '../http.ts'
 import { invoiceFromRecord } from '../invoices/document.ts'
 import type { InvoiceStore } from '../invoices/types.ts'
 import {
+  achPaymentsReady,
+  anyStripePaymentReady,
   cardPaymentsReady,
+  publicPaymentMethodTypes,
   type PaymentsConfig,
 } from '../settings/payments.ts'
 import { hashPaymentToken, isWellFormedPaymentToken } from './tokenCrypto.ts'
@@ -60,7 +63,10 @@ export async function getPublicInvoiceByToken(
         ...invoice,
         lineItems: [],
         cardPaymentAvailable: false,
+        achPaymentAvailable: false,
+        paymentMethodTypes: [],
         stripePublishableKey: null,
+        pendingKind: null,
       } satisfies PublicInvoicePayload,
     } satisfies PublicInvoiceResponse)
   }
@@ -72,7 +78,28 @@ export async function getPublicInvoiceByToken(
         ...invoice,
         lineItems: [],
         cardPaymentAvailable: false,
+        achPaymentAvailable: false,
+        paymentMethodTypes: [],
         stripePublishableKey: null,
+        pendingKind: null,
+      } satisfies PublicInvoicePayload,
+    } satisfies PublicInvoiceResponse)
+  }
+
+  if (
+    record.status === 'sent' &&
+    isPendingStripeStatus(record.stripePaymentStatus)
+  ) {
+    return json({
+      state: 'processing',
+      invoice: {
+        ...invoice,
+        cardPaymentAvailable: false,
+        achPaymentAvailable: false,
+        paymentMethodTypes: [],
+        stripePublishableKey: null,
+        pendingKind:
+          record.stripePaymentMethod === 'us_bank_account' ? 'ach' : 'card',
       } satisfies PublicInvoicePayload,
     } satisfies PublicInvoiceResponse)
   }
@@ -87,16 +114,28 @@ export async function getPublicInvoiceByToken(
   } satisfies PublicInvoiceResponse)
 }
 
+function isPendingStripeStatus(status: string | null | undefined): boolean {
+  return (
+    status === 'processing' ||
+    status === 'confirming' ||
+    status === 'requires_action' ||
+    status === 'succeeded'
+  )
+}
+
 function toPublicPayload(
-  record: Parameters<typeof invoiceFromRecord>[0],
+  record: Parameters<typeof invoiceFromRecord>[0] & {
+    stripePaymentStatus?: string | null
+  },
   payments: PaymentsConfig | undefined,
   stripeSecretConfigured: boolean | undefined,
 ): PublicInvoicePayload {
   const invoice = invoiceFromRecord(record)
   const totals = calculateInvoiceTotals(invoice)
-  const cardReady = payments
-    ? cardPaymentsReady(payments, Boolean(stripeSecretConfigured))
-    : false
+  const secret = Boolean(stripeSecretConfigured)
+  const cardReady = payments ? cardPaymentsReady(payments, secret) : false
+  const achReady = payments ? achPaymentsReady(payments, secret) : false
+  const stripeReady = payments ? anyStripePaymentReady(payments, secret) : false
   return {
     number: invoice.number,
     customerName: invoice.customer.name.trim(),
@@ -123,7 +162,12 @@ function toPublicPayload(
     cardFee: formatMoney(totals.cardFeeCents, invoice.currency),
     cardTotal: formatMoney(totals.cardTotalCents, invoice.currency),
     cardPaymentAvailable: cardReady,
-    stripePublishableKey: cardReady ? payments?.publishableKey ?? null : null,
+    achPaymentAvailable: achReady,
+    paymentMethodTypes: payments
+      ? publicPaymentMethodTypes(payments, secret)
+      : [],
+    stripePublishableKey: stripeReady ? payments?.publishableKey ?? null : null,
     logoPath: invoiceLogoPath(invoice.invoiceLogo),
+    pendingKind: null,
   }
 }

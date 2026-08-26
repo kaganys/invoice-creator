@@ -71,6 +71,9 @@ function invoiceRecord(overrides: Partial<InvoiceRecord> = {}): InvoiceRecord {
     format: null,
     stripePaymentIntentId: null,
     paidAmountCents: null,
+    stripePaymentMethod: null,
+    stripeWalletType: null,
+    stripePaymentStatus: null,
     lineItems: [
       {
         id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
@@ -146,6 +149,10 @@ function createInvoiceStore(seed: InvoiceRecord): InvoiceStore {
       return 'ok'
     },
     async attachStripeReceipt() {},
+    async updateStripeProgress() {},
+    async claimStripeAttempt() {
+      return true
+    },
     async voidInvoice(id, fields) {
       const existing = invoices.get(id)
       if (!existing) {
@@ -288,6 +295,7 @@ describe('public payment tokens', () => {
       payments: {
         stripeEnabled: true,
         cardPaymentsEnabled: true,
+        achPaymentsEnabled: true,
         publishableKey: 'pk_test_51ABC',
         statementDescriptor: 'BITZ',
       },
@@ -299,6 +307,8 @@ describe('public payment tokens', () => {
       cardFeeCents: number
       cardTotalCents: number
       cardPaymentAvailable: boolean
+      achPaymentAvailable: boolean
+      paymentMethodTypes: string[]
       zelleEmail?: string
       paymentMemo?: string
     }
@@ -307,6 +317,8 @@ describe('public payment tokens', () => {
     expect(invoice.cardFeeCents).toBe(150)
     expect(invoice.cardTotalCents).toBe(5150)
     expect(invoice.cardPaymentAvailable).toBe(true)
+    expect(invoice.achPaymentAvailable).toBe(true)
+    expect(invoice.paymentMethodTypes).toEqual(['card', 'us_bank_account'])
     expect(invoice.zelleEmail).toBeUndefined()
     expect(invoice.paymentMemo).toBeUndefined()
     expect(JSON.stringify(payload)).not.toMatch(/zelle/i)
@@ -372,6 +384,43 @@ describe('public payment tokens', () => {
     }
     expect(zeroInvoice.cardFeeCents).toBe(0)
     expect(zeroInvoice.cardTotalCents).toBe(5000)
+  })
+
+  it('returns processing for an ACH payment that has not settled', async () => {
+    const tokens = createTokenStore()
+    const invoices = createInvoiceStore(
+      invoiceRecord({
+        stripePaymentStatus: 'processing',
+        stripePaymentMethod: 'us_bank_account',
+      }),
+    )
+    const ensured = await issueToken(
+      tokens,
+      'cccccccc-cccc-4ccc-8ccc-cccccccccc03',
+    )
+    const response = await getPublicInvoiceByToken(ensured.rawToken, {
+      tokens,
+      invoices,
+      payments: {
+        stripeEnabled: true,
+        cardPaymentsEnabled: true,
+        achPaymentsEnabled: true,
+        publishableKey: 'pk_test_51ABC',
+        statementDescriptor: 'BITZ',
+      },
+      stripeSecretConfigured: true,
+    })
+    const payload = await readJson(response)
+    expect(payload.state).toBe('processing')
+    const invoice = payload.invoice as {
+      stripePublishableKey: string | null
+      pendingKind: string | null
+      cardPaymentAvailable: boolean
+    }
+    expect(invoice.pendingKind).toBe('ach')
+    expect(invoice.stripePublishableKey).toBeNull()
+    expect(invoice.cardPaymentAvailable).toBe(false)
+    expect(await tokens.getActiveByInvoiceId(INVOICE_ID)).not.toBeNull()
   })
 
   it('returns invalid for unknown tokens and sequential invoice numbers', async () => {

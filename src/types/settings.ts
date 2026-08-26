@@ -66,6 +66,7 @@ export type BrandingSettingsPayload = {
 export type PaymentsSettingsPayload = {
   stripeEnabled: boolean
   cardPaymentsEnabled: boolean
+  achPaymentsEnabled: boolean
   publishableKey: string
   statementDescriptor: string
   secretConfigured: boolean

@@ -73,6 +73,9 @@ function invoiceRecord(overrides: Partial<InvoiceRecord> = {}): InvoiceRecord {
     format: null,
     stripePaymentIntentId: null,
     paidAmountCents: null,
+    stripePaymentMethod: null,
+    stripeWalletType: null,
+    stripePaymentStatus: null,
     lineItems: [
       {
         id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
@@ -142,7 +145,24 @@ function invoiceStore(seed: InvoiceRecord): InvoiceStore {
       existing.updatedAt = fields.updatedAt
       existing.stripePaymentIntentId = fields.stripePaymentIntentId ?? null
       existing.paidAmountCents = fields.paidAmountCents ?? null
+      existing.stripePaymentMethod = fields.stripePaymentMethod ?? null
+      existing.stripeWalletType = fields.stripeWalletType ?? null
+      existing.stripePaymentStatus = fields.stripePaymentStatus ?? 'succeeded'
       return 'ok'
+    },
+    async updateStripeProgress(id, fields) {
+      const existing = invoices.get(id)
+      if (!existing) {
+        return
+      }
+      existing.stripePaymentIntentId =
+        existing.stripePaymentIntentId ?? fields.stripePaymentIntentId ?? null
+      existing.stripePaymentMethod =
+        existing.stripePaymentMethod ?? fields.stripePaymentMethod ?? null
+      existing.stripeWalletType =
+        existing.stripeWalletType ?? fields.stripeWalletType ?? null
+      existing.stripePaymentStatus = fields.stripePaymentStatus ?? null
+      existing.updatedAt = fields.updatedAt
     },
     async attachStripeReceipt(id, fields) {
       const existing = invoices.get(id)
@@ -152,7 +172,16 @@ function invoiceStore(seed: InvoiceRecord): InvoiceStore {
       existing.stripePaymentIntentId =
         existing.stripePaymentIntentId ?? fields.stripePaymentIntentId
       existing.paidAmountCents = existing.paidAmountCents ?? fields.paidAmountCents
+      existing.stripePaymentMethod =
+        existing.stripePaymentMethod ?? fields.stripePaymentMethod ?? null
+      existing.stripeWalletType =
+        existing.stripeWalletType ?? fields.stripeWalletType ?? null
+      existing.stripePaymentStatus =
+        fields.stripePaymentStatus ?? existing.stripePaymentStatus
       existing.updatedAt = fields.updatedAt
+    },
+    async claimStripeAttempt() {
+      return true
     },
     async voidInvoice() {
       return 'not_found'
@@ -228,6 +257,20 @@ function ledger(): PaymentLedger & {
       }
       payments.push(structuredClone(record))
       return 'ok'
+    },
+    async updatePaymentStatus(provider, providerPaymentId, fields) {
+      const existing = payments.find(
+        (item) =>
+          item.provider === provider &&
+          item.providerPaymentId === providerPaymentId,
+      )
+      if (!existing) {
+        return
+      }
+      existing.status = fields.status
+      existing.stripeEventId = fields.stripeEventId ?? existing.stripeEventId
+      existing.reviewReason = fields.reviewReason ?? existing.reviewReason
+      existing.paidAt = fields.paidAt ?? existing.paidAt
     },
     async markPaymentSucceeded(provider, providerPaymentId, fields) {
       const existing = payments.find(
@@ -352,11 +395,18 @@ describe('Stripe webhook finalization', () => {
           async createPaymentIntent() {
             throw new Error('should not create')
           },
+          async retrieveConfirmationToken() {
+            throw new Error('should not create')
+          },
+          async confirmWithToken() {
+            throw new Error('should not create')
+          },
         },
         payments: {
           ...DEFAULT_PAYMENTS,
           stripeEnabled: true,
           cardPaymentsEnabled: true,
+          achPaymentsEnabled: false,
           publishableKey: 'pk_test_51ABC',
         },
         stripeSecret: 'sk_test_secret',
@@ -633,6 +683,12 @@ describe('Stripe webhook finalization', () => {
       async createPaymentIntent() {
         throw new Error('should not create')
       },
+      async retrieveConfirmationToken() {
+        throw new Error('should not create')
+      },
+      async confirmWithToken() {
+        throw new Error('should not create')
+      },
     }
     const response = await createPublicPaymentIntent(
       raw,
@@ -659,11 +715,209 @@ describe('Stripe webhook finalization', () => {
           ...DEFAULT_PAYMENTS,
           stripeEnabled: true,
           cardPaymentsEnabled: true,
+          achPaymentsEnabled: false,
           publishableKey: 'pk_test_51ABC',
         },
         stripeSecret: 'sk_test_secret',
       },
     )
     expect(response.status).toBe(409)
+  })
+
+  it('records ACH processing without marking paid or revoking the token', async () => {
+    const rawToken = generatePaymentToken()
+    const tokens = tokenStore({
+      id: TOKEN_ID,
+      invoiceId: INVOICE_ID,
+      tokenHash: await hashPaymentToken(rawToken),
+      encryptedToken: 'v1.x',
+      createdAt: NOW,
+      revokedAt: null,
+      revokedReason: null,
+      status: 'active',
+    })
+    const invoices = invoiceStore(invoiceRecord())
+    const books = ledger()
+    const response = await handleStripeWebhook(
+      await signedRequest(
+        intentEvent('payment_intent.processing', {
+          amount: 5000,
+          amount_received: 0,
+          status: 'processing',
+          metadata: {
+            invoice_id: INVOICE_ID,
+            invoice_number: 'BD2026-0051',
+            payment_token_id: TOKEN_ID,
+            payment_category: 'ach',
+          },
+          payment_method_types: ['us_bank_account'],
+        }),
+      ),
+      {
+        invoices,
+        tokens,
+        ledger: books,
+        webhookSecret: SECRET,
+        clock: () => NOW,
+        nowSeconds: () => TIMESTAMP,
+        idFactory: () => '55555555-5555-4555-8555-555555555555',
+      },
+    )
+    expect(response.status).toBe(200)
+    const invoice = await invoices.get(INVOICE_ID)
+    expect(invoice?.status).toBe('sent')
+    expect(invoice?.stripePaymentStatus).toBe('processing')
+    expect(books.payments[0]?.status).toBe('processing')
+    expect(await tokens.getActiveByInvoiceId(INVOICE_ID)).not.toBeNull()
+    const publicState = await getPublicInvoiceByToken(rawToken, { tokens, invoices })
+    expect((await publicState.json() as { state: string }).state).toBe('processing')
+  })
+
+  it('marks a successful ACH payment paid and revokes the token', async () => {
+    const rawToken = generatePaymentToken()
+    const tokens = tokenStore({
+      id: TOKEN_ID,
+      invoiceId: INVOICE_ID,
+      tokenHash: await hashPaymentToken(rawToken),
+      encryptedToken: 'v1.x',
+      createdAt: NOW,
+      revokedAt: null,
+      revokedReason: null,
+      status: 'active',
+    })
+    const invoices = invoiceStore(
+      invoiceRecord({
+        stripePaymentStatus: 'processing',
+        stripePaymentMethod: 'us_bank_account',
+      }),
+    )
+    const books = ledger()
+    const response = await handleStripeWebhook(
+      await signedRequest(
+        intentEvent('payment_intent.succeeded', {
+          amount: 5000,
+          amount_received: 5000,
+          payment_method_types: ['us_bank_account'],
+          metadata: {
+            invoice_id: INVOICE_ID,
+            invoice_number: 'BD2026-0051',
+            payment_token_id: TOKEN_ID,
+            payment_category: 'ach',
+          },
+        }),
+      ),
+      {
+        invoices,
+        tokens,
+        ledger: books,
+        webhookSecret: SECRET,
+        clock: () => NOW,
+        nowSeconds: () => TIMESTAMP,
+        idFactory: () => '66666666-6666-4666-8666-666666666666',
+      },
+    )
+    expect(response.status).toBe(200)
+    const invoice = await invoices.get(INVOICE_ID)
+    expect(invoice?.status).toBe('paid')
+    expect(invoice?.paidMethod).toBe('ach')
+    expect(invoice?.paidAmountCents).toBe(5000)
+    expect(books.payments[0]?.status).toBe('succeeded')
+    expect(books.payments[0]?.surchargeCents).toBe(0)
+    expect(await tokens.getActiveByInvoiceId(INVOICE_ID)).toBeNull()
+  })
+
+  it('leaves the invoice payable after a failed ACH payment', async () => {
+    const rawToken = generatePaymentToken()
+    const tokens = tokenStore({
+      id: TOKEN_ID,
+      invoiceId: INVOICE_ID,
+      tokenHash: await hashPaymentToken(rawToken),
+      encryptedToken: 'v1.x',
+      createdAt: NOW,
+      revokedAt: null,
+      revokedReason: null,
+      status: 'active',
+    })
+    const invoices = invoiceStore(
+      invoiceRecord({
+        stripePaymentStatus: 'processing',
+        stripePaymentMethod: 'us_bank_account',
+      }),
+    )
+    const books = ledger()
+    await handleStripeWebhook(
+      await signedRequest(
+        intentEvent('payment_intent.payment_failed', {
+          amount: 5000,
+          amount_received: 0,
+          status: 'requires_payment_method',
+          payment_method_types: ['us_bank_account'],
+          metadata: {
+            invoice_id: INVOICE_ID,
+            invoice_number: 'BD2026-0051',
+            payment_token_id: TOKEN_ID,
+            payment_category: 'ach',
+          },
+        }),
+      ),
+      {
+        invoices,
+        tokens,
+        ledger: books,
+        webhookSecret: SECRET,
+        clock: () => NOW,
+        nowSeconds: () => TIMESTAMP,
+        idFactory: () => '77777777-7777-4777-8777-777777777777',
+      },
+    )
+    const invoice = await invoices.get(INVOICE_ID)
+    expect(invoice?.status).toBe('sent')
+    expect(invoice?.stripePaymentStatus).toBe('failed')
+    expect(books.payments[0]?.status).toBe('failed')
+    expect(await tokens.getActiveByInvoiceId(INVOICE_ID)).not.toBeNull()
+    const publicState = await getPublicInvoiceByToken(rawToken, { tokens, invoices })
+    expect((await publicState.json() as { state: string }).state).toBe('payable')
+  })
+
+  it('treats Apple Pay webhook success as card-like', async () => {
+    const invoices = invoiceStore(invoiceRecord())
+    const tokens = tokenStore({
+      id: TOKEN_ID,
+      invoiceId: INVOICE_ID,
+      tokenHash: 'abc',
+      encryptedToken: 'v1.x',
+      createdAt: NOW,
+      revokedAt: null,
+      revokedReason: null,
+      status: 'active',
+    })
+    const books = ledger()
+    await handleStripeWebhook(
+      await signedRequest(
+        intentEvent('payment_intent.succeeded', {
+          charges: {
+            data: [
+              {
+                payment_method_details: {
+                  type: 'card',
+                  card: { wallet: { type: 'apple_pay' } },
+                },
+              },
+            ],
+          },
+        }),
+      ),
+      {
+        invoices,
+        tokens,
+        ledger: books,
+        webhookSecret: SECRET,
+        clock: () => NOW,
+        nowSeconds: () => TIMESTAMP,
+        idFactory: () => '88888888-8888-4888-8888-888888888888',
+      },
+    )
+    expect((await invoices.get(INVOICE_ID))?.paidMethod).toBe('apple_pay')
+    expect((await invoices.get(INVOICE_ID))?.paidAmountCents).toBe(5180)
   })
 })

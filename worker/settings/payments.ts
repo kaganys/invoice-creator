@@ -4,6 +4,7 @@ import type { ValidationResult } from '../invoices/validation.ts'
 export type PaymentsConfig = {
   stripeEnabled: boolean
   cardPaymentsEnabled: boolean
+  achPaymentsEnabled: boolean
   publishableKey: string
   statementDescriptor: string
 }
@@ -11,6 +12,7 @@ export type PaymentsConfig = {
 export const DEFAULT_PAYMENTS: PaymentsConfig = {
   stripeEnabled: false,
   cardPaymentsEnabled: false,
+  achPaymentsEnabled: false,
   publishableKey: '',
   statementDescriptor: 'BITZ DESIGNS',
 }
@@ -27,6 +29,7 @@ export function parsePaymentsJson(raw: string | null): PaymentsConfig {
     return {
       stripeEnabled: parsed.stripeEnabled === true,
       cardPaymentsEnabled: parsed.cardPaymentsEnabled === true,
+      achPaymentsEnabled: parsed.achPaymentsEnabled === true,
       publishableKey: asTrimmedString(parsed.publishableKey),
       statementDescriptor:
         asTrimmedString(parsed.statementDescriptor) ||
@@ -48,22 +51,60 @@ export function publicPayments(
   return {
     stripeEnabled: config.stripeEnabled,
     cardPaymentsEnabled: config.cardPaymentsEnabled,
+    achPaymentsEnabled: config.achPaymentsEnabled,
     publishableKey: config.publishableKey,
     statementDescriptor: config.statementDescriptor,
     secretConfigured,
   }
 }
 
-export function cardPaymentsReady(
+export function stripeConfigured(
   config: PaymentsConfig,
   secretConfigured: boolean,
 ): boolean {
   return (
     config.stripeEnabled &&
-    config.cardPaymentsEnabled &&
     secretConfigured &&
     isPublishableKey(config.publishableKey)
   )
+}
+
+export function cardPaymentsReady(
+  config: PaymentsConfig,
+  secretConfigured: boolean,
+): boolean {
+  return stripeConfigured(config, secretConfigured) && config.cardPaymentsEnabled
+}
+
+export function achPaymentsReady(
+  config: PaymentsConfig,
+  secretConfigured: boolean,
+): boolean {
+  return stripeConfigured(config, secretConfigured) && config.achPaymentsEnabled
+}
+
+export function anyStripePaymentReady(
+  config: PaymentsConfig,
+  secretConfigured: boolean,
+): boolean {
+  return (
+    cardPaymentsReady(config, secretConfigured) ||
+    achPaymentsReady(config, secretConfigured)
+  )
+}
+
+export function publicPaymentMethodTypes(
+  config: PaymentsConfig,
+  secretConfigured: boolean,
+): string[] {
+  const types: string[] = []
+  if (cardPaymentsReady(config, secretConfigured)) {
+    types.push('card')
+  }
+  if (achPaymentsReady(config, secretConfigured)) {
+    types.push('us_bank_account')
+  }
+  return types
 }
 
 export function isPublishableKey(value: string): boolean {
@@ -106,6 +147,7 @@ export function validatePaymentsWrite(
     value: {
       stripeEnabled: input.stripeEnabled === true,
       cardPaymentsEnabled: input.cardPaymentsEnabled === true,
+      achPaymentsEnabled: input.achPaymentsEnabled === true,
       publishableKey,
       statementDescriptor: statementDescriptor || DEFAULT_PAYMENTS.statementDescriptor,
     },

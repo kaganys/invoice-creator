@@ -39,7 +39,12 @@ export const BUILTIN_INVOICE_LOGO: InvoiceLogoSnapshot = {
 
 export const PAID_METHODS = ['zelle', 'manual', 'other'] as const
 
-export type PaidMethod = (typeof PAID_METHODS)[number] | 'card'
+export type PaidMethod =
+  | (typeof PAID_METHODS)[number]
+  | 'card'
+  | 'ach'
+  | 'apple_pay'
+  | 'google_pay'
 
 export const INVOICE_STATUSES = ['draft', 'sent', 'paid', 'void'] as const
 
@@ -73,6 +78,9 @@ export type SavedInvoice = Invoice & {
   format: InvoiceFormat | null
   stripePaymentIntentId: string | null
   paidAmountCents: number | null
+  stripePaymentMethod: string | null
+  stripeWalletType: string | null
+  stripePaymentStatus: string | null
 }
 
 export type InvoiceEmailLogItem = {

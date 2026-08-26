@@ -3,11 +3,14 @@ import { lineAmountCents } from '../../src/utils/money.ts'
 import type { InvoiceRecord, InvoiceStore } from '../invoices/types.ts'
 import { DEFAULT_PAYMENTS } from '../settings/payments.ts'
 import { calculateCardCharge } from './cardAmount.ts'
-import { createPublicPaymentIntent } from './intent.ts'
+import {
+  confirmPublicPayment,
+  createPublicPaymentIntent,
+} from './intent.ts'
 import type { StripeIntentStore, StoredStripeIntent } from './intentStore.ts'
 import { generatePaymentToken, hashPaymentToken } from './tokenCrypto.ts'
 import type { PaymentTokenRecord, PaymentTokenStore } from './types.ts'
-import type { CreatePaymentIntentInput, StripeGateway } from './stripeClient.ts'
+import type { ConfirmWithTokenInput, StripeGateway } from './stripeClient.ts'
 
 const INVOICE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const TOKEN_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
@@ -65,6 +68,9 @@ function invoiceRecord(overrides: Partial<InvoiceRecord> = {}): InvoiceRecord {
     format: null,
     stripePaymentIntentId: null,
     paidAmountCents: null,
+    stripePaymentMethod: null,
+    stripeWalletType: null,
+    stripePaymentStatus: null,
     lineItems: [
       {
         id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
@@ -120,6 +126,43 @@ function invoiceStore(seed: InvoiceRecord): InvoiceStore {
       return 'not_found'
     },
     async attachStripeReceipt() {},
+    async updateStripeProgress(id, fields) {
+      const existing = invoices.get(id)
+      if (!existing) {
+        return
+      }
+      if (fields.stripePaymentIntentId) {
+        existing.stripePaymentIntentId = fields.stripePaymentIntentId
+      }
+      if (fields.stripePaymentMethod !== undefined) {
+        existing.stripePaymentMethod = fields.stripePaymentMethod ?? null
+      }
+      if (fields.stripeWalletType !== undefined) {
+        existing.stripeWalletType = fields.stripeWalletType ?? null
+      }
+      existing.stripePaymentStatus = fields.stripePaymentStatus ?? null
+      existing.updatedAt = fields.updatedAt
+    },
+    async claimStripeAttempt(id, fields) {
+      const existing = invoices.get(id)
+      if (!existing || existing.status !== 'sent') {
+        return false
+      }
+      const status = existing.stripePaymentStatus
+      if (
+        status &&
+        status !== 'failed' &&
+        status !== 'canceled' &&
+        status !== 'requires_payment_method'
+      ) {
+        return false
+      }
+      existing.stripePaymentMethod = fields.stripePaymentMethod ?? existing.stripePaymentMethod
+      existing.stripeWalletType = fields.stripeWalletType ?? existing.stripeWalletType
+      existing.stripePaymentStatus = fields.stripePaymentStatus
+      existing.updatedAt = fields.updatedAt
+      return true
+    },
     async voidInvoice() {
       return 'not_found'
     },
@@ -190,6 +233,7 @@ const paymentsOn = {
   ...DEFAULT_PAYMENTS,
   stripeEnabled: true,
   cardPaymentsEnabled: true,
+  achPaymentsEnabled: true,
   publishableKey: 'pk_test_51ABC',
 }
 
@@ -262,63 +306,173 @@ describe('card charge from invoice snapshot', () => {
   })
 })
 
-describe('public PaymentIntent', () => {
-  it('charges the server-side card amount and ignores the client amount', async () => {
+function stripeMock(
+  preview: { paymentMethodType: string; walletType: string | null } = {
+    paymentMethodType: 'card',
+    walletType: null,
+  },
+): StripeGateway & { confirms: ConfirmWithTokenInput[] } {
+  const confirms: ConfirmWithTokenInput[] = []
+  return {
+    confirms,
+    async createPaymentIntent() {
+      throw new Error('deferred intent flow must not create a PaymentIntent first')
+    },
+    async retrieveConfirmationToken(id) {
+      return { id, ...preview }
+    },
+    async confirmWithToken(input) {
+      confirms.push(input)
+      return {
+        id: `pi_${confirms.length}`,
+        clientSecret: `secret_${confirms.length}`,
+        amount: input.amount,
+        currency: input.currency,
+        status: preview.paymentMethodType === 'us_bank_account' ? 'processing' : 'succeeded',
+      }
+    },
+  }
+}
+
+describe('public payment session', () => {
+  it('uses the ACH base amount when cards are disabled', async () => {
     const { raw, row, invoice } = await setup()
-    let created: CreatePaymentIntentInput | null = null
-    const stripe: StripeGateway = {
-      async createPaymentIntent(input) {
-        created = input
-        return {
-          id: 'pi_123',
-          clientSecret: 'pi_123_secret_abc',
-          amount: input.amount,
-          currency: input.currency,
-          status: 'requires_payment_method',
-        }
-      },
-    }
-    const response = await createPublicPaymentIntent(raw, jsonRequest({ amount: 1, fee: 0 }), {
+    const response = await createPublicPaymentIntent(raw, jsonRequest(), {
       tokens: tokenStore(row),
       invoices: invoiceStore(invoice),
       intents: intentStore(),
-      stripe,
-      payments: paymentsOn,
+      stripe: stripeMock(),
+      payments: { ...paymentsOn, cardPaymentsEnabled: false },
       stripeSecret: 'sk_test_secret',
-      clock: () => NOW,
-      idFactory: () => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
     })
+    const payload = (await response.json()) as Record<string, unknown>
+    expect(payload.chargeAmountCents).toBe(5000)
+    expect(payload.paymentMethodTypes).toEqual(['us_bank_account'])
+    expect(payload.clientSecret).toBeUndefined()
+  })
+
+  it('returns snapshot amounts without creating a PaymentIntent', async () => {
+    const { raw, row, invoice } = await setup()
+    const stripe = stripeMock()
+    const response = await createPublicPaymentIntent(
+      raw,
+      jsonRequest({ amount: 1, fee: 0 }),
+      {
+        tokens: tokenStore(row),
+        invoices: invoiceStore(invoice),
+        intents: intentStore(),
+        stripe,
+        payments: paymentsOn,
+        stripeSecret: 'sk_test_secret',
+      },
+    )
+    expect(response.status).toBe(200)
+    const payload = (await response.json()) as Record<string, unknown>
+    expect(payload.mode).toBe('payment')
+    expect(payload.invoiceAmountCents).toBe(5000)
+    expect(payload.cardFeeCents).toBe(180)
+    expect(payload.chargeAmountCents).toBe(5180)
+    expect(payload.paymentMethodTypes).toEqual(['card', 'us_bank_account'])
+    expect(payload.clientSecret).toBeUndefined()
+    expect(JSON.stringify(payload)).not.toContain('sk_test_secret')
+    expect(stripe.confirms).toHaveLength(0)
+  })
+})
+
+describe('public confirm', () => {
+  it('charges the server-side card amount and ignores the client amount', async () => {
+    const { raw, row, invoice } = await setup()
+    const stripe = stripeMock({ paymentMethodType: 'card', walletType: null })
+    const response = await confirmPublicPayment(
+      raw,
+      jsonRequest({
+        confirmationTokenId: 'ctoken_card',
+        amount: 1,
+        total: 9999,
+        returnUrl: 'https://pay.example.com/i/tok',
+      }),
+      {
+        tokens: tokenStore(row),
+        invoices: invoiceStore(invoice),
+        intents: intentStore(),
+        stripe,
+        payments: paymentsOn,
+        stripeSecret: 'sk_test_secret',
+        clock: () => NOW,
+        idFactory: () => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      },
+    )
     expect(response.status).toBe(200)
     const payload = (await response.json()) as Record<string, unknown>
     expect(payload.chargeAmountCents).toBe(5180)
     expect(payload.invoiceAmountCents).toBe(5000)
-    expect(payload.cardFeeCents).toBe(180)
-    expect(payload.clientSecret).toBe('pi_123_secret_abc')
+    expect(payload.surchargeCents).toBe(180)
+    expect(payload.category).toBe('card')
+    expect(stripe.confirms[0]?.amount).toBe(5180)
     expect(JSON.stringify(payload)).not.toContain('sk_test_secret')
-    expect(created?.amount).toBe(5180)
-    expect(created?.metadata).toMatchObject({
-      invoice_id: INVOICE_ID,
-      invoice_number: 'BD2026-0051',
-      payment_token_id: TOKEN_ID,
-    })
-    expect(created?.idempotencyKey).toContain(TOKEN_ID)
   })
 
-  it('reuses an existing PaymentIntent for the same token and amount', async () => {
+  it('applies no surcharge for ACH and does not mark the invoice paid', async () => {
     const { raw, row, invoice } = await setup()
-    let calls = 0
-    const stripe: StripeGateway = {
-      async createPaymentIntent(input) {
-        calls += 1
-        return {
-          id: `pi_${calls}`,
-          clientSecret: `secret_${calls}`,
-          amount: input.amount,
-          currency: input.currency,
-          status: 'requires_payment_method',
-        }
+    const invoices = invoiceStore(invoice)
+    const stripe = stripeMock({
+      paymentMethodType: 'us_bank_account',
+      walletType: null,
+    })
+    const response = await confirmPublicPayment(
+      raw,
+      jsonRequest({ confirmationTokenId: 'ctoken_ach' }),
+      {
+        tokens: tokenStore(row),
+        invoices,
+        intents: intentStore(),
+        stripe,
+        payments: paymentsOn,
+        stripeSecret: 'sk_test_secret',
+        clock: () => NOW,
+        idFactory: () => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
       },
-    }
+    )
+    expect(response.status).toBe(200)
+    const payload = (await response.json()) as Record<string, unknown>
+    expect(payload.chargeAmountCents).toBe(5000)
+    expect(payload.surchargeCents).toBe(0)
+    expect(payload.status).toBe('processing')
+    expect(stripe.confirms[0]?.amount).toBe(5000)
+    expect((await invoices.get(INVOICE_ID))?.status).toBe('sent')
+    expect((await invoices.get(INVOICE_ID))?.stripePaymentStatus).toBe(
+      'processing',
+    )
+  })
+
+  it('treats Apple Pay as card-like for surcharge', async () => {
+    const { raw, row, invoice } = await setup()
+    const stripe = stripeMock({
+      paymentMethodType: 'card',
+      walletType: 'apple_pay',
+    })
+    const response = await confirmPublicPayment(
+      raw,
+      jsonRequest({ confirmationTokenId: 'ctoken_apple' }),
+      {
+        tokens: tokenStore(row),
+        invoices: invoiceStore(invoice),
+        intents: intentStore(),
+        stripe,
+        payments: paymentsOn,
+        stripeSecret: 'sk_test_secret',
+        clock: () => NOW,
+        idFactory: () => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      },
+    )
+    const payload = (await response.json()) as Record<string, unknown>
+    expect(payload.chargeAmountCents).toBe(5180)
+    expect(payload.paidMethod).toBe('apple_pay')
+  })
+
+  it('reuses a confirmation token PaymentIntent instead of creating another', async () => {
+    const { raw, row, invoice } = await setup()
+    const stripe = stripeMock()
     const intents = intentStore()
     const deps = {
       tokens: tokenStore(row),
@@ -330,22 +484,103 @@ describe('public PaymentIntent', () => {
       clock: () => NOW,
       idFactory: () => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
     }
-    const first = await createPublicPaymentIntent(raw, jsonRequest(), deps)
-    const second = await createPublicPaymentIntent(raw, jsonRequest(), deps)
+    const first = await confirmPublicPayment(
+      raw,
+      jsonRequest({ confirmationTokenId: 'ctoken_card' }),
+      deps,
+    )
+    const second = await confirmPublicPayment(
+      raw,
+      jsonRequest({ confirmationTokenId: 'ctoken_card' }),
+      deps,
+    )
     expect(first.status).toBe(200)
     expect(second.status).toBe(200)
-    expect(calls).toBe(1)
-    const a = (await first.json()) as { clientSecret: string }
-    const b = (await second.json()) as { clientSecret: string }
-    expect(a.clientSecret).toBe(b.clientSecret)
+    expect(stripe.confirms).toHaveLength(1)
+  })
+
+  it('rejects ACH when bank payments are disabled', async () => {
+    const { raw, row, invoice } = await setup()
+    const stripe = stripeMock({
+      paymentMethodType: 'us_bank_account',
+      walletType: null,
+    })
+    const response = await confirmPublicPayment(
+      raw,
+      jsonRequest({ confirmationTokenId: 'ctoken_ach' }),
+      {
+        tokens: tokenStore(row),
+        invoices: invoiceStore(invoice),
+        intents: intentStore(),
+        stripe,
+        payments: { ...paymentsOn, achPaymentsEnabled: false },
+        stripeSecret: 'sk_test_secret',
+      },
+    )
+    expect(response.status).toBe(409)
+    expect(stripe.confirms).toHaveLength(0)
+  })
+
+  it('treats Google Pay as card-like for surcharge', async () => {
+    const { raw, row, invoice } = await setup()
+    const stripe = stripeMock({
+      paymentMethodType: 'card',
+      walletType: 'google_pay',
+    })
+    const response = await confirmPublicPayment(
+      raw,
+      jsonRequest({ confirmationTokenId: 'ctoken_google' }),
+      {
+        tokens: tokenStore(row),
+        invoices: invoiceStore(invoice),
+        intents: intentStore(),
+        stripe,
+        payments: paymentsOn,
+        stripeSecret: 'sk_test_secret',
+        clock: () => NOW,
+        idFactory: () => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      },
+    )
+    const payload = (await response.json()) as Record<string, unknown>
+    expect(payload.chargeAmountCents).toBe(5180)
+    expect(payload.paidMethod).toBe('google_pay')
+  })
+
+  it('rejects a second attempt while ACH is processing', async () => {
+    const { raw, row, invoice } = await setup()
+    const invoices = invoiceStore(invoice)
+    const stripe = stripeMock({
+      paymentMethodType: 'us_bank_account',
+      walletType: null,
+    })
+    const deps = {
+      tokens: tokenStore(row),
+      invoices,
+      intents: intentStore(),
+      stripe,
+      payments: paymentsOn,
+      stripeSecret: 'sk_test_secret',
+      clock: () => NOW,
+      idFactory: () => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    }
+    const first = await confirmPublicPayment(
+      raw,
+      jsonRequest({ confirmationTokenId: 'ctoken_ach' }),
+      deps,
+    )
+    expect(first.status).toBe(200)
+    const second = await confirmPublicPayment(
+      raw,
+      jsonRequest({ confirmationTokenId: 'ctoken_card' }),
+      deps,
+    )
+    expect(second.status).toBe(409)
+    expect((await invoices.get(INVOICE_ID))?.status).toBe('sent')
+    expect(stripe.confirms).toHaveLength(1)
   })
 
   it('rejects paid, void, and revoked invoices', async () => {
-    const stripe: StripeGateway = {
-      async createPaymentIntent() {
-        throw new Error('should not call Stripe')
-      },
-    }
+    const stripe = stripeMock()
     const paid = await setup({ status: 'paid', paidAt: NOW })
     const paidResponse = await createPublicPaymentIntent(paid.raw, jsonRequest(), {
       tokens: tokenStore({ ...paid.row, revokedReason: 'paid', status: 'revoked', revokedAt: NOW }),

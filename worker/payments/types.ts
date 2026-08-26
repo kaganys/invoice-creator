@@ -24,7 +24,7 @@ export interface PaymentTokenStore {
   ): Promise<number>
 }
 
-export type PublicInvoiceState = 'payable' | 'paid' | 'void' | 'invalid'
+export type PublicInvoiceState = 'payable' | 'paid' | 'void' | 'invalid' | 'processing'
 
 export type PublicInvoiceLine = {
   description: string
@@ -48,6 +48,9 @@ export type PublicInvoicePayload = {
   cardFee: string
   cardTotal: string
   cardPaymentAvailable: boolean
+  achPaymentAvailable: boolean
+  paymentMethodTypes: string[]
   stripePublishableKey: string | null
   logoPath: string
+  pendingKind: 'ach' | 'card' | null
 }

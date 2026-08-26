@@ -1,7 +1,11 @@
 import { createD1InvoiceStore } from '../invoices/d1Store.ts'
 import { createD1PaymentTokenStore } from '../payments/d1Store.ts'
-import { createPublicPaymentIntent } from '../payments/intent.ts'
+import {
+  confirmPublicPayment,
+  createPublicPaymentIntent,
+} from '../payments/intent.ts'
 import { createD1StripeIntentStore } from '../payments/intentStore.ts'
+import { createD1PaymentLedger } from '../payments/ledger.ts'
 import { getPublicInvoiceByToken } from '../payments/public.ts'
 import { createStripeGateway } from '../payments/stripeClient.ts'
 import type { Router } from '../router.ts'
@@ -39,6 +43,24 @@ export function registerPublicRoutes(router: Router): void {
         stripe: secret ? createStripeGateway(secret) : undefined,
         payments,
         stripeSecret: secret,
+        ledger: createD1PaymentLedger(env.DB),
+      })
+    },
+  )
+
+  router.post(
+    '/api/public/invoices/:token/confirm',
+    async (request, env, _ctx, params) => {
+      const payments = await loadPayments(env)
+      const secret = stripeSecretKey(env)
+      return confirmPublicPayment(params.token ?? '', request, {
+        tokens: createD1PaymentTokenStore(env.DB),
+        invoices: createD1InvoiceStore(env.DB),
+        intents: createD1StripeIntentStore(env.DB),
+        stripe: secret ? createStripeGateway(secret) : undefined,
+        payments,
+        stripeSecret: secret,
+        ledger: createD1PaymentLedger(env.DB),
       })
     },
   )

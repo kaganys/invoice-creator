@@ -67,6 +67,9 @@ function record(overrides: Partial<InvoiceRecord> = {}): InvoiceRecord {
     format: null,
     stripePaymentIntentId: null,
     paidAmountCents: null,
+    stripePaymentMethod: null,
+    stripeWalletType: null,
+    stripePaymentStatus: null,
     lineItems: [
       {
         id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
@@ -137,6 +140,10 @@ function createStore(seed?: InvoiceRecord): InvoiceStore & {
       return 'not_found'
     },
     async attachStripeReceipt() {},
+    async updateStripeProgress() {},
+    async claimStripeAttempt() {
+      return true
+    },
     async voidInvoice() {
       return 'not_found'
     },

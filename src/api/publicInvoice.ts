@@ -1,4 +1,9 @@
-export type PublicInvoiceState = 'payable' | 'paid' | 'void' | 'invalid'
+export type PublicInvoiceState =
+  | 'payable'
+  | 'paid'
+  | 'void'
+  | 'invalid'
+  | 'processing'
 
 export type PublicInvoiceLine = {
   description: string
@@ -22,17 +27,37 @@ export type PublicInvoice = {
   cardFee: string
   cardTotal: string
   cardPaymentAvailable: boolean
+  achPaymentAvailable: boolean
+  paymentMethodTypes: string[]
   stripePublishableKey: string | null
   logoPath: string
+  pendingKind: 'ach' | 'card' | null
 }
 
-export type PublicPaymentIntentResponse = {
-  clientSecret: string
-  paymentIntentId: string
+export type PublicPaymentSession = {
+  mode?: 'payment'
+  status?: 'processing' | 'requires_action'
   currency: string
   invoiceAmountCents: number
   cardFeeCents: number
+  cardTotalCents?: number
   chargeAmountCents: number
+  paymentMethodTypes: string[]
+  cardPaymentAvailable?: boolean
+  achPaymentAvailable?: boolean
+  clientSecret?: string | null
+}
+
+export type PublicPaymentConfirmResponse = {
+  paymentIntentId: string
+  clientSecret: string
+  status: string
+  currency: string
+  invoiceAmountCents: number
+  surchargeCents: number
+  chargeAmountCents: number
+  category: 'card' | 'ach'
+  paidMethod?: string
 }
 
 const PUBLIC_FETCH: RequestInit = {
@@ -55,9 +80,21 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
+function errorMessage(payload: unknown, fallback: string): string {
+  if (
+    payload &&
+    typeof payload === 'object' &&
+    'error' in payload &&
+    typeof payload.error === 'string'
+  ) {
+    return payload.error
+  }
+  return fallback
+}
+
 export async function createPublicPaymentIntent(
   token: string,
-): Promise<PublicPaymentIntentResponse> {
+): Promise<PublicPaymentSession> {
   const response = await fetch(
     `/api/public/invoices/${encodeURIComponent(token)}/payment-intent`,
     {
@@ -69,16 +106,30 @@ export async function createPublicPaymentIntent(
   )
   const payload = await readJson(response)
   if (!response.ok) {
-    const message =
-      payload &&
-      typeof payload === 'object' &&
-      'error' in payload &&
-      typeof payload.error === 'string'
-        ? payload.error
-        : 'Could not start card payment.'
-    throw new Error(message)
+    throw new Error(errorMessage(payload, 'Could not start payment.'))
   }
-  return payload as PublicPaymentIntentResponse
+  return payload as PublicPaymentSession
+}
+
+export async function confirmPublicPayment(
+  token: string,
+  confirmationTokenId: string,
+  returnUrl: string,
+): Promise<PublicPaymentConfirmResponse> {
+  const response = await fetch(
+    `/api/public/invoices/${encodeURIComponent(token)}/confirm`,
+    {
+      ...PUBLIC_FETCH,
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ confirmationTokenId, returnUrl }),
+    },
+  )
+  const payload = await readJson(response)
+  if (!response.ok) {
+    throw new Error(errorMessage(payload, 'Could not complete payment.'))
+  }
+  return payload as PublicPaymentConfirmResponse
 }
 
 export type PublicInvoiceResponse = {

@@ -55,6 +55,9 @@ type InvoiceRow = {
   format_json: string | null
   stripe_payment_intent_id: string | null
   paid_amount_cents: number | null
+  stripe_payment_method: string | null
+  stripe_wallet_type: string | null
+  stripe_payment_status: string | null
   created_at: string
   updated_at: string
 }
@@ -130,7 +133,10 @@ function isPaidMethod(value: string | null): value is PaidMethod {
     value === 'zelle' ||
     value === 'manual' ||
     value === 'other' ||
-    value === 'card'
+    value === 'card' ||
+    value === 'ach' ||
+    value === 'apple_pay' ||
+    value === 'google_pay'
   )
 }
 
@@ -168,6 +174,9 @@ function mapInvoice(row: InvoiceRow, lines: InvoiceLineRecord[]): InvoiceRecord 
     format: row.format_json ? parseFormatJson(row.format_json) : null,
     stripePaymentIntentId: row.stripe_payment_intent_id,
     paidAmountCents: row.paid_amount_cents,
+    stripePaymentMethod: row.stripe_payment_method ?? null,
+    stripeWalletType: row.stripe_wallet_type ?? null,
+    stripePaymentStatus: row.stripe_payment_status ?? null,
     lineItems: [...lines].sort((a, b) => a.sortOrder - b.sortOrder),
   }
 }
@@ -453,7 +462,10 @@ export function createD1InvoiceStore(db: D1Database): InvoiceStore {
             `UPDATE invoices
              SET status = 'paid', paid_at = ?, paid_method = ?, updated_at = ?,
                  stripe_payment_intent_id = COALESCE(?, stripe_payment_intent_id),
-                 paid_amount_cents = COALESCE(?, paid_amount_cents)
+                 paid_amount_cents = COALESCE(?, paid_amount_cents),
+                 stripe_payment_method = COALESCE(?, stripe_payment_method),
+                 stripe_wallet_type = COALESCE(?, stripe_wallet_type),
+                 stripe_payment_status = COALESCE(?, stripe_payment_status)
              WHERE id = ?`,
           )
           .bind(
@@ -462,6 +474,9 @@ export function createD1InvoiceStore(db: D1Database): InvoiceStore {
             fields.updatedAt,
             fields.stripePaymentIntentId ?? null,
             fields.paidAmountCents ?? null,
+            fields.stripePaymentMethod ?? null,
+            fields.stripeWalletType ?? null,
+            fields.stripePaymentStatus ?? 'succeeded',
             id,
           ),
         db
@@ -477,16 +492,70 @@ export function createD1InvoiceStore(db: D1Database): InvoiceStore {
           `UPDATE invoices
            SET stripe_payment_intent_id = COALESCE(stripe_payment_intent_id, ?),
                paid_amount_cents = COALESCE(paid_amount_cents, ?),
+               stripe_payment_method = COALESCE(?, stripe_payment_method),
+               stripe_wallet_type = COALESCE(?, stripe_wallet_type),
+               stripe_payment_status = COALESCE(?, stripe_payment_status),
                updated_at = ?
            WHERE id = ?`,
         )
         .bind(
           fields.stripePaymentIntentId,
           fields.paidAmountCents,
+          fields.stripePaymentMethod ?? null,
+          fields.stripeWalletType ?? null,
+          fields.stripePaymentStatus ?? null,
           fields.updatedAt,
           id,
         )
         .run()
+    },
+
+    async updateStripeProgress(id, fields) {
+      await db
+        .prepare(
+          `UPDATE invoices
+           SET stripe_payment_intent_id = COALESCE(?, stripe_payment_intent_id),
+               stripe_payment_method = COALESCE(?, stripe_payment_method),
+               stripe_wallet_type = COALESCE(?, stripe_wallet_type),
+               stripe_payment_status = ?,
+               updated_at = ?
+           WHERE id = ? AND status != 'paid' AND status != 'void'`,
+        )
+        .bind(
+          fields.stripePaymentIntentId ?? null,
+          fields.stripePaymentMethod ?? null,
+          fields.stripeWalletType ?? null,
+          fields.stripePaymentStatus ?? null,
+          fields.updatedAt,
+          id,
+        )
+        .run()
+    },
+
+    async claimStripeAttempt(id, fields) {
+      const result = await db
+        .prepare(
+          `UPDATE invoices
+           SET stripe_payment_method = COALESCE(?, stripe_payment_method),
+               stripe_wallet_type = COALESCE(?, stripe_wallet_type),
+               stripe_payment_status = ?,
+               updated_at = ?
+           WHERE id = ?
+             AND status = 'sent'
+             AND (
+               stripe_payment_status IS NULL
+               OR stripe_payment_status IN ('failed', 'canceled', 'requires_payment_method')
+             )`,
+        )
+        .bind(
+          fields.stripePaymentMethod ?? null,
+          fields.stripeWalletType ?? null,
+          fields.stripePaymentStatus,
+          fields.updatedAt,
+          id,
+        )
+        .run()
+      return (result.meta.changes ?? 0) > 0
     },
 
     async voidInvoice(id, fields) {

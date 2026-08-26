@@ -2,11 +2,24 @@ import { errorJson, json } from '../http.ts'
 import { createEntityId, nowIso } from '../lib/ids.ts'
 import { isRecord } from '../lib/json.ts'
 import type { InvoiceStore } from '../invoices/types.ts'
-import { cardPaymentsReady, type PaymentsConfig } from '../settings/payments.ts'
-import { calculateCardCharge, stripeCurrencyError } from './cardAmount.ts'
+import {
+  anyStripePaymentReady,
+  achPaymentsReady,
+  cardPaymentsReady,
+  publicPaymentMethodTypes,
+  type PaymentsConfig,
+} from '../settings/payments.ts'
+import { calculateCardCharge, stripeCurrencyError, toStripeAmount } from './cardAmount.ts'
+import {
+  classifyStripePaymentMethod,
+  paidMethodFor,
+  quoteForCategory,
+  type PaymentCategory,
+} from '../../src/payments/surcharge.ts'
 import { hashPaymentToken, isWellFormedPaymentToken } from './tokenCrypto.ts'
 import type { StripeGateway } from './stripeClient.ts'
 import type { StripeIntentStore } from './intentStore.ts'
+import type { PaymentLedger } from './ledger.ts'
 import type { PaymentTokenStore } from './types.ts'
 
 export type PaymentIntentDeps = {
@@ -16,57 +29,35 @@ export type PaymentIntentDeps = {
   stripe?: StripeGateway
   payments: PaymentsConfig
   stripeSecret?: string
+  ledger?: PaymentLedger
   clock?: () => string
   idFactory?: () => string
 }
+
+const BLOCKING_STRIPE_STATUSES = new Set([
+  'confirming',
+  'processing',
+  'requires_action',
+  'succeeded',
+])
 
 export async function createPublicPaymentIntent(
   rawToken: string,
   request: Request,
   deps: PaymentIntentDeps,
 ): Promise<Response> {
-  const rawBody = await request.text()
-  if (rawBody.trim()) {
-    try {
-      const parsed: unknown = JSON.parse(rawBody)
-      if (!isRecord(parsed)) {
-        return errorJson('Payment data must be a JSON object.', 400)
-      }
-    } catch {
-      return errorJson('Malformed JSON', 400)
-    }
+  const parsedBody = await readOptionalJsonObject(request)
+  if (!parsedBody.ok) {
+    return parsedBody.response
   }
-
-  if (!isWellFormedPaymentToken(rawToken)) {
-    return errorJson('This payment link is invalid or expired.', 404)
+  const loaded = await loadPayableInvoice(rawToken, deps)
+  if (!loaded.ok) {
+    return loaded.response
   }
-
-  const token = await deps.tokens.getByHash(await hashPaymentToken(rawToken))
-  if (!token) {
-    return errorJson('This payment link is invalid or expired.', 404)
-  }
-
-  const record = await deps.invoices.get(token.invoiceId)
-  if (!record) {
-    return errorJson('This payment link is invalid or expired.', 404)
-  }
-
-  if (record.status === 'paid' || token.revokedReason === 'paid') {
-    return errorJson('This invoice has already been paid.', 409)
-  }
-  if (record.status === 'void' || token.revokedReason === 'void') {
-    return errorJson('This invoice is no longer payable.', 409)
-  }
-  if (token.status !== 'active' || record.status !== 'sent') {
-    return errorJson('This payment link is invalid or expired.', 404)
-  }
-
+  const { record, token } = loaded
   const secret = deps.stripeSecret
-  if (!cardPaymentsReady(deps.payments, Boolean(secret)) || !secret) {
-    return errorJson('Card payment is not available for this invoice.', 409)
-  }
-  if (!deps.stripe) {
-    return errorJson('Card payment is not available for this invoice.', 409)
+  if (!anyStripePaymentReady(deps.payments, Boolean(secret)) || !secret) {
+    return errorJson('Online payment is not available for this invoice.', 409)
   }
 
   const charge = calculateCardCharge(record)
@@ -77,59 +68,307 @@ export async function createPublicPaymentIntent(
   if (charge.baseCents <= 0) {
     return errorJson('This invoice has no amount due.', 400)
   }
-  if (charge.currency === 'USD' && charge.stripeAmount < 50) {
+
+  const types = publicPaymentMethodTypes(deps.payments, Boolean(secret))
+  const initialCategory: PaymentCategory = cardPaymentsReady(
+    deps.payments,
+    Boolean(secret),
+  )
+    ? 'card'
+    : 'ach'
+  const quote = quoteForCategory(charge.baseCents, charge.feeCents, initialCategory)
+  if (charge.currency === 'USD' && quote.totalCents < 50 && initialCategory === 'card') {
+    return errorJson('Card payments must be at least $0.50.', 400)
+  }
+
+  if (await hasBlockingPayment(record.id, deps)) {
+    const existing = await deps.intents.getByTokenId(token.id)
+    return json({
+      status:
+        record.stripePaymentStatus === 'requires_action'
+          ? 'requires_action'
+          : 'processing',
+      currency: charge.currency,
+      invoiceAmountCents: charge.baseCents,
+      cardFeeCents: charge.feeCents,
+      chargeAmountCents: quote.totalCents,
+      paymentMethodTypes: types,
+      clientSecret:
+        record.stripePaymentStatus === 'requires_action'
+          ? existing?.clientSecret ?? null
+          : null,
+    })
+  }
+
+  return json({
+    mode: 'payment',
+    currency: charge.currency,
+    invoiceAmountCents: charge.baseCents,
+    cardFeeCents: charge.feeCents,
+    cardTotalCents: charge.cardCents,
+    chargeAmountCents: quote.totalCents,
+    paymentMethodTypes: types,
+    cardPaymentAvailable: cardPaymentsReady(deps.payments, Boolean(secret)),
+    achPaymentAvailable: achPaymentsReady(deps.payments, Boolean(secret)),
+  })
+}
+
+export async function confirmPublicPayment(
+  rawToken: string,
+  request: Request,
+  deps: PaymentIntentDeps,
+): Promise<Response> {
+  const parsedBody = await readOptionalJsonObject(request)
+  if (!parsedBody.ok) {
+    return parsedBody.response
+  }
+  const confirmationTokenId =
+    typeof parsedBody.value.confirmationTokenId === 'string'
+      ? parsedBody.value.confirmationTokenId.trim()
+      : ''
+  const returnUrl =
+    typeof parsedBody.value.returnUrl === 'string'
+      ? parsedBody.value.returnUrl.trim()
+      : ''
+  if (!confirmationTokenId.startsWith('ctoken_') && !confirmationTokenId.startsWith('ct_')) {
+    return errorJson('A Stripe confirmation token is required.', 400)
+  }
+
+  const loaded = await loadPayableInvoice(rawToken, deps)
+  if (!loaded.ok) {
+    return loaded.response
+  }
+  const { record, token } = loaded
+
+  const secret = deps.stripeSecret
+  if (!anyStripePaymentReady(deps.payments, Boolean(secret)) || !secret || !deps.stripe) {
+    return errorJson('Online payment is not available for this invoice.', 409)
+  }
+
+  let preview
+  try {
+    preview = await deps.stripe.retrieveConfirmationToken(confirmationTokenId)
+  } catch (caught) {
+    return errorJson(
+      caught instanceof Error
+        ? caught.message
+        : 'Could not read the selected payment method.',
+      400,
+    )
+  }
+  const category = classifyStripePaymentMethod(
+    preview.paymentMethodType,
+    preview.walletType,
+  )
+  if (!category) {
+    return errorJson('That payment method is not supported for this invoice.', 400)
+  }
+  if (category === 'card' && !cardPaymentsReady(deps.payments, true)) {
+    return errorJson('Card payment is not available for this invoice.', 409)
+  }
+  if (category === 'ach' && !achPaymentsReady(deps.payments, true)) {
+    return errorJson('Bank payment is not available for this invoice.', 409)
+  }
+
+  const charge = calculateCardCharge(record)
+  const quote = quoteForCategory(charge.baseCents, charge.feeCents, category)
+  const stripeAmount = toStripeAmount(quote.totalCents, charge.currency)
+  const currencyError = stripeCurrencyError(charge.currency)
+  if (currencyError) {
+    return errorJson(currencyError, 400)
+  }
+  if (category === 'card' && charge.currency === 'USD' && stripeAmount < 50) {
     return errorJson('Card payments must be at least $0.50.', 400)
   }
 
   const existing = await deps.intents.getByTokenId(token.id)
   if (
-    existing &&
-    existing.amountCents === charge.stripeAmount &&
-    existing.currency === charge.currency.toLowerCase()
+    existing?.confirmationTokenId === confirmationTokenId &&
+    existing.stripePaymentIntentId
   ) {
-    return json(publicIntent(existing.clientSecret, charge, existing.stripePaymentIntentId))
+    return json({
+      paymentIntentId: existing.stripePaymentIntentId,
+      clientSecret: existing.clientSecret,
+      status: existing.status,
+      currency: existing.currency,
+      invoiceAmountCents: charge.baseCents,
+      surchargeCents: quote.surchargeCents,
+      chargeAmountCents: quote.totalCents,
+      category,
+    })
   }
 
-  const clock = deps.clock ?? nowIso
-  const created = await deps.stripe.createPaymentIntent({
-    amount: charge.stripeAmount,
-    currency: charge.currency,
-    idempotencyKey: `bitz-pi-${token.id}-${charge.stripeAmount}`,
-    metadata: {
-      invoice_id: record.id,
-      invoice_number: record.number,
-      payment_token_id: token.id,
-    },
-    statementDescriptor: deps.payments.statementDescriptor || undefined,
-  })
+  if (await hasBlockingPayment(record.id, deps)) {
+    return errorJson('A payment is already processing for this invoice.', 409)
+  }
 
-  const timestamp = clock()
+  const timestamp = (deps.clock ?? nowIso)()
+  const claimed = await deps.invoices.claimStripeAttempt(record.id, {
+    stripePaymentMethod: preview.paymentMethodType,
+    stripeWalletType: preview.walletType,
+    stripePaymentStatus: 'confirming',
+    updatedAt: timestamp,
+  })
+  if (!claimed) {
+    return errorJson('A payment is already processing for this invoice.', 409)
+  }
+
+  let created
+  try {
+    created = await deps.stripe.confirmWithToken({
+      amount: stripeAmount,
+      currency: charge.currency,
+      confirmationTokenId,
+      idempotencyKey: `bitz-ct-${token.id}-${confirmationTokenId}`,
+      returnUrl: returnUrl || 'https://pay.vrfnw.com/',
+      metadata: {
+        invoice_id: record.id,
+        invoice_number: record.number,
+        payment_token_id: token.id,
+        payment_category: category,
+      },
+      statementDescriptor: deps.payments.statementDescriptor || undefined,
+      paymentMethodTypes:
+        category === 'ach' ? ['us_bank_account'] : ['card'],
+    })
+  } catch (caught) {
+    await deps.invoices.updateStripeProgress(record.id, {
+      stripePaymentMethod: preview.paymentMethodType,
+      stripeWalletType: preview.walletType,
+      stripePaymentStatus: 'failed',
+      updatedAt: (deps.clock ?? nowIso)(),
+    })
+    return errorJson(
+      caught instanceof Error ? caught.message : 'Could not complete payment.',
+      502,
+    )
+  }
+
   await deps.intents.upsert({
     id: existing?.id ?? (deps.idFactory ?? createEntityId)(),
     invoiceId: record.id,
     tokenId: token.id,
     stripePaymentIntentId: created.id,
     clientSecret: created.clientSecret,
-    amountCents: charge.stripeAmount,
+    amountCents: stripeAmount,
     currency: charge.currency.toLowerCase(),
     createdAt: existing?.createdAt ?? timestamp,
     updatedAt: timestamp,
+    confirmationTokenId,
+    status: created.status,
+    paymentCategory: category,
+    paymentMethodType: preview.paymentMethodType,
   })
 
-  return json(publicIntent(created.clientSecret, charge, created.id))
-}
+  await deps.invoices.updateStripeProgress(record.id, {
+    stripePaymentIntentId: created.id,
+    stripePaymentMethod: preview.paymentMethodType,
+    stripeWalletType: preview.walletType,
+    stripePaymentStatus: created.status,
+    updatedAt: timestamp,
+  })
 
-function publicIntent(
-  clientSecret: string,
-  charge: ReturnType<typeof calculateCardCharge>,
-  paymentIntentId: string,
-) {
-  return {
-    clientSecret,
-    paymentIntentId,
+  return json({
+    paymentIntentId: created.id,
+    clientSecret: created.clientSecret,
+    status: created.status,
     currency: charge.currency,
     invoiceAmountCents: charge.baseCents,
-    cardFeeCents: charge.feeCents,
-    chargeAmountCents: charge.cardCents,
+    surchargeCents: quote.surchargeCents,
+    chargeAmountCents: quote.totalCents,
+    category,
+    paidMethod: paidMethodFor(category, preview.walletType),
+  })
+}
+
+async function loadPayableInvoice(
+  rawToken: string,
+  deps: PaymentIntentDeps,
+): Promise<
+  | { ok: true; record: NonNullable<Awaited<ReturnType<InvoiceStore['get']>>>; token: NonNullable<Awaited<ReturnType<PaymentTokenStore['getByHash']>>> }
+  | { ok: false; response: Response }
+> {
+  if (!isWellFormedPaymentToken(rawToken)) {
+    return {
+      ok: false,
+      response: errorJson('This payment link is invalid or expired.', 404),
+    }
+  }
+  const token = await deps.tokens.getByHash(await hashPaymentToken(rawToken))
+  if (!token) {
+    return {
+      ok: false,
+      response: errorJson('This payment link is invalid or expired.', 404),
+    }
+  }
+  const record = await deps.invoices.get(token.invoiceId)
+  if (!record) {
+    return {
+      ok: false,
+      response: errorJson('This payment link is invalid or expired.', 404),
+    }
+  }
+  if (record.status === 'paid' || token.revokedReason === 'paid') {
+    return {
+      ok: false,
+      response: errorJson('This invoice has already been paid.', 409),
+    }
+  }
+  if (record.status === 'void' || token.revokedReason === 'void') {
+    return {
+      ok: false,
+      response: errorJson('This invoice is no longer payable.', 409),
+    }
+  }
+  if (token.status !== 'active' || record.status !== 'sent') {
+    return {
+      ok: false,
+      response: errorJson('This payment link is invalid or expired.', 404),
+    }
+  }
+  return { ok: true, record, token }
+}
+
+async function hasBlockingPayment(
+  invoiceId: string,
+  deps: PaymentIntentDeps,
+): Promise<boolean> {
+  const invoice = await deps.invoices.get(invoiceId)
+  if (
+    invoice?.stripePaymentStatus &&
+    BLOCKING_STRIPE_STATUSES.has(invoice.stripePaymentStatus)
+  ) {
+    return true
+  }
+  if (!deps.ledger) {
+    return false
+  }
+  const rows = await deps.ledger.listByInvoiceId(invoiceId)
+  return rows.some(
+    (row) => row.status === 'processing' || row.status === 'succeeded',
+  )
+}
+
+async function readOptionalJsonObject(
+  request: Request,
+): Promise<
+  | { ok: true; value: Record<string, unknown> }
+  | { ok: false; response: Response }
+> {
+  const rawBody = await request.text()
+  if (!rawBody.trim()) {
+    return { ok: true, value: {} }
+  }
+  try {
+    const parsed: unknown = JSON.parse(rawBody)
+    if (!isRecord(parsed)) {
+      return {
+        ok: false,
+        response: errorJson('Payment data must be a JSON object.', 400),
+      }
+    }
+    return { ok: true, value: parsed }
+  } catch {
+    return { ok: false, response: errorJson('Malformed JSON', 400) }
   }
 }

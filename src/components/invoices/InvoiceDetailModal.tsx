@@ -65,9 +65,42 @@ function methodLabel(method: PaidMethod | null): string {
     return 'Manual'
   }
   if (method === 'card') {
-    return 'Stripe / Card'
+    return 'Paid via Card'
+  }
+  if (method === 'apple_pay') {
+    return 'Paid via Apple Pay'
+  }
+  if (method === 'google_pay') {
+    return 'Paid via Google Pay'
+  }
+  if (method === 'ach') {
+    return 'Paid via ACH'
   }
   return 'Other'
+}
+
+function stripeProgressLabel(invoice: SavedInvoice): string | null {
+  if (invoice.status === 'paid') {
+    return null
+  }
+  if (invoice.stripePaymentStatus === 'processing') {
+    return 'ACH Processing'
+  }
+  if (invoice.stripePaymentStatus === 'failed') {
+    return invoice.stripePaymentMethod === 'us_bank_account'
+      ? 'ACH Failed'
+      : 'Payment failed'
+  }
+  if (invoice.stripePaymentStatus === 'requires_action') {
+    return 'Payment authentication required'
+  }
+  if (
+    invoice.stripePaymentStatus === 'confirming' ||
+    invoice.stripePaymentStatus === 'succeeded'
+  ) {
+    return 'Confirming payment'
+  }
+  return null
 }
 
 export function InvoiceDetailModal({
@@ -490,11 +523,22 @@ export function InvoiceDetailModal({
               <dt>Paid via</dt>
               <dd>{methodLabel(invoice.paidMethod)}</dd>
             </div>
+            {stripeProgressLabel(invoice) ? (
+              <div>
+                <dt>Payment status</dt>
+                <dd>{stripeProgressLabel(invoice)}</dd>
+              </div>
+            ) : null}
             <div>
               <dt>Paid</dt>
               <dd>{formatTimestamp(invoice.paidAt)}</dd>
             </div>
-            {invoice.paidMethod === 'card' || invoice.stripePaymentIntentId ? (
+            {invoice.paidMethod === 'card' ||
+            invoice.paidMethod === 'ach' ||
+            invoice.paidMethod === 'apple_pay' ||
+            invoice.paidMethod === 'google_pay' ||
+            invoice.stripePaymentIntentId ||
+            invoice.stripePaymentStatus ? (
               <>
                 <div>
                   <dt>Amount paid</dt>

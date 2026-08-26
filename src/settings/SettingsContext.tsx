@@ -101,6 +101,7 @@ export const FALLBACK_SETTINGS: AppSettingsPayload = {
   payments: {
     stripeEnabled: false,
     cardPaymentsEnabled: false,
+    achPaymentsEnabled: false,
     publishableKey: '',
     statementDescriptor: 'BITZ DESIGNS',
     secretConfigured: false,

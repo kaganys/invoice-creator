@@ -7,10 +7,17 @@ import {
 import { loadStripe, type Stripe } from '@stripe/stripe-js'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
+  confirmPublicPayment,
   createPublicPaymentIntent,
   fetchPublicInvoice,
   type PublicInvoice,
+  type PublicPaymentSession,
 } from '../../api/publicInvoice.ts'
+import {
+  displayQuote,
+  type PaymentCategory,
+} from '../../payments/surcharge.ts'
+import { formatMoney } from '../../utils/money.ts'
 
 const stripeCache = new Map<string, Promise<Stripe | null>>()
 
@@ -24,19 +31,40 @@ function stripePromise(publishableKey: string) {
 }
 
 function CheckoutForm({
-  amountLabel,
+  token,
+  invoice,
+  fallbackCategory,
   onBusy,
   onSubmitted,
+  onProcessing,
 }: {
-  amountLabel: string
+  token: string
+  invoice: PublicInvoice
+  fallbackCategory: PaymentCategory
   onBusy: (busy: boolean) => void
   onSubmitted: () => void
+  onProcessing: () => void
 }) {
   const stripe = useStripe()
   const elements = useElements()
   const [submitting, setSubmitting] = useState(false)
   const [elementReady, setElementReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [selectedType, setSelectedType] = useState<string | null>(null)
+  const quote = displayQuote(
+    invoice.amountDueCents,
+    invoice.cardFeeCents,
+    selectedType,
+    fallbackCategory,
+  )
+  const amountLabel = `${formatMoney(quote.totalCents, invoice.currency)} ${invoice.currency}`
+
+  useEffect(() => {
+    if (!elements) {
+      return
+    }
+    void elements.update({ amount: quote.totalCents })
+  }, [elements, quote.totalCents])
 
   async function onPay(event: FormEvent) {
     event.preventDefault()
@@ -47,28 +75,48 @@ function CheckoutForm({
     onBusy(true)
     setError(null)
     try {
-      // Required so Stripe validates fields and the Payment Element is fully wired
-      // before confirmPayment looks up the mounted element.
       const submitted = await elements.submit()
       if (submitted.error) {
-        setError(submitted.error.message || 'Check your card details and try again.')
+        setError(submitted.error.message || 'Check your payment details and try again.')
         return
       }
 
-      const result = await stripe.confirmPayment({
+      const confirmation = await stripe.createConfirmationToken({
         elements,
-        confirmParams: {
+        params: {
           return_url: window.location.href,
         },
-        redirect: 'if_required',
       })
-      if (result.error) {
-        setError(result.error.message || 'Card payment failed.')
+      if (confirmation.error || !confirmation.confirmationToken) {
+        setError(
+          confirmation.error?.message || 'Could not prepare this payment.',
+        )
+        return
+      }
+
+      const result = await confirmPublicPayment(
+        token,
+        confirmation.confirmationToken.id,
+        window.location.href,
+      )
+
+      if (result.status === 'requires_action' && result.clientSecret) {
+        const next = await stripe.handleNextAction({
+          clientSecret: result.clientSecret,
+        })
+        if (next.error) {
+          setError(next.error.message || 'Authentication was not completed.')
+          return
+        }
+      }
+
+      if (result.status === 'processing' || result.category === 'ach') {
+        onProcessing()
         return
       }
       onSubmitted()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Card payment failed.')
+      setError(caught instanceof Error ? caught.message : 'Payment failed.')
     } finally {
       setSubmitting(false)
       onBusy(false)
@@ -79,17 +127,30 @@ function CheckoutForm({
 
   return (
     <form className="public-pay__stripe" onSubmit={(event) => void onPay(event)}>
+      <ChargeSummary
+        invoice={invoice}
+        surchargeCents={quote.surchargeCents}
+        totalCents={quote.totalCents}
+        category={quote.category}
+      />
       <PaymentElement
         onReady={() => {
           setElementReady(true)
         }}
+        onChange={(event) => {
+          setSelectedType(event.value.type || null)
+        }}
         options={{
           layout: 'tabs',
+          wallets: {
+            applePay: 'auto',
+            googlePay: 'auto',
+          },
         }}
       />
       {error ? <p className="public-pay__error">{error}</p> : null}
       {!elementReady ? (
-        <p className="public-pay__card-note">Loading secure card form…</p>
+        <p className="public-pay__card-note">Loading secure payment form…</p>
       ) : null}
       <button
         type="submit"
@@ -111,26 +172,30 @@ export function CardCheckout({
   invoice: PublicInvoice
   onAuthoritativePaid?: () => void
 }) {
-  const [clientSecret, setClientSecret] = useState<string | null>(null)
+  const [session, setSession] = useState<PublicPaymentSession | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [processing, setProcessing] = useState(false)
   const [delayed, setDelayed] = useState(false)
   const [paid, setPaid] = useState(false)
   const onPaidRef = useRef(onAuthoritativePaid)
   onPaidRef.current = onAuthoritativePaid
   const publishableKey = invoice.stripePublishableKey
-  const amountLabel = `${invoice.cardTotal} ${invoice.currency}`
+  const waiting = confirming || processing
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('redirect_status') === 'succeeded') {
       setConfirming(true)
     }
+    if (params.get('redirect_status') === 'pending') {
+      setProcessing(true)
+    }
   }, [])
 
   useEffect(() => {
-    if (!confirming || paid) {
+    if (!waiting || paid) {
       return
     }
     let cancelled = false
@@ -146,8 +211,19 @@ export function CardCheckout({
         if (result.state === 'paid') {
           setPaid(true)
           setConfirming(false)
+          setProcessing(false)
           setDelayed(false)
           onPaidRef.current?.()
+          return
+        }
+        if (result.state === 'processing') {
+          setProcessing(true)
+          setConfirming(false)
+        }
+        if (result.state === 'payable' && processing) {
+          setProcessing(false)
+          setConfirming(false)
+          setError('Bank payment failed. You can try again.')
           return
         }
       } catch {
@@ -160,7 +236,6 @@ export function CardCheckout({
       if (attempts === 8) {
         setDelayed(true)
       }
-      // ~2 minutes of retries, then slow background checks.
       const waitMs = attempts < 40 ? 1500 : 5000
       timer = window.setTimeout(() => {
         void poll()
@@ -174,43 +249,87 @@ export function CardCheckout({
         window.clearTimeout(timer)
       }
     }
-  }, [confirming, paid, token])
+  }, [waiting, paid, token, processing])
 
   useEffect(() => {
-    if (confirming || paid) {
+    if (waiting || paid) {
       return
     }
     let cancelled = false
     setError(null)
     createPublicPaymentIntent(token)
       .then((result) => {
-        if (!cancelled) {
-          setClientSecret(result.clientSecret)
+        if (cancelled) {
+          return
         }
+        if (result.status === 'processing') {
+          setProcessing(true)
+          return
+        }
+        if (result.status === 'requires_action' && result.clientSecret) {
+          setSession(result)
+          setConfirming(true)
+          return
+        }
+        setSession(result)
       })
       .catch((caught: unknown) => {
         if (!cancelled) {
           setError(
             caught instanceof Error
               ? caught.message
-              : 'Could not start card payment.',
+              : 'Could not start payment.',
           )
         }
       })
     return () => {
       cancelled = true
     }
-  }, [token, confirming, paid])
+  }, [token, waiting, paid])
 
   const stripe = useMemo(
     () => (publishableKey ? stripePromise(publishableKey) : null),
     [publishableKey],
   )
 
-  if (!invoice.cardPaymentAvailable || !publishableKey) {
+  const types = session?.paymentMethodTypes ?? invoice.paymentMethodTypes
+  const paymentAvailable =
+    Boolean(publishableKey) &&
+    types.length > 0 &&
+    (invoice.cardPaymentAvailable || invoice.achPaymentAvailable)
+  const fallbackCategory: PaymentCategory = invoice.cardPaymentAvailable
+    ? 'card'
+    : 'ach'
+
+  useEffect(() => {
+    if (!confirming || !session?.clientSecret || !stripe) {
+      return
+    }
+    let cancelled = false
+    void stripe.then(async (loaded) => {
+      if (!loaded || cancelled || !session.clientSecret) {
+        return
+      }
+      const next = await loaded.handleNextAction({
+        clientSecret: session.clientSecret,
+      })
+      if (cancelled) {
+        return
+      }
+      if (next.error) {
+        setConfirming(false)
+        setError(next.error.message || 'Authentication was not completed.')
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [confirming, session, stripe])
+
+  if (!paymentAvailable) {
     return (
       <p className="public-pay__card-note">
-        Card payment is not available for this invoice.
+        Online payment is not available for this invoice.
       </p>
     )
   }
@@ -223,6 +342,30 @@ export function CardCheckout({
       </div>
     )
   }
+  if (processing) {
+    return (
+      <div>
+        <h2 className="public-pay__success">Bank payment submitted</h2>
+        <p>Processing</p>
+        <p className="public-pay__card-note">
+          {delayed
+            ? 'Bank payments can take a few business days. You can refresh this page later — it will show as paid when the transfer completes.'
+            : 'Your bank payment was submitted. This invoice is not marked paid until the transfer completes.'}
+        </p>
+        {delayed ? (
+          <button
+            type="button"
+            className="btn btn--primary public-pay__pay"
+            onClick={() => {
+              window.location.reload()
+            }}
+          >
+            Refresh status
+          </button>
+        ) : null}
+      </div>
+    )
+  }
   if (confirming) {
     return (
       <div>
@@ -231,7 +374,7 @@ export function CardCheckout({
         </p>
         <p className="public-pay__card-note">
           {delayed
-            ? 'Your card was charged. We are waiting for final confirmation. You can refresh this page — if payment completed, it will show as already paid.'
+            ? 'Your payment was submitted. We are waiting for final confirmation. You can refresh this page — if payment completed, it will show as already paid.'
             : 'This usually takes a few seconds.'}
         </p>
         {delayed ? (
@@ -251,57 +394,89 @@ export function CardCheckout({
   if (error) {
     return <p className="public-pay__error">{error}</p>
   }
-  if (!clientSecret || !stripe) {
+  if (!session || !stripe || session.mode !== 'payment') {
     return (
       <div>
-        <ChargeSummary invoice={invoice} />
-        <p>Preparing secure card payment…</p>
+        <ChargeSummary
+          invoice={invoice}
+          surchargeCents={
+            invoice.cardPaymentAvailable ? invoice.cardFeeCents : 0
+          }
+          totalCents={
+            invoice.cardPaymentAvailable
+              ? invoice.cardTotalCents
+              : invoice.amountDueCents
+          }
+          category={fallbackCategory}
+        />
+        <p>Preparing secure payment…</p>
       </div>
     )
   }
 
   return (
     <div aria-busy={busy}>
-      <ChargeSummary invoice={invoice} />
       <Elements
-        key={clientSecret}
         stripe={stripe}
         options={{
-          clientSecret,
+          mode: 'payment',
+          amount: session.chargeAmountCents,
+          currency: session.currency.toLowerCase(),
           appearance: { theme: 'stripe' },
+          paymentMethodTypes: types,
+          paymentMethodOptions: types.includes('us_bank_account')
+            ? {
+                us_bank_account: {
+                  verification_method: 'automatic',
+                },
+              }
+            : undefined,
         }}
       >
         <CheckoutForm
-          amountLabel={amountLabel}
+          token={token}
+          invoice={invoice}
+          fallbackCategory={fallbackCategory}
           onBusy={setBusy}
           onSubmitted={() => setConfirming(true)}
+          onProcessing={() => setProcessing(true)}
         />
       </Elements>
     </div>
   )
 }
 
-function ChargeSummary({ invoice }: { invoice: PublicInvoice }) {
+function ChargeSummary({
+  invoice,
+  surchargeCents,
+  totalCents,
+  category,
+}: {
+  invoice: PublicInvoice
+  surchargeCents: number
+  totalCents: number
+  category: PaymentCategory
+}) {
   return (
     <dl className="public-pay__totals">
       <div>
         <dt>Invoice amount</dt>
         <dd>
-          {invoice.amountDue} {invoice.currency}
+          {formatMoney(invoice.amountDueCents, invoice.currency)} {invoice.currency}
         </dd>
       </div>
-      {invoice.cardFeeCents > 0 ? (
+      {category === 'card' && surchargeCents > 0 ? (
         <div>
           <dt>Card processing fee</dt>
           <dd>
-            {invoice.cardFee} {invoice.currency}
+            {formatMoney(surchargeCents, invoice.currency)} {invoice.currency}
           </dd>
         </div>
       ) : null}
       <div className="public-pay__totals-total">
         <dt>Total charged</dt>
         <dd>
-          {invoice.cardTotal} {invoice.currency}
+          {formatMoney(totalCents, invoice.currency)} {invoice.currency}
         </dd>
       </div>
     </dl>

@@ -1,11 +1,17 @@
 import { errorJson, json } from '../http.ts'
 import { createEntityId, isUuid, nowIso } from '../lib/ids.ts'
 import { isRecord } from '../lib/json.ts'
-import type { InvoiceStore } from '../invoices/types.ts'
-import { calculateCardCharge } from './cardAmount.ts'
+import type { InvoiceStore, PaidMethod } from '../invoices/types.ts'
+import { calculateCardCharge, toStripeAmount } from './cardAmount.ts'
 import type { PaymentLedger } from './ledger.ts'
 import { verifyStripeWebhookSignature } from './stripeSignature.ts'
-import type { PaymentRevokeReason, PaymentTokenStore } from './types.ts'
+import type { PaymentTokenStore } from './types.ts'
+import {
+  classifyStripePaymentMethod,
+  paidMethodFor,
+  quoteForCategory,
+  type PaymentCategory,
+} from '../../src/payments/surcharge.ts'
 
 export type StripeWebhookDeps = {
   invoices: InvoiceStore
@@ -61,6 +67,12 @@ export async function handleStripeWebhook(
   const clock = deps.clock ?? nowIso
   const timestamp = clock()
 
+  if (eventType === 'payment_intent.processing') {
+    const result = await recordProcessing(event, eventId, timestamp, deps)
+    await deps.ledger.insertEvent(eventId, eventType, timestamp, 'processing')
+    return json(result)
+  }
+
   if (eventType === 'payment_intent.payment_failed' || eventType === 'payment_intent.canceled') {
     await recordNonSuccess(event, eventType, eventId, timestamp, deps)
     await deps.ledger.insertEvent(eventId, eventType, timestamp, 'recorded')
@@ -82,6 +94,49 @@ export async function handleStripeWebhook(
   return json(result)
 }
 
+async function recordProcessing(
+  event: Record<string, unknown>,
+  eventId: string,
+  timestamp: string,
+  deps: StripeWebhookDeps,
+): Promise<Record<string, unknown>> {
+  const paymentIntent = getPaymentIntent(event)
+  const invoiceId = paymentIntent?.metadata.invoice_id
+  if (!paymentIntent || !invoiceId || !isUuid(invoiceId)) {
+    return { ok: true, applied: false }
+  }
+  const invoice = await deps.invoices.get(invoiceId)
+  if (!invoice || invoice.status === 'paid' || invoice.status === 'void') {
+    return { ok: true, applied: false }
+  }
+  const method = methodFromIntent(paymentIntent)
+  await deps.ledger.insertPayment({
+    id: (deps.idFactory ?? createEntityId)(),
+    invoiceId,
+    provider: 'stripe',
+    providerPaymentId: paymentIntent.id,
+    amountCents: paymentIntent.amount,
+    currency: paymentIntent.currency,
+    status: 'processing',
+    paidAt: null,
+    createdAt: timestamp,
+    stripeEventId: eventId,
+    reviewReason: null,
+    paymentCategory: method.category,
+    paymentMethodType: method.type,
+    walletType: method.wallet,
+    surchargeCents: 0,
+  })
+  await deps.invoices.updateStripeProgress(invoiceId, {
+    stripePaymentIntentId: paymentIntent.id,
+    stripePaymentMethod: method.type,
+    stripeWalletType: method.wallet,
+    stripePaymentStatus: 'processing',
+    updatedAt: timestamp,
+  })
+  return { ok: true, applied: true, status: 'processing' }
+}
+
 async function recordNonSuccess(
   event: Record<string, unknown>,
   eventType: string,
@@ -98,38 +153,43 @@ async function recordNonSuccess(
   if (!invoice) {
     return
   }
-  await deps.ledger.insertPayment({
+  const method = methodFromIntent(paymentIntent)
+  const status = eventType === 'payment_intent.canceled' ? 'canceled' : 'failed'
+  const inserted = await deps.ledger.insertPayment({
     id: (deps.idFactory ?? createEntityId)(),
     invoiceId,
     provider: 'stripe',
     providerPaymentId: paymentIntent.id,
     amountCents: paymentIntent.amount,
     currency: paymentIntent.currency,
-    status: eventType === 'payment_intent.canceled' ? 'canceled' : 'failed',
+    status,
     paidAt: null,
     createdAt: timestamp,
     stripeEventId: eventId,
     reviewReason: null,
+    paymentCategory: method.category,
+    paymentMethodType: method.type,
+    walletType: method.wallet,
+    surchargeCents: 0,
   })
+  if (inserted === 'duplicate') {
+    await deps.ledger.updatePaymentStatus('stripe', paymentIntent.id, {
+      status,
+      stripeEventId: eventId,
+      paidAt: null,
+    })
+  }
+  if (invoice.status === 'sent') {
+    await deps.invoices.updateStripeProgress(invoiceId, {
+      stripePaymentIntentId: paymentIntent.id,
+      stripePaymentMethod: method.type,
+      stripeWalletType: method.wallet,
+      stripePaymentStatus: status,
+      updatedAt: timestamp,
+    })
+  }
 }
 
-/**
- * Stripe is authoritative for card paid-state. The browser success page only polls.
- *
- * Amount/currency are recomputed from the saved invoice snapshot, not Stripe metadata.
- *
- * Race with admin Mark Paid (chosen behavior):
- * - If Stripe succeeds first, the invoice is marked paid via card, paid_at is set,
- *   and the public token is revoked.
- * - If admin already marked the invoice paid (Zelle/manual/other), a later verified
- *   Stripe success does not change paid_method or paid_at. The Stripe payment is still
- *   written to invoice_payments, Stripe PI id / amount paid are attached with COALESCE,
- *   and any remaining token is revoked so a second charge cannot start.
- * - Void invoices are never un-voided. A matching Stripe success is still audited.
- * - Amount/currency mismatches never mark the invoice paid. The token is revoked with
- *   reason "mismatch" so another PaymentIntent cannot be created; the public page does
- *   not claim the invoice is paid.
- */
 async function finalizeSucceededPayment(
   event: Record<string, unknown>,
   eventId: string,
@@ -151,18 +211,20 @@ async function finalizeSucceededPayment(
     return { ok: false, error: 'Invoice not found for PaymentIntent.' }
   }
 
-  const expected = calculateCardCharge(invoice)
+  const method = methodFromIntent(paymentIntent)
+  const category: PaymentCategory = method.category ?? 'card'
+  const snapshot = calculateCardCharge(invoice)
+  const quote = quoteForCategory(snapshot.baseCents, snapshot.feeCents, category)
+  const expectedAmount = toStripeAmount(quote.totalCents, snapshot.currency)
   const paidAmount = paymentIntent.amountReceived || paymentIntent.amount
   const currency = paymentIntent.currency.toLowerCase()
-  const expectedCurrency = expected.currency.toLowerCase()
-  const amountMatches = paidAmount === expected.stripeAmount
+  const expectedCurrency = snapshot.currency.toLowerCase()
+  const amountMatches = paidAmount === expectedAmount
   const currencyMatches = currency === expectedCurrency
 
   if (!amountMatches || !currencyMatches) {
-    const reviewReason = `Expected ${expected.stripeAmount} ${expectedCurrency}, received ${paidAmount} ${currency}.`
-    console.error(
-      `Stripe payment mismatch for invoice ${invoiceId}: ${reviewReason}`,
-    )
+    const reviewReason = `Expected ${expectedAmount} ${expectedCurrency} (${category}), received ${paidAmount} ${currency}.`
+    console.error(`Stripe payment mismatch for invoice ${invoiceId}: ${reviewReason}`)
     await deps.ledger.insertPayment({
       id: (deps.idFactory ?? createEntityId)(),
       invoiceId,
@@ -175,8 +237,14 @@ async function finalizeSucceededPayment(
       createdAt: timestamp,
       stripeEventId: eventId,
       reviewReason,
+      paymentCategory: category,
+      paymentMethodType: method.type,
+      walletType: method.wallet,
+      surchargeCents: quote.surchargeCents,
     })
-    await deps.tokens.revokeActive(invoiceId, 'mismatch', timestamp)
+    if (category === 'card') {
+      await deps.tokens.revokeActive(invoiceId, 'mismatch', timestamp)
+    }
     return {
       ok: false,
       review: true,
@@ -196,6 +264,10 @@ async function finalizeSucceededPayment(
     createdAt: timestamp,
     stripeEventId: eventId,
     reviewReason: null,
+    paymentCategory: category,
+    paymentMethodType: method.type,
+    walletType: method.wallet,
+    surchargeCents: quote.surchargeCents,
   })
   if (inserted === 'duplicate') {
     await deps.ledger.markPaymentSucceeded('stripe', paymentIntent.id, {
@@ -203,14 +275,17 @@ async function finalizeSucceededPayment(
       currency,
       paidAt: timestamp,
       stripeEventId: eventId,
+      paymentCategory: category,
+      paymentMethodType: method.type,
+      walletType: method.wallet,
+      surchargeCents: quote.surchargeCents,
     })
   }
 
-  const revokeReason: PaymentRevokeReason =
-    invoice.status === 'void' ? 'void' : 'paid'
+  const paidMethod: PaidMethod = paidMethodFor(category, method.wallet)
 
   if (invoice.status === 'void') {
-    await deps.tokens.revokeActive(invoiceId, revokeReason, timestamp)
+    await deps.tokens.revokeActive(invoiceId, 'void', timestamp)
     return { ok: true, applied: false, reason: 'void' }
   }
 
@@ -219,6 +294,9 @@ async function finalizeSucceededPayment(
       stripePaymentIntentId: paymentIntent.id,
       paidAmountCents: paidAmount,
       updatedAt: timestamp,
+      stripePaymentMethod: method.type,
+      stripeWalletType: method.wallet,
+      stripePaymentStatus: 'succeeded',
     })
     await deps.tokens.revokeActive(invoiceId, 'paid', timestamp)
     return {
@@ -231,16 +309,22 @@ async function finalizeSucceededPayment(
 
   const marked = await deps.invoices.markPaid(invoiceId, {
     paidAt: timestamp,
-    paidMethod: 'card',
+    paidMethod,
     updatedAt: timestamp,
     stripePaymentIntentId: paymentIntent.id,
     paidAmountCents: paidAmount,
+    stripePaymentMethod: method.type,
+    stripeWalletType: method.wallet,
+    stripePaymentStatus: 'succeeded',
   })
   if (marked === 'already_paid') {
     await deps.invoices.attachStripeReceipt(invoiceId, {
       stripePaymentIntentId: paymentIntent.id,
       paidAmountCents: paidAmount,
       updatedAt: timestamp,
+      stripePaymentMethod: method.type,
+      stripeWalletType: method.wallet,
+      stripePaymentStatus: 'succeeded',
     })
     await deps.tokens.revokeActive(invoiceId, 'paid', timestamp)
     return { ok: true, applied: false, reason: 'already_paid' }
@@ -253,7 +337,7 @@ async function finalizeSucceededPayment(
     return { ok: false, error: 'Could not mark invoice paid.' }
   }
   await deps.tokens.revokeActive(invoiceId, 'paid', timestamp)
-  return { ok: true, applied: true }
+  return { ok: true, applied: true, paidMethod }
 }
 
 type ParsedPaymentIntent = {
@@ -261,7 +345,9 @@ type ParsedPaymentIntent = {
   amount: number
   amountReceived: number
   currency: string
-  metadata: { invoice_id?: string; invoice_number?: string; payment_token_id?: string }
+  paymentMethodType: string | null
+  walletType: string | null
+  metadata: { invoice_id?: string; invoice_number?: string; payment_token_id?: string; payment_category?: string }
 }
 
 function getPaymentIntent(event: Record<string, unknown>): ParsedPaymentIntent | null {
@@ -288,13 +374,75 @@ function getPaymentIntent(event: Record<string, unknown>): ParsedPaymentIntent |
           typeof object.metadata.payment_token_id === 'string'
             ? object.metadata.payment_token_id
             : undefined,
+        payment_category:
+          typeof object.metadata.payment_category === 'string'
+            ? object.metadata.payment_category
+            : undefined,
       }
     : {}
+  const extracted = extractMethod(object)
   return {
     id: object.id,
     amount,
     amountReceived,
     currency,
+    paymentMethodType: extracted.type,
+    walletType: extracted.wallet,
     metadata,
+  }
+}
+
+function extractMethod(object: Record<string, unknown>): {
+  type: string | null
+  wallet: string | null
+} {
+  const details = paymentMethodDetails(object)
+  const type = typeof details?.type === 'string' ? details.type : null
+  const card = details && isRecord(details.card) ? details.card : null
+  const walletObj = card && isRecord(card.wallet) ? card.wallet : null
+  const wallet = typeof walletObj?.type === 'string' ? walletObj.type : null
+  if (type) {
+    return { type, wallet }
+  }
+  const types = object.payment_method_types
+  if (Array.isArray(types) && typeof types[0] === 'string') {
+    return { type: types[0], wallet }
+  }
+  return { type: null, wallet }
+}
+
+function paymentMethodDetails(
+  object: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const charges = isRecord(object.charges) ? object.charges : null
+  const data = charges && Array.isArray(charges.data) ? charges.data : []
+  const first = data[0]
+  if (isRecord(first) && isRecord(first.payment_method_details)) {
+    return first.payment_method_details
+  }
+  if (isRecord(object.payment_method_details)) {
+    return object.payment_method_details
+  }
+  return null
+}
+
+function methodFromIntent(paymentIntent: ParsedPaymentIntent): {
+  category: PaymentCategory | null
+  type: string | null
+  wallet: string | null
+} {
+  const classified = classifyStripePaymentMethod(
+    paymentIntent.paymentMethodType,
+    paymentIntent.walletType,
+  )
+  const fallback =
+    paymentIntent.metadata.payment_category === 'ach' ||
+    paymentIntent.metadata.payment_category === 'card'
+      ? paymentIntent.metadata.payment_category
+      : null
+  return {
+    category: classified ?? fallback,
+    type: paymentIntent.paymentMethodType,
+    wallet: paymentIntent.walletType,
   }
 }

@@ -105,6 +105,38 @@ export function PublicInvoicePage({ token }: { token: string }) {
             ) : null}
           </div>
         ) : null}
+        {state === 'processing' ? (
+          <div>
+            <h1>
+              {invoice?.pendingKind === 'ach'
+                ? 'Bank payment submitted'
+                : 'Payment received'}
+            </h1>
+            <p className="public-pay__success">
+              {invoice?.pendingKind === 'ach'
+                ? 'Processing'
+                : 'Confirming payment…'}
+            </p>
+            <p>
+              {invoice?.pendingKind === 'ach'
+                ? 'This invoice is not marked paid until the bank transfer completes. You can close this page and return later.'
+                : 'This usually takes a few seconds. Refresh if this page does not update.'}
+            </p>
+            {invoice?.number ? (
+              <p className="public-pay__meta">{invoice.number}</p>
+            ) : null}
+            <button
+              type="button"
+              className="btn btn--primary public-pay__pay"
+              onClick={() => {
+                setPayload(null)
+                loadInvoice()
+              }}
+            >
+              Refresh status
+            </button>
+          </div>
+        ) : null}
         {state === 'payable' && invoice ? (
           <div>
             <p className="public-pay__kicker">{invoice.businessName}</p>

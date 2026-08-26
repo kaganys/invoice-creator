@@ -40,6 +40,9 @@ export function publicInvoice(record: InvoiceRecord) {
     format: record.format,
     stripePaymentIntentId: record.stripePaymentIntentId ?? null,
     paidAmountCents: record.paidAmountCents ?? null,
+    stripePaymentMethod: record.stripePaymentMethod ?? null,
+    stripeWalletType: record.stripeWalletType ?? null,
+    stripePaymentStatus: record.stripePaymentStatus ?? null,
     lineItems: record.lineItems.map(publicLine),
   }
 }

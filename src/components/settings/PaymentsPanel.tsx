@@ -24,6 +24,7 @@ export function PaymentsPanel() {
       await savePayments({
         stripeEnabled: draft.stripeEnabled,
         cardPaymentsEnabled: draft.cardPaymentsEnabled,
+        achPaymentsEnabled: draft.achPaymentsEnabled,
         publishableKey: draft.publishableKey,
         statementDescriptor: draft.statementDescriptor,
       })
@@ -36,7 +37,7 @@ export function PaymentsPanel() {
   return (
     <InvoiceSection
       title="Payments"
-      description="Stripe configuration for the public customer payment page. Invoice totals stay at the base amount; card fees are applied only when the customer pays by card."
+      description="Stripe configuration for the public customer payment page. There is one payment link. Customers choose card, wallet, or US bank account inside Stripe. Invoice totals stay at the base amount; card fees apply only when paying by card or wallet."
     >
       {loading ? <p className="settings-status">Loading payments settings…</p> : null}
       <div className="form-grid form-grid--2">
@@ -54,7 +55,7 @@ export function PaymentsPanel() {
             <option value="yes">Yes</option>
           </select>
         </Field>
-        <Field label="Enable card payments" htmlFor="payments-card-enabled">
+        <Field label="Enable card / wallet payments" htmlFor="payments-card-enabled">
           <select
             id="payments-card-enabled"
             className="field__select"
@@ -62,6 +63,20 @@ export function PaymentsPanel() {
             disabled={saving || loading}
             onChange={(event) =>
               patch({ cardPaymentsEnabled: event.target.value === 'yes' })
+            }
+          >
+            <option value="no">No</option>
+            <option value="yes">Yes</option>
+          </select>
+        </Field>
+        <Field label="Enable ACH / US bank account" htmlFor="payments-ach-enabled">
+          <select
+            id="payments-ach-enabled"
+            className="field__select"
+            value={draft.achPaymentsEnabled ? 'yes' : 'no'}
+            disabled={saving || loading}
+            onChange={(event) =>
+              patch({ achPaymentsEnabled: event.target.value === 'yes' })
             }
           >
             <option value="no">No</option>

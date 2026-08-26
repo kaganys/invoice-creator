@@ -4,6 +4,7 @@ export type InvoicePaymentStatus =
   | 'canceled'
   | 'mismatch'
   | 'review'
+  | 'processing'
 
 export type InvoicePaymentRecord = {
   id: string
@@ -17,6 +18,10 @@ export type InvoicePaymentRecord = {
   createdAt: string
   stripeEventId: string | null
   reviewReason: string | null
+  paymentCategory: string | null
+  paymentMethodType: string | null
+  walletType: string | null
+  surchargeCents: number | null
 }
 
 export interface PaymentLedger {
@@ -36,6 +41,20 @@ export interface PaymentLedger {
       currency: string
       paidAt: string
       stripeEventId: string
+      paymentCategory?: string | null
+      paymentMethodType?: string | null
+      walletType?: string | null
+      surchargeCents?: number | null
+    },
+  ): Promise<void>
+  updatePaymentStatus(
+    provider: string,
+    providerPaymentId: string,
+    fields: {
+      status: InvoicePaymentStatus
+      stripeEventId: string | null
+      reviewReason?: string | null
+      paidAt?: string | null
     },
   ): Promise<void>
   listByInvoiceId(invoiceId: string): Promise<InvoicePaymentRecord[]>
@@ -58,6 +77,10 @@ type PaymentRow = {
   created_at: string
   stripe_event_id: string | null
   review_reason: string | null
+  payment_category: string | null
+  payment_method_type: string | null
+  wallet_type: string | null
+  surcharge_cents: number | null
 }
 
 export function createD1PaymentLedger(db: D1Database): PaymentLedger {
@@ -95,8 +118,9 @@ export function createD1PaymentLedger(db: D1Database): PaymentLedger {
           .prepare(
             `INSERT INTO invoice_payments (
               id, invoice_id, provider, provider_payment_id, amount_cents, currency,
-              status, paid_at, created_at, stripe_event_id, review_reason
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              status, paid_at, created_at, stripe_event_id, review_reason,
+              payment_category, payment_method_type, wallet_type, surcharge_cents
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .bind(
             record.id,
@@ -110,6 +134,10 @@ export function createD1PaymentLedger(db: D1Database): PaymentLedger {
             record.createdAt,
             record.stripeEventId,
             record.reviewReason,
+            record.paymentCategory,
+            record.paymentMethodType,
+            record.walletType,
+            record.surchargeCents,
           )
           .run()
         return 'ok'
@@ -131,7 +159,11 @@ export function createD1PaymentLedger(db: D1Database): PaymentLedger {
                currency = ?,
                paid_at = ?,
                stripe_event_id = ?,
-               review_reason = NULL
+               review_reason = NULL,
+               payment_category = COALESCE(?, payment_category),
+               payment_method_type = COALESCE(?, payment_method_type),
+               wallet_type = COALESCE(?, wallet_type),
+               surcharge_cents = COALESCE(?, surcharge_cents)
            WHERE provider = ? AND provider_payment_id = ?`,
         )
         .bind(
@@ -139,6 +171,31 @@ export function createD1PaymentLedger(db: D1Database): PaymentLedger {
           fields.currency,
           fields.paidAt,
           fields.stripeEventId,
+          fields.paymentCategory ?? null,
+          fields.paymentMethodType ?? null,
+          fields.walletType ?? null,
+          fields.surchargeCents ?? null,
+          provider,
+          providerPaymentId,
+        )
+        .run()
+    },
+
+    async updatePaymentStatus(provider, providerPaymentId, fields) {
+      await db
+        .prepare(
+          `UPDATE invoice_payments
+           SET status = ?,
+               stripe_event_id = COALESCE(?, stripe_event_id),
+               review_reason = COALESCE(?, review_reason),
+               paid_at = COALESCE(?, paid_at)
+           WHERE provider = ? AND provider_payment_id = ?`,
+        )
+        .bind(
+          fields.status,
+          fields.stripeEventId,
+          fields.reviewReason ?? null,
+          fields.paidAt ?? null,
           provider,
           providerPaymentId,
         )
@@ -184,6 +241,10 @@ function mapPayment(row: PaymentRow): InvoicePaymentRecord {
     createdAt: row.created_at,
     stripeEventId: row.stripe_event_id,
     reviewReason: row.review_reason,
+    paymentCategory: row.payment_category ?? null,
+    paymentMethodType: row.payment_method_type ?? null,
+    walletType: row.wallet_type ?? null,
+    surchargeCents: row.surcharge_cents ?? null,
   }
 }
 
@@ -198,5 +259,9 @@ export function publicPayment(record: InvoicePaymentRecord) {
     paidAt: record.paidAt,
     createdAt: record.createdAt,
     reviewReason: record.reviewReason,
+    paymentCategory: record.paymentCategory,
+    paymentMethodType: record.paymentMethodType,
+    walletType: record.walletType,
+    surchargeCents: record.surchargeCents,
   }
 }

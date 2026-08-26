@@ -9,6 +9,7 @@ describe('payments settings', () => {
     const result = validatePaymentsWrite({
       stripeEnabled: true,
       cardPaymentsEnabled: true,
+      achPaymentsEnabled: true,
       publishableKey: 'pk_test_51ABC',
       statementDescriptor: 'BITZ DESIGNS',
     })
@@ -17,11 +18,13 @@ describe('payments settings', () => {
       {
         stripeEnabled: true,
         cardPaymentsEnabled: true,
+        achPaymentsEnabled: true,
         publishableKey: 'pk_test_51ABC',
         statementDescriptor: 'BITZ DESIGNS',
       },
       true,
     )
+    expect(publicValue.achPaymentsEnabled).toBe(true)
     expect(publicValue.secretConfigured).toBe(true)
     expect(JSON.stringify(publicValue)).not.toMatch(/sk_/)
     expect(publicValue).not.toHaveProperty('secretKey')
