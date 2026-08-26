@@ -439,10 +439,38 @@ describe('public confirm', () => {
     expect(payload.surchargeCents).toBe(0)
     expect(payload.status).toBe('processing')
     expect(stripe.confirms[0]?.amount).toBe(5000)
+    expect(stripe.confirms[0]?.paymentMethodTypes).toEqual(['us_bank_account'])
     expect((await invoices.get(INVOICE_ID))?.status).toBe('sent')
     expect((await invoices.get(INVOICE_ID))?.stripePaymentStatus).toBe(
       'processing',
     )
+  })
+
+  it('confirms Link with the Stripe payment-method type from the token', async () => {
+    const { raw, row, invoice } = await setup()
+    const stripe = stripeMock({
+      paymentMethodType: 'link',
+      walletType: null,
+    })
+    const response = await confirmPublicPayment(
+      raw,
+      jsonRequest({ confirmationTokenId: 'ctoken_link' }),
+      {
+        tokens: tokenStore(row),
+        invoices: invoiceStore(invoice),
+        intents: intentStore(),
+        stripe,
+        payments: paymentsOn,
+        stripeSecret: 'sk_test_secret',
+        clock: () => NOW,
+        idFactory: () => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      },
+    )
+    const payload = (await response.json()) as Record<string, unknown>
+    expect(response.status).toBe(200)
+    expect(payload.chargeAmountCents).toBe(5180)
+    expect(payload.category).toBe('card')
+    expect(stripe.confirms[0]?.paymentMethodTypes).toEqual(['link', 'card'])
   })
 
   it('treats Apple Pay as card-like for surcharge', async () => {

@@ -228,8 +228,10 @@ export async function confirmPublicPayment(
         payment_category: category,
       },
       statementDescriptor: deps.payments.statementDescriptor || undefined,
-      paymentMethodTypes:
-        category === 'ach' ? ['us_bank_account'] : ['card'],
+      paymentMethodTypes: paymentMethodTypesForPreview(
+        preview.paymentMethodType,
+        category,
+      ),
     })
   } catch (caught) {
     await deps.invoices.updateStripeProgress(record.id, {
@@ -347,6 +349,20 @@ async function hasBlockingPayment(
   return rows.some(
     (row) => row.status === 'processing' || row.status === 'succeeded',
   )
+}
+
+function paymentMethodTypesForPreview(
+  type: string,
+  category: PaymentCategory,
+): string[] {
+  const method = type.trim().toLowerCase()
+  if (method === 'link') {
+    return ['link', 'card']
+  }
+  if (method) {
+    return [method]
+  }
+  return category === 'ach' ? ['us_bank_account'] : ['card']
 }
 
 async function readOptionalJsonObject(

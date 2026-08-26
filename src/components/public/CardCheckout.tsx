@@ -1,10 +1,16 @@
 import {
   Elements,
+  ExpressCheckoutElement,
   PaymentElement,
   useElements,
   useStripe,
 } from '@stripe/react-stripe-js'
-import { loadStripe, type Stripe } from '@stripe/stripe-js'
+import {
+  loadStripe,
+  type Stripe,
+  type StripeExpressCheckoutElementClickEvent,
+  type StripeExpressCheckoutElementConfirmEvent,
+} from '@stripe/stripe-js'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
   confirmPublicPayment,
@@ -51,6 +57,7 @@ function CheckoutForm({
   const [elementReady, setElementReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedType, setSelectedType] = useState<string | null>(null)
+  const [walletsVisible, setWalletsVisible] = useState(false)
   const quote = displayQuote(
     invoice.amountDueCents,
     invoice.cardFeeCents,
@@ -75,46 +82,14 @@ function CheckoutForm({
     onBusy(true)
     setError(null)
     try {
-      const submitted = await elements.submit()
-      if (submitted.error) {
-        setError(submitted.error.message || 'Check your payment details and try again.')
-        return
-      }
-
-      const confirmation = await stripe.createConfirmationToken({
-        elements,
-        params: {
-          return_url: window.location.href,
-        },
-      })
-      if (confirmation.error || !confirmation.confirmationToken) {
-        setError(
-          confirmation.error?.message || 'Could not prepare this payment.',
-        )
-        return
-      }
-
-      const result = await confirmPublicPayment(
-        token,
-        confirmation.confirmationToken.id,
-        window.location.href,
-      )
-
-      if (result.status === 'requires_action' && result.clientSecret) {
-        const next = await stripe.handleNextAction({
-          clientSecret: result.clientSecret,
-        })
-        if (next.error) {
-          setError(next.error.message || 'Authentication was not completed.')
-          return
-        }
-      }
-
-      if (result.status === 'processing' || result.category === 'ach') {
+      const outcome = await payWithConfirmationToken()
+      if (outcome === 'processing') {
         onProcessing()
         return
       }
-      onSubmitted()
+      if (outcome === 'submitted') {
+        onSubmitted()
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Payment failed.')
     } finally {
@@ -124,6 +99,89 @@ function CheckoutForm({
   }
 
   const canPay = Boolean(stripe && elements && elementReady && !submitting)
+  const cardTotalCents = invoice.amountDueCents + invoice.cardFeeCents
+  const showWallets = fallbackCategory === 'card' || invoice.cardPaymentAvailable
+
+  async function payWithConfirmationToken(): Promise<'processing' | 'submitted' | 'failed'> {
+    if (!stripe || !elements) {
+      return 'failed'
+    }
+    const submitted = await elements.submit()
+    if (submitted.error) {
+      setError(submitted.error.message || 'Check your payment details and try again.')
+      return 'failed'
+    }
+    const confirmation = await stripe.createConfirmationToken({
+      elements,
+      params: {
+        return_url: window.location.href,
+      },
+    })
+    if (confirmation.error || !confirmation.confirmationToken) {
+      setError(confirmation.error?.message || 'Could not prepare this payment.')
+      return 'failed'
+    }
+    const result = await confirmPublicPayment(
+      token,
+      confirmation.confirmationToken.id,
+      window.location.href,
+    )
+    if (result.status === 'requires_action' && result.clientSecret) {
+      const next = await stripe.handleNextAction({
+        clientSecret: result.clientSecret,
+      })
+      if (next.error) {
+        setError(next.error.message || 'Authentication was not completed.')
+        return 'failed'
+      }
+    }
+    if (result.status === 'processing' || result.category === 'ach') {
+      return 'processing'
+    }
+    return 'submitted'
+  }
+
+  function onExpressClick(event: StripeExpressCheckoutElementClickEvent) {
+    setSelectedType(event.expressPaymentType)
+    if (elements) {
+      void elements.update({ amount: cardTotalCents })
+    }
+    const lineItems = [
+      { name: `Invoice ${invoice.number}`, amount: invoice.amountDueCents },
+    ]
+    if (invoice.cardFeeCents > 0) {
+      lineItems.push({
+        name: 'Card processing fee',
+        amount: invoice.cardFeeCents,
+      })
+    }
+    event.resolve({ lineItems })
+  }
+
+  async function onExpressConfirm(event: StripeExpressCheckoutElementConfirmEvent) {
+    setSelectedType(event.expressPaymentType)
+    setSubmitting(true)
+    onBusy(true)
+    setError(null)
+    try {
+      const outcome = await payWithConfirmationToken()
+      if (outcome === 'failed') {
+        event.paymentFailed({ reason: 'fail' })
+        return
+      }
+      if (outcome === 'processing') {
+        onProcessing()
+        return
+      }
+      onSubmitted()
+    } catch (caught) {
+      event.paymentFailed({ reason: 'fail' })
+      setError(caught instanceof Error ? caught.message : 'Payment failed.')
+    } finally {
+      setSubmitting(false)
+      onBusy(false)
+    }
+  }
 
   return (
     <form className="public-pay__stripe" onSubmit={(event) => void onPay(event)}>
@@ -133,6 +191,48 @@ function CheckoutForm({
         totalCents={quote.totalCents}
         category={quote.category}
       />
+      {showWallets ? (
+        <div
+          className={
+            walletsVisible
+              ? 'public-pay__express'
+              : 'public-pay__express public-pay__express--idle'
+          }
+        >
+          <ExpressCheckoutElement
+            options={{
+              emailRequired: true,
+              billingAddressRequired: true,
+              paymentMethods: {
+                applePay: 'always',
+                googlePay: 'always',
+                link: 'auto',
+                paypal: 'never',
+                amazonPay: 'never',
+                klarna: 'never',
+              },
+              buttonHeight: 44,
+              layout: { maxColumns: 2, maxRows: 1, overflow: 'auto' },
+            }}
+            onReady={(event) => {
+              const methods = event.availablePaymentMethods
+              setWalletsVisible(
+                Boolean(
+                  methods &&
+                    (methods.applePay || methods.googlePay || methods.link),
+                ),
+              )
+            }}
+            onClick={onExpressClick}
+            onConfirm={(event) => {
+              void onExpressConfirm(event)
+            }}
+          />
+          {walletsVisible ? (
+            <p className="public-pay__or">or pay with card or bank</p>
+          ) : null}
+        </div>
+      ) : null}
       <PaymentElement
         onReady={() => {
           setElementReady(true)
@@ -143,8 +243,15 @@ function CheckoutForm({
         options={{
           layout: 'tabs',
           wallets: {
-            applePay: 'auto',
-            googlePay: 'auto',
+            applePay: showWallets ? 'never' : 'auto',
+            googlePay: showWallets ? 'never' : 'auto',
+            link: 'auto',
+          },
+          fields: {
+            billingDetails: {
+              name: 'auto',
+              email: 'auto',
+            },
           },
         }}
       />
@@ -423,14 +530,17 @@ export function CardCheckout({
           amount: session.chargeAmountCents,
           currency: session.currency.toLowerCase(),
           appearance: { theme: 'stripe' },
-          paymentMethodTypes: types,
-          paymentMethodOptions: types.includes('us_bank_account')
-            ? {
-                us_bank_account: {
-                  verification_method: 'automatic',
-                },
-              }
-            : undefined,
+          // Do not pass paymentMethodTypes — that freezes Stripe to a static
+          // list and hides Dashboard bank / wallet options.
+          allowedPaymentMethodTypes: allowedStripeTypes(types),
+          paymentMethodOptions: {
+            us_bank_account: {
+              verification_method: 'automatic',
+              financial_connections: {
+                permissions: ['payment_method'],
+              },
+            },
+          },
         }}
       >
         <CheckoutForm
@@ -444,6 +554,17 @@ export function CardCheckout({
       </Elements>
     </div>
   )
+}
+
+function allowedStripeTypes(types: string[]): string[] | undefined {
+  if (types.length === 0) {
+    return undefined
+  }
+  const allowed = [...types]
+  if (types.includes('card') && !allowed.includes('link')) {
+    allowed.push('link')
+  }
+  return allowed
 }
 
 function ChargeSummary({

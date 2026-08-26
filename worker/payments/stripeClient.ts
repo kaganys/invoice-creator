@@ -29,7 +29,7 @@ export type ConfirmWithTokenInput = {
   returnUrl: string
   metadata: Record<string, string>
   statementDescriptor?: string
-  paymentMethodTypes: string[]
+  paymentMethodTypes?: string[]
 }
 
 export interface StripeGateway {
@@ -100,13 +100,22 @@ export function createStripeGateway(secretKey: string): StripeGateway {
       body.set('confirmation_token', input.confirmationTokenId)
       body.set('return_url', input.returnUrl)
       body.set('use_stripe_sdk', 'true')
-      for (const type of input.paymentMethodTypes) {
-        body.append('payment_method_types[]', type)
+      const types = input.paymentMethodTypes ?? []
+      if (types.length > 0) {
+        for (const type of types) {
+          body.append('payment_method_types[]', type)
+        }
+      } else {
+        body.set('automatic_payment_methods[enabled]', 'true')
       }
-      if (input.paymentMethodTypes.includes('us_bank_account')) {
+      if (types.includes('us_bank_account') || types.length === 0) {
         body.set(
           'payment_method_options[us_bank_account][verification_method]',
           'automatic',
+        )
+        body.append(
+          'payment_method_options[us_bank_account][financial_connections][permissions][]',
+          'payment_method',
         )
       }
       for (const [key, value] of Object.entries(input.metadata)) {

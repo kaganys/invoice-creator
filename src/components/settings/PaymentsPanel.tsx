@@ -137,6 +137,15 @@ export function PaymentsPanel() {
         /api/public/*). Paid state is set only by the verified webhook, never by the
         customer browser.
       </p>
+      <p className="settings-help">
+        Apple Pay, Google Pay, and US bank / ACH methods come from the Stripe
+        Dashboard — they are not custom buttons. Enable them under Stripe →
+        Settings → Payment methods, and register{' '}
+        <code>pay.vrfnw.com</code> under Payment method domains. Apple Pay needs
+        Safari (or a supported browser) with a card in Wallet; Google Pay needs
+        Chrome with a saved card. ACH uses Stripe Financial Connections when
+        enabled on the account.
+      </p>
       <div className="settings-actions">
         <button
           type="button"
