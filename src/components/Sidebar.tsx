@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { BRAND } from '../branding.ts'
 import { useFocusTrap } from '../hooks/useFocusTrap.ts'
+import { useInvoiceDraft } from '../invoice/InvoiceDraftContext.tsx'
 import { useAppView } from '../nav/AppViewContext.tsx'
 import { useSettings } from '../settings/SettingsContext.tsx'
 import type { AppView } from '../types/person.ts'
@@ -18,7 +19,8 @@ export function Sidebar({ open, isDesktop, onClose }: SidebarProps) {
   const sidebarRef = useRef<HTMLElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   const isOverlay = open && !isDesktop
-  const { view, setView } = useAppView()
+  const { view, setView, closeInvoiceDetail } = useAppView()
+  const { startNewInvoice } = useInvoiceDraft()
   const { branding } = useSettings()
   const icon = branding.siteIcon.url || BRAND.icon
 
@@ -77,7 +79,11 @@ export function Sidebar({ open, isDesktop, onClose }: SidebarProps) {
           type="button"
           className={view === 'invoice' ? 'sidebar__link is-active' : 'sidebar__link'}
           aria-current={view === 'invoice' ? 'page' : undefined}
-          onClick={() => goTo('invoice')}
+          onClick={() => {
+            startNewInvoice()
+            closeInvoiceDetail()
+            goTo('invoice')
+          }}
         >
           <IconDocument />
           New Invoice

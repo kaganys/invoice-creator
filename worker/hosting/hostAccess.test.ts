@@ -29,6 +29,12 @@ describe('pay.vrfnw.com access', () => {
       true,
     )
     expect(pageAllowedForRole(role, '/')).toBe(true)
+    expect(
+      pageAllowedForRole(
+        role,
+        '/.well-known/apple-developer-merchantid-domain-association',
+      ),
+    ).toBe(true)
     expect(apiAllowedForRole(role, '/api/public/invoices/tok')).toBe(true)
     expect(apiAllowedForRole(role, '/api/public/invoices/tok/payment-intent')).toBe(
       true,

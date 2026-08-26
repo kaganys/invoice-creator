@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { DESKTOP_NAV_QUERY, useMediaQuery } from '../hooks/useMediaQuery.ts'
+import { useAppView } from '../nav/AppViewContext.tsx'
 import { Header } from './Header.tsx'
 import { InvoicePreviewModal } from './InvoicePreviewModal.tsx'
+import { InvoiceDetailModal } from './invoices/InvoiceDetailModal.tsx'
 import { Sidebar } from './Sidebar.tsx'
 import './AppShell.css'
 
@@ -11,6 +13,7 @@ type AppShellProps = {
 
 export function AppShell({ children }: AppShellProps) {
   const isDesktop = useMediaQuery(DESKTOP_NAV_QUERY)
+  const { detailInvoiceId, closeInvoiceDetail, bumpInvoiceList } = useAppView()
   const [navOpen, setNavOpen] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
 
@@ -74,6 +77,11 @@ export function AppShell({ children }: AppShellProps) {
         </div>
       </div>
       <InvoicePreviewModal open={previewOpen} onClose={closePreview} />
+      <InvoiceDetailModal
+        invoiceId={detailInvoiceId}
+        onClose={closeInvoiceDetail}
+        onChanged={bumpInvoiceList}
+      />
     </div>
   )
 }

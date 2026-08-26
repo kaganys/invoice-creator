@@ -62,7 +62,12 @@ export function pageAllowedForRole(role: HostRole, pathname: string): boolean {
     return true
   }
   if (role === 'public') {
-    return path === '/' || isPublicPaymentPagePath(path) || isPublicStaticAssetPath(path)
+    return (
+      path === '/' ||
+      isPublicPaymentPagePath(path) ||
+      isPublicStaticAssetPath(path) ||
+      path === '/.well-known/apple-developer-merchantid-domain-association'
+    )
   }
   return false
 }

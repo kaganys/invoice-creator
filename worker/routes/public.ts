@@ -1,4 +1,5 @@
 import { createD1InvoiceStore } from '../invoices/d1Store.ts'
+import { consistentDb } from '../lib/d1Session.ts'
 import { createD1PaymentTokenStore } from '../payments/d1Store.ts'
 import {
   confirmPublicPayment,
@@ -21,11 +22,12 @@ async function loadPayments(env: Env) {
 
 export function registerPublicRoutes(router: Router): void {
   router.get('/api/public/invoices/:token', async (_request, env, _ctx, params) => {
+    const db = consistentDb(env.DB)
     const payments = await loadPayments(env)
     const secret = stripeSecretKey(env)
     return getPublicInvoiceByToken(params.token ?? '', {
-      tokens: createD1PaymentTokenStore(env.DB),
-      invoices: createD1InvoiceStore(env.DB),
+      tokens: createD1PaymentTokenStore(db),
+      invoices: createD1InvoiceStore(db),
       payments,
       stripeSecretConfigured: Boolean(secret),
     })
@@ -34,16 +36,17 @@ export function registerPublicRoutes(router: Router): void {
   router.post(
     '/api/public/invoices/:token/payment-intent',
     async (request, env, _ctx, params) => {
+      const db = consistentDb(env.DB)
       const payments = await loadPayments(env)
       const secret = stripeSecretKey(env)
       return createPublicPaymentIntent(params.token ?? '', request, {
-        tokens: createD1PaymentTokenStore(env.DB),
-        invoices: createD1InvoiceStore(env.DB),
-        intents: createD1StripeIntentStore(env.DB),
+        tokens: createD1PaymentTokenStore(db),
+        invoices: createD1InvoiceStore(db),
+        intents: createD1StripeIntentStore(db),
         stripe: secret ? createStripeGateway(secret) : undefined,
         payments,
         stripeSecret: secret,
-        ledger: createD1PaymentLedger(env.DB),
+        ledger: createD1PaymentLedger(db),
       })
     },
   )
@@ -51,16 +54,17 @@ export function registerPublicRoutes(router: Router): void {
   router.post(
     '/api/public/invoices/:token/confirm',
     async (request, env, _ctx, params) => {
+      const db = consistentDb(env.DB)
       const payments = await loadPayments(env)
       const secret = stripeSecretKey(env)
       return confirmPublicPayment(params.token ?? '', request, {
-        tokens: createD1PaymentTokenStore(env.DB),
-        invoices: createD1InvoiceStore(env.DB),
-        intents: createD1StripeIntentStore(env.DB),
+        tokens: createD1PaymentTokenStore(db),
+        invoices: createD1InvoiceStore(db),
+        intents: createD1StripeIntentStore(db),
         stripe: secret ? createStripeGateway(secret) : undefined,
         payments,
         stripeSecret: secret,
-        ledger: createD1PaymentLedger(env.DB),
+        ledger: createD1PaymentLedger(db),
       })
     },
   )

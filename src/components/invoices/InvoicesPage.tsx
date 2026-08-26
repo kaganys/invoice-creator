@@ -6,18 +6,17 @@ import { useAppView } from '../../nav/AppViewContext.tsx'
 import type { InvoiceListItem } from '../../types/invoice.ts'
 import { formatInvoiceDate } from '../../utils/dates.ts'
 import { formatMoney } from '../../utils/money.ts'
-import { InvoiceDetailModal } from './InvoiceDetailModal.tsx'
 import './InvoicesPage.css'
 
 export function InvoicesPage() {
-  const { setView } = useAppView()
+  const { setView, openInvoiceDetail, closeInvoiceDetail, invoiceListEpoch } =
+    useAppView()
   const { startNewInvoice, deleteSavedDraft, saving } =
     useInvoiceDraft()
   const [invoices, setInvoices] = useState<InvoiceListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
-  const [openId, setOpenId] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     const rows = await fetchInvoices()
@@ -50,10 +49,10 @@ export function InvoicesPage() {
     return () => {
       cancelled = true
     }
-  }, [refresh])
+  }, [refresh, invoiceListEpoch])
 
   function openInvoice(id: string) {
-    setOpenId(id)
+    openInvoiceDetail(id)
   }
 
   async function confirmDelete(id: string) {
@@ -86,6 +85,7 @@ export function InvoicesPage() {
           className="btn btn--primary"
           onClick={() => {
             startNewInvoice()
+            closeInvoiceDetail()
             setView('invoice')
           }}
         >
@@ -193,13 +193,6 @@ export function InvoicesPage() {
         </div>
       ) : null}
 
-      <InvoiceDetailModal
-        invoiceId={openId}
-        onClose={() => setOpenId(null)}
-        onChanged={() => {
-          void refresh()
-        }}
-      />
     </div>
   )
 }

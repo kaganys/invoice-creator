@@ -122,6 +122,18 @@ describe('Worker hostname gate', () => {
       {} as ExecutionContext,
     )
     expect(peopleApi.status).toBe(404)
+
+    const applePay = await worker.default.fetch(
+      new Request(
+        'https://pay.vrfnw.com/.well-known/apple-developer-merchantid-domain-association',
+      ),
+      env,
+      {} as ExecutionContext,
+    )
+    expect(applePay.status).not.toBe(404)
+    expect(await applePay.text()).not.toContain(
+      'only serves customer payment links',
+    )
   })
 
   it('invoice.vrfnw.com still serves the admin SPA shell', async () => {

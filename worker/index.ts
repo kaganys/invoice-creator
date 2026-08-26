@@ -4,6 +4,10 @@ import {
   isPublicPaymentPagePath,
   isPublicStaticAssetPath,
 } from './hosting/access.ts'
+import {
+  isApplePayDomainFilePath,
+  serveApplePayAssociationFile,
+} from './payments/applePayDomain.ts'
 import { classifyHostname } from './hosting/hostRole.ts'
 import {
   hostNotFoundHtml,
@@ -31,6 +35,10 @@ export default {
     const url = new URL(request.url)
     const role = classifyHostname(url.hostname)
     const path = url.pathname
+
+    if (isApplePayDomainFilePath(path)) {
+      return serveApplePayAssociationFile()
+    }
 
     if (path.startsWith('/api/')) {
       if (!apiAllowedForRole(role, path)) {

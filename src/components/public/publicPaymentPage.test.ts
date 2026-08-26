@@ -15,6 +15,7 @@ describe('public card payment page source', () => {
     expect(page).not.toMatch(/payment method/i)
     expect(page).not.toMatch(/role="tablist"/)
     expect(page).toContain('CardCheckout')
+    expect(page).toContain('fetchInvoiceWhenReady')
     expect(checkout).toContain('Total charged')
     expect(checkout).toContain('Invoice amount')
     expect(checkout).toContain('Card processing fee')

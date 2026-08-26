@@ -8,6 +8,28 @@ import './PublicInvoicePage.css'
 
 const LOAD_TIMEOUT_MS = 15_000
 
+async function fetchInvoiceWhenReady(
+  token: string,
+  signal: AbortSignal,
+): Promise<PublicInvoiceResponse> {
+  let last: PublicInvoiceResponse | null = null
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const result = await fetchPublicInvoice(token, { signal })
+    last = result
+    if (result.state !== 'invalid') {
+      return result
+    }
+    const waitMs = Math.min(200 * 2 ** attempt, 2000)
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, waitMs)
+    })
+    if (signal.aborted) {
+      break
+    }
+  }
+  return last ?? { state: 'invalid', invoice: null }
+}
+
 export function PublicInvoicePage({ token }: { token: string }) {
   const [payload, setPayload] = useState<PublicInvoiceResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -22,7 +44,7 @@ export function PublicInvoicePage({ token }: { token: string }) {
     setLoading(true)
     setError(null)
 
-    void fetchPublicInvoice(token, { signal: controller.signal })
+    void fetchInvoiceWhenReady(token, controller.signal)
       .then((result) => {
         setPayload(result)
         setError(null)

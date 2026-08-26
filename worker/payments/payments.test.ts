@@ -249,6 +249,7 @@ describe('public payment tokens', () => {
       invoices,
     })
     expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control') ?? '').toMatch(/no-store/)
     const payload = await readJson(response)
     expect(payload.state).toBe('payable')
     const body = JSON.stringify(payload)

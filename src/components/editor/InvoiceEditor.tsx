@@ -1,4 +1,5 @@
 import { useInvoiceDraft } from '../../invoice/InvoiceDraftContext.tsx'
+import { useAppView } from '../../nav/AppViewContext.tsx'
 import { CustomerSection } from './CustomerSection.tsx'
 import { FromSection } from './FromSection.tsx'
 import { InvoiceDetailsSection } from './InvoiceDetailsSection.tsx'
@@ -10,6 +11,7 @@ import './InvoiceEditor.css'
 
 export function InvoiceEditor() {
   const { savedId, saving, saveError, saveInvoice } = useInvoiceDraft()
+  const { openInvoiceDetail } = useAppView()
 
   return (
     <form
@@ -29,7 +31,13 @@ export function InvoiceEditor() {
             type="button"
             className="btn btn--primary"
             disabled={saving}
-            onClick={() => void saveInvoice()}
+            onClick={() => {
+              void saveInvoice().then((id) => {
+                if (id) {
+                  openInvoiceDetail(id)
+                }
+              })
+            }}
           >
             {saving ? 'Saving…' : savedId ? 'Save invoice' : 'Save to D1'}
           </button>

@@ -70,7 +70,7 @@ type InvoiceDraftContextValue = {
   removeLineItem: (id: string) => void
   resetDraft: () => void
   startNewInvoice: () => void
-  saveInvoice: () => Promise<boolean>
+  saveInvoice: () => Promise<string | null>
   loadSavedInvoice: (id: string) => Promise<void>
   deleteSavedDraft: (id?: string) => Promise<boolean>
 }
@@ -357,7 +357,7 @@ export function InvoiceDraftProvider({ children }: { children: ReactNode }) {
       }
       setTouched((current) => ({ ...current, ...keys }))
       setSaveError('Fix the highlighted fields before saving to D1.')
-      return false
+      return null
     }
 
     setSaving(true)
@@ -369,7 +369,7 @@ export function InvoiceDraftProvider({ children }: { children: ReactNode }) {
       setSavedId(saved.id)
       setStatus(saved.status)
       setInvoice(savedToInvoice(saved))
-      return true
+      return saved.id
     } catch (error) {
       const message =
         error instanceof ApiError
@@ -378,7 +378,7 @@ export function InvoiceDraftProvider({ children }: { children: ReactNode }) {
             ? error.message
             : 'Could not save invoice.'
       setSaveError(message)
-      return false
+      return null
     } finally {
       setSaving(false)
     }
