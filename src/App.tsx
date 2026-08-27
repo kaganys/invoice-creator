@@ -3,7 +3,9 @@ import { InvoiceEditor } from './components/editor/InvoiceEditor.tsx'
 import { InvoicesPage } from './components/invoices/InvoicesPage.tsx'
 import { PeoplePage } from './components/people/PeoplePage.tsx'
 import { PublicInvoicePage } from './components/public/PublicInvoicePage.tsx'
+import type { ReactNode } from 'react'
 import { SettingsPage } from './components/settings/SettingsPage.tsx'
+import { UsersPage } from './components/users/UsersPage.tsx'
 import { BrandChrome } from './components/BrandChrome.tsx'
 import { DirectoryProvider } from './directory/DirectoryContext.tsx'
 import {
@@ -13,6 +15,7 @@ import {
 import { InvoiceDraftProvider } from './invoice/InvoiceDraftContext.tsx'
 import { SettingsProvider } from './settings/SettingsContext.tsx'
 import { AppViewProvider, useAppView } from './nav/AppViewContext.tsx'
+import { SessionProvider, useSession } from './session/SessionContext.tsx'
 import { ThemeProvider } from './theme/ThemeProvider.tsx'
 
 function AppContent() {
@@ -26,6 +29,9 @@ function AppContent() {
   }
   if (view === 'settings') {
     return <SettingsPage />
+  }
+  if (view === 'users') {
+    return <UsersPage />
   }
   return <InvoiceEditor />
 }
@@ -69,21 +75,51 @@ function LockedShell() {
   )
 }
 
+function AdminGate({ children }: { children: ReactNode }) {
+  const { session, loading, error } = useSession()
+  if (loading) {
+    return <p className="api-banner">Checking Cloudflare login…</p>
+  }
+  if (error) {
+    return (
+      <div className="app-page">
+        <p className="api-banner api-banner--error">{error}</p>
+      </div>
+    )
+  }
+  if (session && !session.invited) {
+    return (
+      <div className="app-page">
+        <h1>No company access</h1>
+        <p>
+          You are signed in with Cloudflare as <strong>{session.email}</strong>.
+          An owner must add this email under Users before you can use this app.
+        </p>
+      </div>
+    )
+  }
+  return children
+}
+
 function AdminApp() {
   return (
     <ThemeProvider>
-      <DirectoryProvider>
-        <SettingsProvider>
-          <InvoiceDraftProvider>
-            <AppViewProvider>
-              <BrandChrome />
-              <AppShell>
-                <AppContent />
-              </AppShell>
-            </AppViewProvider>
-          </InvoiceDraftProvider>
-        </SettingsProvider>
-      </DirectoryProvider>
+      <SessionProvider>
+        <AdminGate>
+          <DirectoryProvider>
+            <SettingsProvider>
+              <InvoiceDraftProvider>
+                <AppViewProvider>
+                  <BrandChrome />
+                  <AppShell>
+                    <AppContent />
+                  </AppShell>
+                </AppViewProvider>
+              </InvoiceDraftProvider>
+            </SettingsProvider>
+          </DirectoryProvider>
+        </AdminGate>
+      </SessionProvider>
     </ThemeProvider>
   )
 }

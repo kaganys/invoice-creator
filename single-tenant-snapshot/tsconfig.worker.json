@@ -1,0 +1,31 @@
+{
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.worker.tsbuildinfo",
+    "types": ["@cloudflare/workers-types", "vite/client"],
+    "lib": ["ES2023"]
+  },
+  "include": [
+    "worker",
+    "worker-configuration.d.ts",
+    "src/branding.ts",
+    "src/types/invoice.ts",
+    "src/utils/money.ts",
+    "src/utils/invoiceNumbering.ts",
+    "src/utils/invoiceDefaults.ts",
+    "src/utils/dates.ts",
+    "src/utils/address.ts",
+    "src/utils/id.ts",
+    "src/data/defaultInvoice.ts",
+    "src/invoice/format.ts",
+    "src/invoice/invoiceFonts.ts",
+    "src/invoice/invoiceDocumentCss.ts",
+    "src/invoice/invoiceHtml.ts",
+    "src/invoice/emailTemplates.ts",
+    "src/invoice/emailHtml.ts",
+    "src/invoice/emailBlocks.ts",
+    "src/utils/invoiceCalculations.ts",
+    "src/utils/invoiceFilename.ts"
+  ],
+  "exclude": ["worker/**/*.test.ts"]
+}

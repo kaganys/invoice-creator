@@ -37,6 +37,7 @@ export async function getPublicInvoiceByToken(
     invoices: InvoiceStore
     payments?: PaymentsConfig
     stripeSecretConfigured?: boolean
+    loadPaymentsForCompany?: (companyId: string) => Promise<PaymentsConfig>
   },
 ): Promise<Response> {
   if (!isWellFormedPaymentToken(rawToken)) {
@@ -54,7 +55,11 @@ export async function getPublicInvoiceByToken(
     return invalidResponse()
   }
 
-  const invoice = toPublicPayload(record, deps.payments, deps.stripeSecretConfigured)
+  const payments =
+    record.companyId && deps.loadPaymentsForCompany
+      ? await deps.loadPaymentsForCompany(record.companyId)
+      : deps.payments
+  const invoice = toPublicPayload(record, payments, deps.stripeSecretConfigured)
 
   if (record.status === 'paid' || token.revokedReason === 'paid') {
     return json({

@@ -15,6 +15,7 @@ import type {
 
 type InvoiceRow = {
   id: string
+  company_id?: string | null
   invoice_number: string
   status: InvoiceStatus
   issue_date: string
@@ -143,6 +144,7 @@ function isPaidMethod(value: string | null): value is PaidMethod {
 function mapInvoice(row: InvoiceRow, lines: InvoiceLineRecord[]): InvoiceRecord {
   return {
     id: row.id,
+    companyId: row.company_id ?? null,
     number: row.invoice_number,
     status: row.status,
     issueDate: row.issue_date,
@@ -239,7 +241,7 @@ function invoiceBinds(record: InvoiceRecord): unknown[] {
 }
 
 const INSERT_SQL = `INSERT INTO invoices (
-  id, invoice_number, status, issue_date, due_date, currency,
+  id, company_id, invoice_number, status, issue_date, due_date, currency,
   from_name, from_email, from_address_line1, from_address_line2, from_city, from_state_region, from_postal_code, from_country,
   customer_name, customer_email, customer_address_line1, customer_address_line2, customer_city, customer_state_region, customer_postal_code, customer_country,
   payment_memo, zelle_email, card_fee_percent_scaled, card_fee_fixed_cents, notes,
@@ -247,7 +249,7 @@ const INSERT_SQL = `INSERT INTO invoices (
   invoice_logo_path, paid_at, paid_method, voided_at, void_reason,
   format_json, first_sent_at, last_sent_at, send_count,
   created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 const UPDATE_SQL = `UPDATE invoices SET
   invoice_number = ?, status = ?, issue_date = ?, due_date = ?, currency = ?,
@@ -263,19 +265,29 @@ const LINE_INSERT_SQL = `INSERT INTO invoice_line_items (
   id, invoice_id, sort_order, description, quantity_scaled, unit_price_cents
 ) VALUES (?, ?, ?, ?, ?, ?)`
 
-export function createD1InvoiceStore(db: D1Database): InvoiceStore {
+export function createD1InvoiceStore(
+  db: D1Database,
+  companyId?: string,
+): InvoiceStore {
   return {
     async list() {
-      const invoices = await db
-        .prepare(
-          `SELECT * FROM invoices ORDER BY created_at DESC`,
+      const invoicesSql = db.prepare(
+          companyId
+            ? `SELECT * FROM invoices WHERE company_id = ? ORDER BY created_at DESC`
+            : `SELECT * FROM invoices ORDER BY created_at DESC`,
         )
-        .all<InvoiceRow>()
-      const lines = await db
-        .prepare(
-          `SELECT id, invoice_id, sort_order, description, quantity_scaled, unit_price_cents FROM invoice_line_items`,
-        )
-        .all<LineRow>()
+      const invoiceQuery = companyId
+        ? invoicesSql.bind(companyId)
+        : invoicesSql
+      const invoices = await invoiceQuery.all<InvoiceRow>()
+      const linesSql = db.prepare(
+        companyId
+          ? `SELECT id, invoice_id, sort_order, description, quantity_scaled, unit_price_cents
+             FROM invoice_line_items
+             WHERE invoice_id IN (SELECT id FROM invoices WHERE company_id = ?)`
+          : `SELECT id, invoice_id, sort_order, description, quantity_scaled, unit_price_cents FROM invoice_line_items`,
+      )
+      const lines = await (companyId ? linesSql.bind(companyId) : linesSql).all<LineRow>()
 
       const linesByInvoice = new Map<string, LineRow[]>()
       for (const line of lines.results ?? []) {
@@ -307,8 +319,12 @@ export function createD1InvoiceStore(db: D1Database): InvoiceStore {
 
     async get(id) {
       const row = await db
-        .prepare('SELECT * FROM invoices WHERE id = ?')
-        .bind(id)
+        .prepare(
+          companyId
+            ? 'SELECT * FROM invoices WHERE id = ? AND company_id = ?'
+            : 'SELECT * FROM invoices WHERE id = ?',
+        )
+        .bind(...(companyId ? [id, companyId] : [id]))
         .first<InvoiceRow>()
       if (!row) {
         return null
@@ -325,8 +341,12 @@ export function createD1InvoiceStore(db: D1Database): InvoiceStore {
 
     async findIdByNumber(number) {
       const row = await db
-        .prepare('SELECT id FROM invoices WHERE invoice_number = ?')
-        .bind(number)
+        .prepare(
+          companyId
+            ? 'SELECT id FROM invoices WHERE invoice_number = ? AND company_id = ?'
+            : 'SELECT id FROM invoices WHERE invoice_number = ?',
+        )
+        .bind(...(companyId ? [number, companyId] : [number]))
         .first<{ id: string }>()
       return row?.id ?? null
     },
@@ -335,6 +355,7 @@ export function createD1InvoiceStore(db: D1Database): InvoiceStore {
       const statements = [
         db.prepare(INSERT_SQL).bind(
           record.id,
+          companyId,
           record.number,
           record.status,
           record.issueDate,
@@ -403,7 +424,12 @@ export function createD1InvoiceStore(db: D1Database): InvoiceStore {
       }
 
       const statements = [
-        db.prepare(UPDATE_SQL).bind(...invoiceBinds(record)),
+        db.prepare(
+          companyId ? `${UPDATE_SQL} AND company_id = ?` : UPDATE_SQL,
+        ).bind(
+          ...invoiceBinds(record),
+          ...(companyId ? [companyId] : []),
+        ),
         db
           .prepare('DELETE FROM invoice_line_items WHERE invoice_id = ?')
           .bind(record.id),

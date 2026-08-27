@@ -21,6 +21,7 @@ export type PaidMethod =
 
 export type InvoiceRecord = {
   id: string
+  companyId?: string | null
   number: string
   status: InvoiceStatus
   issueDate: string

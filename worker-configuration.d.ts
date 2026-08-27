@@ -11,6 +11,7 @@ interface __BaseEnv_Env {
 	PAYMENT_LINK_KEY?: string;
 	STRIPE_SECRET_KEY?: string;
 	STRIPE_WEBHOOK_SECRET?: string;
+	DEV_ACCESS_EMAIL?: string;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {

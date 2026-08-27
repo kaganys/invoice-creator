@@ -28,6 +28,7 @@ export type PaymentIntentDeps = {
   intents: StripeIntentStore
   stripe?: StripeGateway
   payments: PaymentsConfig
+  loadPaymentsForCompany?: (companyId: string) => Promise<PaymentsConfig>
   stripeSecret?: string
   ledger?: PaymentLedger
   clock?: () => string
@@ -55,8 +56,12 @@ export async function createPublicPaymentIntent(
     return loaded.response
   }
   const { record, token } = loaded
+  const payments =
+    record.companyId && deps.loadPaymentsForCompany
+      ? await deps.loadPaymentsForCompany(record.companyId)
+      : deps.payments
   const secret = deps.stripeSecret
-  if (!anyStripePaymentReady(deps.payments, Boolean(secret)) || !secret) {
+  if (!anyStripePaymentReady(payments, Boolean(secret)) || !secret) {
     return errorJson('Online payment is not available for this invoice.', 409)
   }
 
@@ -69,9 +74,9 @@ export async function createPublicPaymentIntent(
     return errorJson('This invoice has no amount due.', 400)
   }
 
-  const types = publicPaymentMethodTypes(deps.payments, Boolean(secret))
+  const types = publicPaymentMethodTypes(payments, Boolean(secret))
   const initialCategory: PaymentCategory = cardPaymentsReady(
-    deps.payments,
+    payments,
     Boolean(secret),
   )
     ? 'card'
@@ -108,8 +113,8 @@ export async function createPublicPaymentIntent(
     cardTotalCents: charge.cardCents,
     chargeAmountCents: quote.totalCents,
     paymentMethodTypes: types,
-    cardPaymentAvailable: cardPaymentsReady(deps.payments, Boolean(secret)),
-    achPaymentAvailable: achPaymentsReady(deps.payments, Boolean(secret)),
+    cardPaymentAvailable: cardPaymentsReady(payments, Boolean(secret)),
+    achPaymentAvailable: achPaymentsReady(payments, Boolean(secret)),
   })
 }
 
@@ -139,9 +144,13 @@ export async function confirmPublicPayment(
     return loaded.response
   }
   const { record, token } = loaded
+  const payments =
+    record.companyId && deps.loadPaymentsForCompany
+      ? await deps.loadPaymentsForCompany(record.companyId)
+      : deps.payments
 
   const secret = deps.stripeSecret
-  if (!anyStripePaymentReady(deps.payments, Boolean(secret)) || !secret || !deps.stripe) {
+  if (!anyStripePaymentReady(payments, Boolean(secret)) || !secret || !deps.stripe) {
     return errorJson('Online payment is not available for this invoice.', 409)
   }
 
@@ -163,10 +172,10 @@ export async function confirmPublicPayment(
   if (!category) {
     return errorJson('That payment method is not supported for this invoice.', 400)
   }
-  if (category === 'card' && !cardPaymentsReady(deps.payments, true)) {
+  if (category === 'card' && !cardPaymentsReady(payments, true)) {
     return errorJson('Card payment is not available for this invoice.', 409)
   }
-  if (category === 'ach' && !achPaymentsReady(deps.payments, true)) {
+  if (category === 'ach' && !achPaymentsReady(payments, true)) {
     return errorJson('Bank payment is not available for this invoice.', 409)
   }
 
@@ -227,7 +236,7 @@ export async function confirmPublicPayment(
         payment_token_id: token.id,
         payment_category: category,
       },
-      statementDescriptor: deps.payments.statementDescriptor || undefined,
+      statementDescriptor: payments.statementDescriptor || undefined,
       paymentMethodTypes: paymentMethodTypesForPreview(
         preview.paymentMethodType,
         category,

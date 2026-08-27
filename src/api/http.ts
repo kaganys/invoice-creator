@@ -35,6 +35,14 @@ export async function apiRequest<T>(
     headers.set('content-type', 'application/json')
   }
 
+  const companyId =
+    typeof window !== 'undefined'
+      ? window.sessionStorage.getItem('bitz-company-id')
+      : null
+  if (companyId && !headers.has('x-company-id')) {
+    headers.set('x-company-id', companyId)
+  }
+
   const response = await fetch(path, {
     ...init,
     headers,

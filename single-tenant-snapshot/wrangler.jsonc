@@ -1,0 +1,46 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "invoice-creator",
+	"compatibility_date": "2026-08-25",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"main": "./worker/index.ts",
+	// Disable *.workers.dev so it cannot bypass the invoice.vrfnw.com Access app.
+	// Public payments use pay.vrfnw.com; admin uses invoice.vrfnw.com.
+	"workers_dev": false,
+	"assets": {
+		"binding": "ASSETS",
+		"not_found_handling": "single-page-application",
+		// Worker runs first for HTML/API routes; hashed assets/fonts/branding stay asset-first.
+		"run_worker_first": [
+			"/*",
+			"!/assets/*",
+			"!/branding/*",
+			"!/fonts/*"
+		]
+	},
+	"observability": {
+		"enabled": true
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "bitz-designs-invoicing",
+			"database_id": "474f90b6-1196-4f66-b8d6-ef3ae5f85877",
+			"remote": true,
+			"migrations_dir": "./migrations"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "BRANDING",
+			"bucket_name": "bitz-designs-branding",
+			"remote": true
+		}
+	],
+	"browser": {
+		"binding": "BROWSER",
+		"remote": true
+	},
+}

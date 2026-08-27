@@ -1,11 +1,16 @@
 import type { ObjectStore, SequenceStore, SettingsKvStore } from './types.ts'
 
-export function createD1SettingsStore(db: D1Database): SettingsKvStore {
+export function createD1SettingsStore(
+  db: D1Database,
+  companyId: string,
+): SettingsKvStore {
   return {
     async get(key) {
       const row = await db
-        .prepare('SELECT value FROM app_settings WHERE key = ?')
-        .bind(key)
+        .prepare(
+          'SELECT value FROM company_settings WHERE company_id = ? AND key = ?',
+        )
+        .bind(companyId, key)
         .first<{ value: string | null }>()
       return row?.value ?? null
     },
@@ -13,36 +18,45 @@ export function createD1SettingsStore(db: D1Database): SettingsKvStore {
     async set(key, value, updatedAt) {
       await db
         .prepare(
-          `INSERT INTO app_settings (key, value, updated_at)
-           VALUES (?, ?, ?)
-           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+          `INSERT INTO company_settings (company_id, key, value, updated_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(company_id, key) DO UPDATE SET
+             value = excluded.value, updated_at = excluded.updated_at`,
         )
-        .bind(key, value, updatedAt)
+        .bind(companyId, key, value, updatedAt)
         .run()
     },
   }
 }
 
-export function createD1SequenceStore(db: D1Database): SequenceStore {
+export function createD1SequenceStore(
+  db: D1Database,
+  companyId: string,
+): SequenceStore {
   return {
     async getNextSequence() {
       const row = await db
-        .prepare('SELECT next_number FROM invoice_sequences WHERE id = 1')
+        .prepare(
+          'SELECT next_number FROM invoice_sequences WHERE company_id = ?',
+        )
+        .bind(companyId)
         .first<{ next_number: number }>()
       return row?.next_number ?? 1
     },
 
     async setNextSequence(next) {
       const result = await db
-        .prepare('UPDATE invoice_sequences SET next_number = ? WHERE id = 1')
-        .bind(next)
+        .prepare(
+          'UPDATE invoice_sequences SET next_number = ? WHERE company_id = ?',
+        )
+        .bind(next, companyId)
         .run()
       if ((result.meta.changes ?? 0) === 0) {
         await db
           .prepare(
-            'INSERT INTO invoice_sequences (id, next_number) VALUES (1, ?)',
+            'INSERT INTO invoice_sequences (company_id, next_number) VALUES (?, ?)',
           )
-          .bind(next)
+          .bind(companyId, next)
           .run()
       }
     },
@@ -52,9 +66,10 @@ export function createD1SequenceStore(db: D1Database): SequenceStore {
         .prepare(
           `UPDATE invoice_sequences
            SET next_number = next_number + 1
-           WHERE id = 1
+           WHERE company_id = ?
            RETURNING next_number`,
         )
+        .bind(companyId)
         .first<{ next_number: number }>()
 
       if (row) {
@@ -63,8 +78,9 @@ export function createD1SequenceStore(db: D1Database): SequenceStore {
 
       await db
         .prepare(
-          'INSERT INTO invoice_sequences (id, next_number) VALUES (1, 2)',
+          'INSERT INTO invoice_sequences (company_id, next_number) VALUES (?, 2)',
         )
+        .bind(companyId)
         .run()
       return 1
     },

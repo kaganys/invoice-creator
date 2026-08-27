@@ -20,6 +20,7 @@ import { registerInvoiceRoutes } from './routes/invoices.ts'
 import { registerPeopleRoutes } from './routes/people.ts'
 import { registerPublicRoutes } from './routes/public.ts'
 import { registerSettingsRoutes } from './routes/settings.ts'
+import { registerTenancyRoutes } from './routes/tenancy.ts'
 import { registerWebhookRoutes } from './routes/webhooks.ts'
 
 const router = new Router()
@@ -28,6 +29,7 @@ registerPeopleRoutes(router)
 registerSettingsRoutes(router)
 registerInvoiceRoutes(router)
 registerPublicRoutes(router)
+registerTenancyRoutes(router)
 registerWebhookRoutes(router)
 
 export default {

@@ -1,3 +1,4 @@
+import { requireAdmin } from '../auth/admin.ts'
 import { createD1InvoiceStore } from '../invoices/d1Store.ts'
 import {
   createInvoice,
@@ -29,10 +30,10 @@ import {
 import { serializeFormat } from '../settings/format.ts'
 import { nowIso } from '../lib/ids.ts'
 
-function pdfDeps(env: Env, request: Request) {
+function pdfDeps(env: Env, request: Request, companyId: string) {
   return {
-    store: createD1InvoiceStore(env.DB),
-    settings: createD1SettingsStore(env.DB),
+    store: createD1InvoiceStore(env.DB, companyId),
+    settings: createD1SettingsStore(env.DB, companyId),
     pdf: createBrowserPdfRenderer(browserBinding(env)),
     origin: new URL(request.url).origin,
     tokens: createD1PaymentTokenStore(env.DB),
@@ -41,9 +42,9 @@ function pdfDeps(env: Env, request: Request) {
   }
 }
 
-function paymentLinkDeps(env: Env, request: Request) {
+function paymentLinkDeps(env: Env, request: Request, companyId: string) {
   return {
-    invoices: createD1InvoiceStore(env.DB),
+    invoices: createD1InvoiceStore(env.DB, companyId),
     tokens: createD1PaymentTokenStore(env.DB),
     paymentLinkKey: paymentLinkKeySecret(env),
     baseUrl: adminDisplayPaymentBaseUrl(
@@ -54,79 +55,166 @@ function paymentLinkDeps(env: Env, request: Request) {
 }
 
 export function registerInvoiceRoutes(router: Router): void {
-  router.get('/api/invoices', (_request, env) =>
-    listInvoices(createD1InvoiceStore(env.DB)),
-  )
+  router.get('/api/invoices', async (request, env) => {
+    const auth = await requireAdmin(request, env, 'invoices.view')
+    if (!auth.ok) {
+      return auth.response
+    }
+    return listInvoices(createD1InvoiceStore(env.DB, auth.ctx.company.id))
+  })
 
-  router.post('/api/invoices', (request, env) =>
-    createInvoice(request, createD1InvoiceStore(env.DB)),
-  )
+  router.post('/api/invoices', async (request, env) => {
+    const auth = await requireAdmin(request, env, 'invoices.create')
+    if (!auth.ok) {
+      return auth.response
+    }
+    return createInvoice(request, createD1InvoiceStore(env.DB, auth.ctx.company.id))
+  })
 
-  router.post('/api/invoices/preview-pdf', (request, env) =>
-    previewInvoicePdf(request, pdfDeps(env, request)),
-  )
+  router.post('/api/invoices/preview-pdf', async (request, env) => {
+    const auth = await requireAdmin(request, env, 'invoices.view')
+    if (!auth.ok) {
+      return auth.response
+    }
+    return previewInvoicePdf(request, pdfDeps(env, request, auth.ctx.company.id))
+  })
 
-  router.get('/api/invoices/:id', (_request, env, _ctx, params) =>
-    getInvoice(params.id ?? '', createD1InvoiceStore(env.DB)),
-  )
+  router.get('/api/invoices/:id', async (request, env, _ctx, params) => {
+    const auth = await requireAdmin(request, env, 'invoices.view')
+    if (!auth.ok) {
+      return auth.response
+    }
+    return getInvoice(
+      params.id ?? '',
+      createD1InvoiceStore(env.DB, auth.ctx.company.id),
+    )
+  })
 
-  router.put('/api/invoices/:id', (request, env, _ctx, params) =>
-    updateInvoice(params.id ?? '', request, createD1InvoiceStore(env.DB)),
-  )
+  router.put('/api/invoices/:id', async (request, env, _ctx, params) => {
+    const auth = await requireAdmin(request, env, 'invoices.edit')
+    if (!auth.ok) {
+      return auth.response
+    }
+    return updateInvoice(
+      params.id ?? '',
+      request,
+      createD1InvoiceStore(env.DB, auth.ctx.company.id),
+    )
+  })
 
-  router.delete('/api/invoices/:id', (_request, env, _ctx, params) =>
-    deleteInvoice(params.id ?? '', createD1InvoiceStore(env.DB)),
-  )
+  router.delete('/api/invoices/:id', async (request, env, _ctx, params) => {
+    const auth = await requireAdmin(request, env, 'invoices.delete')
+    if (!auth.ok) {
+      return auth.response
+    }
+    return deleteInvoice(
+      params.id ?? '',
+      createD1InvoiceStore(env.DB, auth.ctx.company.id),
+    )
+  })
 
-  router.get('/api/invoices/:id/pdf', (request, env, _ctx, params) =>
-    getInvoicePdf(params.id ?? '', pdfDeps(env, request)),
-  )
+  router.get('/api/invoices/:id/pdf', async (request, env, _ctx, params) => {
+    const auth = await requireAdmin(request, env, 'invoices.view')
+    if (!auth.ok) {
+      return auth.response
+    }
+    return getInvoicePdf(
+      params.id ?? '',
+      pdfDeps(env, request, auth.ctx.company.id),
+    )
+  })
 
-  router.get('/api/invoices/:id/emails', (_request, env, _ctx, params) =>
-    listInvoiceEmails(params.id ?? '', createD1InvoiceStore(env.DB)),
-  )
+  router.get('/api/invoices/:id/emails', async (request, env, _ctx, params) => {
+    const auth = await requireAdmin(request, env, 'invoices.view')
+    if (!auth.ok) {
+      return auth.response
+    }
+    return listInvoiceEmails(
+      params.id ?? '',
+      createD1InvoiceStore(env.DB, auth.ctx.company.id),
+    )
+  })
 
-  router.post('/api/invoices/:id/send', (request, env, _ctx, params) =>
-    sendInvoice(params.id ?? '', request, {
-      ...pdfDeps(env, request),
+  router.post('/api/invoices/:id/send', async (request, env, _ctx, params) => {
+    const auth = await requireAdmin(request, env, 'invoices.send')
+    if (!auth.ok) {
+      return auth.response
+    }
+    return sendInvoice(params.id ?? '', request, {
+      ...pdfDeps(env, request, auth.ctx.company.id),
       smtpPassword: smtpPasswordSecret(env),
       tokens: createD1PaymentTokenStore(env.DB),
       paymentLinkKey: paymentLinkKeySecret(env),
       paymentBaseUrl: publicPaymentBaseUrlConfig(env),
-    }),
-  )
+    })
+  })
 
-  router.get('/api/invoices/:id/payment-link', (request, env, _ctx, params) =>
-    getInvoicePaymentLink(params.id ?? '', paymentLinkDeps(env, request)),
-  )
+  router.get('/api/invoices/:id/payment-link', async (request, env, _ctx, params) => {
+    const auth = await requireAdmin(request, env, 'invoices.view')
+    if (!auth.ok) {
+      return auth.response
+    }
+    return getInvoicePaymentLink(
+      params.id ?? '',
+      paymentLinkDeps(env, request, auth.ctx.company.id),
+    )
+  })
 
   router.post(
     '/api/invoices/:id/payment-link/regenerate',
-    (request, env, _ctx, params) =>
-      regenerateInvoicePaymentLink(params.id ?? '', paymentLinkDeps(env, request)),
+    async (request, env, _ctx, params) => {
+      const auth = await requireAdmin(request, env, 'invoices.send')
+      if (!auth.ok) {
+        return auth.response
+      }
+      return regenerateInvoicePaymentLink(
+        params.id ?? '',
+        paymentLinkDeps(env, request, auth.ctx.company.id),
+      )
+    },
   )
 
   router.post(
     '/api/invoices/:id/payment-link/revoke',
-    (request, env, _ctx, params) =>
-      revokeInvoicePaymentLink(params.id ?? '', paymentLinkDeps(env, request)),
+    async (request, env, _ctx, params) => {
+      const auth = await requireAdmin(request, env, 'invoices.void')
+      if (!auth.ok) {
+        return auth.response
+      }
+      return revokeInvoicePaymentLink(
+        params.id ?? '',
+        paymentLinkDeps(env, request, auth.ctx.company.id),
+      )
+    },
   )
 
   router.post('/api/invoices/:id/mark-paid', async (request, env, _ctx, params) => {
-    const store = createD1InvoiceStore(env.DB)
+    const auth = await requireAdmin(request, env, 'invoices.mark_paid')
+    if (!auth.ok) {
+      return auth.response
+    }
+    const store = createD1InvoiceStore(env.DB, auth.ctx.company.id)
     const response = await markInvoicePaid(params.id ?? '', request, store)
     if (response.ok) {
-      const format = await loadCurrentFormat(createD1SettingsStore(env.DB))
+      const format = await loadCurrentFormat(
+        createD1SettingsStore(env.DB, auth.ctx.company.id),
+      )
       await store.snapshotFormat(params.id ?? '', serializeFormat(format), nowIso())
     }
     return response
   })
 
   router.post('/api/invoices/:id/void', async (request, env, _ctx, params) => {
-    const store = createD1InvoiceStore(env.DB)
+    const auth = await requireAdmin(request, env, 'invoices.void')
+    if (!auth.ok) {
+      return auth.response
+    }
+    const store = createD1InvoiceStore(env.DB, auth.ctx.company.id)
     const response = await voidInvoice(params.id ?? '', request, store)
     if (response.ok) {
-      const format = await loadCurrentFormat(createD1SettingsStore(env.DB))
+      const format = await loadCurrentFormat(
+        createD1SettingsStore(env.DB, auth.ctx.company.id),
+      )
       await store.snapshotFormat(params.id ?? '', serializeFormat(format), nowIso())
     }
     return response

@@ -32,15 +32,20 @@ function mapRow(row: PersonRow): PersonRecord {
   }
 }
 
-export function createD1DirectoryStore(db: D1Database): DirectoryStore {
+export function createD1DirectoryStore(
+  db: D1Database,
+  companyId: string,
+): DirectoryStore {
   return {
     async listPeople() {
       const result = await db
         .prepare(
           `SELECT id, name, email, address_line1, address_line2, city, state_region, postal_code, country, created_at, updated_at
            FROM people
+           WHERE company_id = ?
            ORDER BY name COLLATE NOCASE ASC, email COLLATE NOCASE ASC`,
         )
+        .bind(companyId)
         .all<PersonRow>()
       return (result.results ?? []).map(mapRow)
     },
@@ -50,9 +55,9 @@ export function createD1DirectoryStore(db: D1Database): DirectoryStore {
         .prepare(
           `SELECT id, name, email, address_line1, address_line2, city, state_region, postal_code, country, created_at, updated_at
            FROM people
-           WHERE id = ?`,
+           WHERE id = ? AND company_id = ?`,
         )
-        .bind(id)
+        .bind(id, companyId)
         .first<PersonRow>()
       return row ? mapRow(row) : null
     },
@@ -61,11 +66,12 @@ export function createD1DirectoryStore(db: D1Database): DirectoryStore {
       await db
         .prepare(
           `INSERT INTO people (
-             id, name, email, address_line1, address_line2, city, state_region, postal_code, country, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             id, company_id, name, email, address_line1, address_line2, city, state_region, postal_code, country, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           record.id,
+          companyId,
           record.name,
           record.email,
           record.address.line1,
@@ -86,7 +92,7 @@ export function createD1DirectoryStore(db: D1Database): DirectoryStore {
         .prepare(
           `UPDATE people
            SET name = ?, email = ?, address_line1 = ?, address_line2 = ?, city = ?, state_region = ?, postal_code = ?, country = ?, updated_at = ?
-           WHERE id = ?
+           WHERE id = ? AND company_id = ?
            RETURNING id, name, email, address_line1, address_line2, city, state_region, postal_code, country, created_at, updated_at`,
         )
         .bind(
@@ -100,20 +106,26 @@ export function createD1DirectoryStore(db: D1Database): DirectoryStore {
           fields.address.country,
           updatedAt,
           id,
+          companyId,
         )
         .first<PersonRow>()
       return result ? mapRow(result) : null
     },
 
     async deletePerson(id) {
-      const result = await db.prepare('DELETE FROM people WHERE id = ?').bind(id).run()
+      const result = await db
+        .prepare('DELETE FROM people WHERE id = ? AND company_id = ?')
+        .bind(id, companyId)
+        .run()
       return (result.meta.changes ?? 0) > 0
     },
 
     async getDefaultFromId() {
       const row = await db
-        .prepare('SELECT value FROM app_settings WHERE key = ?')
-        .bind(DEFAULT_FROM_SETTING_KEY)
+        .prepare(
+          'SELECT value FROM company_settings WHERE company_id = ? AND key = ?',
+        )
+        .bind(companyId, DEFAULT_FROM_SETTING_KEY)
         .first<{ value: string | null }>()
       return row?.value ?? null
     },
@@ -121,11 +133,12 @@ export function createD1DirectoryStore(db: D1Database): DirectoryStore {
     async setDefaultFromId(id, updatedAt) {
       await db
         .prepare(
-          `INSERT INTO app_settings (key, value, updated_at)
-           VALUES (?, ?, ?)
-           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+          `INSERT INTO company_settings (company_id, key, value, updated_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(company_id, key) DO UPDATE SET
+             value = excluded.value, updated_at = excluded.updated_at`,
         )
-        .bind(DEFAULT_FROM_SETTING_KEY, id, updatedAt)
+        .bind(companyId, DEFAULT_FROM_SETTING_KEY, id, updatedAt)
         .run()
     },
   }

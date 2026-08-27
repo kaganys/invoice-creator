@@ -13,7 +13,7 @@ export type AppSettings = {
   defaultFromId: string | null
 }
 
-export type AppView = 'invoice' | 'invoices' | 'people' | 'settings'
+export type AppView = 'invoice' | 'invoices' | 'people' | 'settings' | 'users'
 
 export function partyFromPerson(person: Person): InvoiceParty {
   return {

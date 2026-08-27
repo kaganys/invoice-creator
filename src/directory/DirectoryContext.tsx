@@ -67,12 +67,20 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
-    const [nextPeople, settings] = await Promise.all([
-      fetchPeople(),
-      fetchSettings(),
-    ])
-    setPeople(sortPeople(nextPeople))
-    setDefaultFromIdState(settings.defaultFromId)
+    try {
+      const [nextPeople, settings] = await Promise.all([
+        fetchPeople(),
+        fetchSettings(),
+      ])
+      setPeople(sortPeople(nextPeople))
+      setDefaultFromIdState(settings.defaultFromId)
+    } catch (caught: unknown) {
+      if (caught instanceof ApiError && caught.status === 403) {
+        setPeople([])
+        return
+      }
+      throw caught
+    }
   }, [])
 
   useEffect(() => {
