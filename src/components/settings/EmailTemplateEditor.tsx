@@ -3,7 +3,6 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
-  type ReactNode,
 } from 'react'
 import {
   EMAIL_VARIABLES,
@@ -58,15 +57,6 @@ type DragSession = {
   label: string
 }
 
-const FONT_SIZES = ['2', '3', '4', '5', '6'] as const
-const FONT_SIZE_LABELS: Record<(typeof FONT_SIZES)[number], string> = {
-  '2': '11',
-  '3': '12',
-  '4': '14',
-  '5': '18',
-  '6': '24',
-}
-
 const ITEM_LABEL: Record<EmailCanvasBlockType, string> = {
   hero: 'Header',
   heading: 'Heading',
@@ -89,12 +79,12 @@ function runCommand(command: string, value?: string) {
 function Glyph({ path }: { path: string }) {
   return (
     <svg
-      width="16"
-      height="16"
+      width="15"
+      height="15"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2"
+      strokeWidth="1.75"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -104,37 +94,26 @@ function Glyph({ path }: { path: string }) {
   )
 }
 
-function ToolButton({
-  label,
-  onClick,
-  children,
-}: {
-  label: string
-  onClick: () => void
-  children: ReactNode
-}) {
+function Dots() {
   return (
-    <button
-      type="button"
-      className="email-tool"
-      title={label}
-      aria-label={label}
-      onClick={onClick}
-    >
-      {children}
-    </button>
+    <svg width="8" height="14" viewBox="0 0 8 14" aria-hidden="true">
+      <circle cx="2" cy="2" r="1" fill="currentColor" />
+      <circle cx="6" cy="2" r="1" fill="currentColor" />
+      <circle cx="2" cy="7" r="1" fill="currentColor" />
+      <circle cx="6" cy="7" r="1" fill="currentColor" />
+      <circle cx="2" cy="12" r="1" fill="currentColor" />
+      <circle cx="6" cy="12" r="1" fill="currentColor" />
+    </svg>
   )
 }
 
 function CanvasItem({
   block,
-  selected,
   dragging,
   onFocus,
   onChange,
 }: {
   block: EmailCanvasBlock
-  selected: boolean
   dragging: boolean
   onFocus: () => void
   onChange: (html: string) => void
@@ -149,24 +128,15 @@ function CanvasItem({
 
   return (
     <div
-      className={
-        selected
-          ? 'email-item__body is-selected'
-          : 'email-item__body'
-      }
-      data-kind={block.type}
-    >
-      <div
-        ref={ref}
-        className="email-item__edit"
-        contentEditable={!dragging}
-        suppressContentEditableWarning
-        role="textbox"
-        aria-label={`${ITEM_LABEL[block.type]} item`}
-        onFocus={onFocus}
-        onInput={() => onChange(ref.current?.innerHTML ?? '')}
-      />
-    </div>
+      ref={ref}
+      className="email-item__edit"
+      contentEditable={!dragging}
+      suppressContentEditableWarning
+      role="textbox"
+      aria-label={ITEM_LABEL[block.type]}
+      onFocus={onFocus}
+      onInput={() => onChange(ref.current?.innerHTML ?? '')}
+    />
   )
 }
 
@@ -185,11 +155,8 @@ export function EmailTemplateEditor({
   const [draftSubject, setDraftSubject] = useState(subject)
   const [blocks, setBlocks] = useState<EmailCanvasBlock[]>([])
   const [focusedId, setFocusedId] = useState<string | null>(null)
-  const [previewMode, setPreviewMode] = useState<'mobile' | 'desktop'>('mobile')
   const [mobilePane, setMobilePane] = useState<MobilePane>('write')
-  const [textColor, setTextColor] = useState('#111111')
-  const [highlight, setHighlight] = useState('#fde68a')
-  const [fontSize, setFontSize] = useState<(typeof FONT_SIZES)[number]>('4')
+  const [previewing, setPreviewing] = useState(false)
   const [drag, setDrag] = useState<DragSession | null>(null)
   const [dropIndex, setDropIndex] = useState<number | null>(null)
 
@@ -215,6 +182,7 @@ export function EmailTemplateEditor({
     setBlocks(parsed.length > 0 ? parsed : defaultCanvasBlocks())
     setFocusedId(parsed[0]?.id ?? null)
     setMobilePane('write')
+    setPreviewing(false)
     setDrag(null)
     setDropIndex(null)
     dragRef.current = null
@@ -232,20 +200,9 @@ export function EmailTemplateEditor({
     SAMPLE_EMAIL_BRAND,
   )
 
-  function format(command: string, value?: string) {
-    runCommand(command, value)
-  }
-
-  function addLink() {
-    const url = window.prompt('Link URL', 'https://')
-    if (!url) {
-      return
-    }
-    format('createLink', url)
-  }
-
-  function insertVariable(id: EmailVariableId) {
-    runCommand('insertHTML', `&nbsp;${emailVariableChip(id)}&nbsp;`)
+  function insertIndex(): number {
+    const from = blocks.findIndex((block) => block.id === focusedId)
+    return from >= 0 ? from + 1 : blocks.length
   }
 
   function insertBlockAt(type: EmailBlockId, index: number) {
@@ -264,16 +221,6 @@ export function EmailTemplateEditor({
     setBlocks((current) => {
       const next = current.filter((block) => block.id !== id)
       return next.length > 0 ? next : defaultCanvasBlocks()
-    })
-  }
-
-  function shiftBlock(id: string, direction: -1 | 1) {
-    setBlocks((current) => {
-      const from = current.findIndex((block) => block.id === id)
-      if (from < 0) {
-        return current
-      }
-      return moveCanvasBlock(current, from, from + direction)
     })
   }
 
@@ -306,11 +253,13 @@ export function EmailTemplateEditor({
     if (session.kind === 'palette' && session.type) {
       insertBlockAt(session.type, at)
       setMobilePane('write')
+      setPreviewing(false)
       return
     }
     if (session.kind === 'field' && session.variableId) {
       insertFieldAt(session.variableId, at)
       setMobilePane('write')
+      setPreviewing(false)
       return
     }
     if (session.kind === 'reorder' && session.id) {
@@ -356,10 +305,7 @@ export function EmailTemplateEditor({
     window.removeEventListener('pointerup', onPointerUp)
     if (session?.active) {
       skipClickRef.current = true
-      applyDrag(
-        session,
-        dropIndexRef.current ?? readDropIndex(session.y),
-      )
+      applyDrag(session, dropIndexRef.current ?? readDropIndex(session.y))
     }
     dragRef.current = null
     dropIndexRef.current = null
@@ -389,219 +335,93 @@ export function EmailTemplateEditor({
     window.addEventListener('pointerup', onPointerUp)
   }
 
-  const toolbar = (
-    <div className="email-toolbar" role="toolbar" aria-label="Formatting">
-      <ToolButton label="Undo" onClick={() => format('undo')}>
-        <Glyph path="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 1 1 0 11H13" />
-      </ToolButton>
-      <ToolButton label="Redo" onClick={() => format('redo')}>
-        <Glyph path="M15 14l5-5-5-5M20 9H9.5a5.5 5.5 0 1 0 0 11H11" />
-      </ToolButton>
-      <span className="email-toolbar__rule" />
-      <label className="email-tool email-tool--select">
-        <span className="visually-hidden">Font size</span>
-        <select
-          className="email-font-size"
-          value={fontSize}
-          onChange={(event) => {
-            const next = event.target.value as (typeof FONT_SIZES)[number]
-            setFontSize(next)
-            format('fontSize', next)
-          }}
-        >
-          {FONT_SIZES.map((size) => (
-            <option key={size} value={size}>
-              {FONT_SIZE_LABELS[size]}
-            </option>
-          ))}
-        </select>
-      </label>
-      <ToolButton label="Bold" onClick={() => format('bold')}>
-        <strong>B</strong>
-      </ToolButton>
-      <ToolButton label="Italic" onClick={() => format('italic')}>
-        <em>I</em>
-      </ToolButton>
-      <ToolButton label="Underline" onClick={() => format('underline')}>
-        <span className="email-tool__u">U</span>
-      </ToolButton>
-      <label className="email-tool email-tool--color" title="Text color">
-        <span>A</span>
-        <input
-          type="color"
-          value={textColor}
-          onChange={(event) => {
-            setTextColor(event.target.value)
-            format('foreColor', event.target.value)
-          }}
-        />
-      </label>
-      <label className="email-tool email-tool--color" title="Highlight">
-        <span>▮</span>
-        <input
-          type="color"
-          value={highlight}
-          onChange={(event) => {
-            setHighlight(event.target.value)
-            format('hiliteColor', event.target.value)
-          }}
-        />
-      </label>
-      <span className="email-toolbar__rule" />
-      <ToolButton label="Heading" onClick={() => format('formatBlock', 'h2')}>
-        <span className="email-tool__type">H</span>
-      </ToolButton>
-      <ToolButton label="Paragraph" onClick={() => format('formatBlock', 'p')}>
-        <Glyph path="M13 5v14M9 5v8a4 4 0 0 1-4 4M9 5h10" />
-      </ToolButton>
-      <ToolButton
-        label="Bulleted list"
-        onClick={() => format('insertUnorderedList')}
-      >
-        <Glyph path="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
-      </ToolButton>
-      <ToolButton
-        label="Numbered list"
-        onClick={() => format('insertOrderedList')}
-      >
-        <Glyph path="M10 6h11M10 12h11M10 18h11M4 6h1v4" />
-      </ToolButton>
-      <ToolButton label="Align left" onClick={() => format('justifyLeft')}>
-        <Glyph path="M4 6h16M4 12h10M4 18h14" />
-      </ToolButton>
-      <ToolButton label="Align center" onClick={() => format('justifyCenter')}>
-        <Glyph path="M4 6h16M7 12h10M5 18h14" />
-      </ToolButton>
-      <ToolButton label="Align right" onClick={() => format('justifyRight')}>
-        <Glyph path="M4 6h16M10 12h10M6 18h14" />
-      </ToolButton>
-      <ToolButton label="Link" onClick={addLink}>
-        <Glyph path="M10 13a5 5 0 0 0 7.07 0l1.41-1.41a5 5 0 0 0-7.07-7.07L10 5.93M14 11a5 5 0 0 0-7.07 0L5.52 12.4a5 5 0 0 0 7.07 7.07L14 18.07" />
-      </ToolButton>
-    </div>
-  )
+  function save() {
+    onApply({
+      subject: draftSubject,
+      html: serializeEmailBlocks(blocks),
+    })
+  }
 
-  const palette = (
-    <aside className="email-editor-palette">
-      <div className="email-editor-palette__head">
-        <p className="email-editor-palette__title">Items</p>
-        <p className="email-editor-palette__hint">
-          Drag any item onto the email. Each one moves on its own.
-        </p>
-      </div>
-      <div className="email-block-grid">
+  const library = (
+    <aside className="email-lib">
+      <p className="email-lib__label">Add</p>
+      <ul className="email-lib__list">
         {PALETTE_BLOCKS.map((block) => (
-          <button
-            key={block.id}
-            type="button"
-            className={`email-block-card email-block-card--${block.id}`}
-            onClick={() => {
-              if (skipClickRef.current) {
-                skipClickRef.current = false
-                return
-              }
-              insertBlockAt(block.id, blocks.length)
-              setMobilePane('write')
-            }}
-          >
-            <span
-              className="email-block-card__grip"
-              aria-hidden="true"
+          <li key={block.id}>
+            <button
+              type="button"
+              className="email-lib__row"
+              onClick={() => {
+                if (skipClickRef.current) {
+                  skipClickRef.current = false
+                  return
+                }
+                insertBlockAt(block.id, insertIndex())
+                setMobilePane('write')
+                setPreviewing(false)
+              }}
+            >
+              <span
+                className="email-lib__handle"
+                onPointerDown={(event) =>
+                  beginDrag(event, {
+                    kind: 'palette',
+                    type: block.id,
+                    fromIndex: -1,
+                    label: ITEM_LABEL[block.id],
+                  })
+                }
+              >
+                <Dots />
+              </span>
+              {ITEM_LABEL[block.id]}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <p className="email-lib__label">Fields</p>
+      <ul className="email-lib__list">
+        {EMAIL_VARIABLES.map((variable) => (
+          <li key={variable.id}>
+            <button
+              type="button"
+              className="email-lib__row"
               onPointerDown={(event) =>
                 beginDrag(event, {
-                  kind: 'palette',
-                  type: block.id,
+                  kind: 'field',
+                  variableId: variable.id,
                   fromIndex: -1,
-                  label: ITEM_LABEL[block.id],
+                  label: variable.label,
                 })
               }
+              onClick={() => {
+                if (skipClickRef.current) {
+                  skipClickRef.current = false
+                  return
+                }
+                runCommand(
+                  'insertHTML',
+                  `&nbsp;${emailVariableChip(variable.id)}&nbsp;`,
+                )
+              }}
             >
-              <Glyph path="M10 5v14M14 5v14" />
-            </span>
-            <span className="email-block-card__preview" aria-hidden="true" />
-            <span className="email-block-card__meta">
-              <span className="email-block-card__label">
-                {ITEM_LABEL[block.id]}
-              </span>
-              <span className="email-block-card__hint">{block.hint}</span>
-            </span>
-          </button>
+              {variable.label}
+            </button>
+          </li>
         ))}
-      </div>
-      <div className="email-editor-palette__head">
-        <p className="email-editor-palette__title">Fields</p>
-        <p className="email-editor-palette__hint">
-          Drag onto the page, or tap to insert at the cursor.
-        </p>
-      </div>
-      <div className="email-editor-vars">
-        {EMAIL_VARIABLES.map((variable) => (
-          <button
-            key={variable.id}
-            type="button"
-            className="email-editor-var"
-            onPointerDown={(event) =>
-              beginDrag(event, {
-                kind: 'field',
-                variableId: variable.id,
-                fromIndex: -1,
-                label: variable.label,
-              })
-            }
-            onClick={() => {
-              if (skipClickRef.current) {
-                skipClickRef.current = false
-                return
-              }
-              insertVariable(variable.id)
-            }}
-          >
-            {variable.label}
-          </button>
-        ))}
-      </div>
-    </aside>
-  )
-
-  const previewPane = (
-    <div className="email-editor-preview">
-      <div className="email-editor-preview__bar">
-        <span>Inbox</span>
-        <div className="email-seg">
-          <button
-            type="button"
-            className={previewMode === 'mobile' ? 'is-active' : ''}
-            onClick={() => setPreviewMode('mobile')}
-          >
-            Phone
-          </button>
-          <button
-            type="button"
-            className={previewMode === 'desktop' ? 'is-active' : ''}
-            onClick={() => setPreviewMode('desktop')}
-          >
-            Desktop
-          </button>
-        </div>
-      </div>
-      <div
-        className={
-          previewMode === 'mobile'
-            ? 'email-device is-phone'
-            : 'email-device is-desktop'
-        }
+      </ul>
+      <button
+        type="button"
+        className="email-lib__reset"
+        onClick={() => {
+          const next = defaultCanvasBlocks()
+          setBlocks(next)
+          setFocusedId(next[0]?.id ?? null)
+        }}
       >
-        <div className="email-device__chrome">
-          <p className="email-device__from">{SAMPLE_EMAIL_VARS.business_name}</p>
-          <p className="email-device__subject">{draftSubject || 'Subject'}</p>
-        </div>
-        <iframe
-          className="email-editor-preview__frame"
-          title="Email preview"
-          srcDoc={preview.html}
-        />
-      </div>
-    </div>
+        Start over
+      </button>
+    </aside>
   )
 
   return (
@@ -615,148 +435,175 @@ export function EmailTemplateEditor({
     >
       <div
         ref={dialogRef}
-        className={`email-editor-modal__dialog is-pane-${mobilePane}`}
+        className={`email-desk is-pane-${mobilePane}${previewing ? ' is-previewing' : ''}${drag?.active ? ' is-dragging' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="email-editor-title"
         tabIndex={-1}
       >
-        <header className="email-editor-top">
-          <div className="email-editor-top__title">
-            <h2 id="email-editor-title">Invoice email</h2>
-            <p>Drag each line, card, or button into place</p>
-          </div>
-          <div className="email-editor-top__actions">
+        <header className="email-desk__bar">
+          <h2 id="email-editor-title">Email</h2>
+          <div className="email-desk__bar-actions">
             <button
               type="button"
-              className="btn btn--ghost email-editor-top__reset"
+              className={previewing ? 'email-text-btn is-on' : 'email-text-btn'}
               onClick={() => {
-                const next = defaultCanvasBlocks()
-                setBlocks(next)
-                setFocusedId(next[0]?.id ?? null)
+                setPreviewing((current) => !current)
+                setMobilePane((current) =>
+                  current === 'preview' ? 'write' : current,
+                )
               }}
             >
-              Reset
+              <IconEye />
+              Preview
             </button>
-            <button
-              type="button"
-              className="btn btn--icon"
-              aria-label="Close"
-              onClick={onClose}
-            >
-              <IconX />
+            <button type="button" className="email-text-btn" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="button" className="email-done" onClick={save}>
+              Done
             </button>
           </div>
         </header>
 
-        <div className="email-editor-modal__subject">
-          <label className="field__label" htmlFor="email-editor-subject">
-            Subject
-          </label>
-          <input
-            id="email-editor-subject"
-            className="field__input"
-            value={draftSubject}
-            onChange={(event) => setDraftSubject(event.target.value)}
-          />
-        </div>
+        <div className="email-desk__body">
+          {library}
 
-        {toolbar}
-
-        <div
-          className={`email-editor-workspace is-${mobilePane}${drag?.active ? ' is-dragging' : ''}`}
-        >
-          {palette}
-
-          <div className="email-editor-stage" ref={stageRef}>
-            <div className="email-page">
-              <div className="email-page__sheet">
-                {blocks.map((block, index) => (
-                  <div key={block.id}>
-                    <div
-                      className={
-                        dropIndex === index && drag?.active
-                          ? 'email-slot is-active'
-                          : 'email-slot'
+          <div className="email-desk__stage" ref={stageRef}>
+            {previewing ? (
+              <div className="email-letter email-letter--preview">
+                <iframe title="Email preview" srcDoc={preview.html} />
+              </div>
+            ) : (
+              <div className="email-letter">
+                <div className="email-letter__tools" role="toolbar" aria-label="Format">
+                  <button type="button" onClick={() => runCommand('bold')} aria-label="Bold">
+                    <strong>B</strong>
+                  </button>
+                  <button type="button" onClick={() => runCommand('italic')} aria-label="Italic">
+                    <em>I</em>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => runCommand('underline')}
+                    aria-label="Underline"
+                  >
+                    <span className="email-u">U</span>
+                  </button>
+                  <i />
+                  <button
+                    type="button"
+                    onClick={() => runCommand('insertUnorderedList')}
+                    aria-label="List"
+                  >
+                    <Glyph path="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Link"
+                    onClick={() => {
+                      const url = window.prompt('Link', 'https://')
+                      if (url) {
+                        runCommand('createLink', url)
                       }
-                    />
-                    <div
-                      className={
-                        drag?.active && drag.id === block.id
-                          ? 'email-item is-source'
-                          : focusedId === block.id
-                            ? 'email-item is-focused'
-                            : 'email-item'
-                      }
-                      data-item-index={index}
-                    >
-                      <button
-                        type="button"
-                        className="email-item__grab"
-                        aria-label={`Drag ${ITEM_LABEL[block.type]}`}
-                        onPointerDown={(event) =>
-                          beginDrag(event, {
-                            kind: 'reorder',
-                            id: block.id,
-                            fromIndex: index,
-                            label: ITEM_LABEL[block.type],
-                          })
+                    }}
+                  >
+                    <Glyph path="M10 13a5 5 0 0 0 7.07 0l1.4-1.4a5 5 0 0 0-7.07-7.07L10 6M14 11a5 5 0 0 0-7.07 0L5.5 12.4a5 5 0 0 0 7.07 7.07L14 18" />
+                  </button>
+                </div>
+
+                <label className="email-letter__subject" htmlFor="email-editor-subject">
+                  <span>Subject</span>
+                  <input
+                    id="email-editor-subject"
+                    value={draftSubject}
+                    onChange={(event) => setDraftSubject(event.target.value)}
+                  />
+                </label>
+
+                <div className="email-letter__body">
+                  {blocks.map((block, index) => (
+                    <div key={block.id}>
+                      <div
+                        className={
+                          dropIndex === index && drag?.active
+                            ? 'email-gap is-drop'
+                            : 'email-gap'
                         }
                       >
-                        <Glyph path="M10 5v14M14 5v14" />
-                      </button>
-                      <CanvasItem
-                        block={block}
-                        selected={focusedId === block.id}
-                        dragging={Boolean(drag?.active)}
-                        onFocus={() => setFocusedId(block.id)}
-                        onChange={(nextHtml) =>
-                          updateBlockHtml(block.id, nextHtml)
+                        <button
+                          type="button"
+                          className="email-gap__add"
+                          aria-label="Add text here"
+                          onClick={() => insertBlockAt('text', index)}
+                        >
+                          +
+                        </button>
+                      </div>
+                      <div
+                        className={
+                          drag?.active && drag.id === block.id
+                            ? 'email-item is-source'
+                            : focusedId === block.id
+                              ? 'email-item is-focused'
+                              : 'email-item'
                         }
-                      />
-                      <div className="email-item__ops">
+                        data-item-index={index}
+                      >
                         <button
                           type="button"
-                          className="email-mini"
-                          disabled={index === 0}
-                          aria-label="Move up"
-                          onClick={() => shiftBlock(block.id, -1)}
+                          className="email-item__grab"
+                          aria-label={`Move ${ITEM_LABEL[block.type]}`}
+                          onPointerDown={(event) =>
+                            beginDrag(event, {
+                              kind: 'reorder',
+                              id: block.id,
+                              fromIndex: index,
+                              label: ITEM_LABEL[block.type],
+                            })
+                          }
                         >
-                          <Glyph path="M12 19V5M5 12l7-7 7 7" />
+                          <Dots />
                         </button>
+                        <CanvasItem
+                          block={block}
+                          dragging={Boolean(drag?.active)}
+                          onFocus={() => setFocusedId(block.id)}
+                          onChange={(nextHtml) =>
+                            updateBlockHtml(block.id, nextHtml)
+                          }
+                        />
                         <button
                           type="button"
-                          className="email-mini"
-                          disabled={index === blocks.length - 1}
-                          aria-label="Move down"
-                          onClick={() => shiftBlock(block.id, 1)}
-                        >
-                          <Glyph path="M12 5v14M5 12l7 7 7-7" />
-                        </button>
-                        <button
-                          type="button"
-                          className="email-mini"
-                          aria-label="Delete item"
+                          className="email-item__remove"
+                          aria-label="Remove"
                           onClick={() => removeBlock(block.id)}
                         >
-                          <Glyph path="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                          <IconX />
                         </button>
                       </div>
                     </div>
+                  ))}
+                  <div
+                    className={
+                      dropIndex === blocks.length && drag?.active
+                        ? 'email-gap is-drop'
+                        : 'email-gap'
+                    }
+                  >
+                    <button
+                      type="button"
+                      className="email-gap__add"
+                      aria-label="Add text at the end"
+                      onClick={() => insertBlockAt('text', blocks.length)}
+                    >
+                      +
+                    </button>
                   </div>
-                ))}
-                <div
-                  className={
-                    dropIndex === blocks.length && drag?.active
-                      ? 'email-slot is-active'
-                      : 'email-slot'
-                  }
-                />
+                </div>
               </div>
-            </div>
+            )}
           </div>
-
-          {previewPane}
         </div>
 
         {drag?.active ? (
@@ -768,50 +615,38 @@ export function EmailTemplateEditor({
           </div>
         ) : null}
 
-        <nav className="email-mobile-panes" aria-label="Designer views">
+        <nav className="email-desk__tabs" aria-label="Editor">
           <button
             type="button"
             className={mobilePane === 'blocks' ? 'is-active' : ''}
-            onClick={() => setMobilePane('blocks')}
+            onClick={() => {
+              setMobilePane('blocks')
+              setPreviewing(false)
+            }}
           >
-            <Glyph path="M4 6h7v5H4zM13 6h7v5h-7zM4 13h7v5H4zM13 13h7v5h-7z" />
-            Items
+            Add
           </button>
           <button
             type="button"
-            className={mobilePane === 'write' ? 'is-active' : ''}
-            onClick={() => setMobilePane('write')}
+            className={mobilePane === 'write' && !previewing ? 'is-active' : ''}
+            onClick={() => {
+              setMobilePane('write')
+              setPreviewing(false)
+            }}
           >
-            <Glyph path="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
-            Edit
+            Letter
           </button>
           <button
             type="button"
-            className={mobilePane === 'preview' ? 'is-active' : ''}
-            onClick={() => setMobilePane('preview')}
+            className={previewing || mobilePane === 'preview' ? 'is-active' : ''}
+            onClick={() => {
+              setMobilePane('preview')
+              setPreviewing(true)
+            }}
           >
-            <IconEye />
             Preview
           </button>
         </nav>
-
-        <footer className="email-editor-modal__footer">
-          <button type="button" className="btn btn--ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="btn btn--primary"
-            onClick={() =>
-              onApply({
-                subject: draftSubject,
-                html: serializeEmailBlocks(blocks),
-              })
-            }
-          >
-            Use this email
-          </button>
-        </footer>
       </div>
     </div>
   )
