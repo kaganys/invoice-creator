@@ -2,7 +2,6 @@ import { PRESET_ROLES } from '../../src/auth/permissions.ts'
 import { createEntityId, nowIso } from '../lib/ids.ts'
 import type { AccessIdentity } from '../auth/identity.ts'
 import type { CompanyRecord, TenantStore, UserRecord } from './types.ts'
-import { DEFAULT_COMPANY_ID } from './types.ts'
 
 export async function seedPresetRoles(
   store: TenantStore,
@@ -44,13 +43,28 @@ export async function ensureCompanyReady(
   await seedPresetRoles(store, company.id)
 }
 
+export async function allocateCompanySlug(
+  store: TenantStore,
+  name: string,
+): Promise<string> {
+  const slugBase = slugifyCompanyName(name)
+  const used = new Set((await store.listCompanies()).map((row) => row.slug))
+  let slug = slugBase
+  let attempt = 1
+  while (used.has(slug)) {
+    attempt += 1
+    slug = `${slugBase}-${attempt}`
+  }
+  return slug
+}
+
 export async function bootstrapAccessUser(
   store: TenantStore,
   identity: AccessIdentity,
 ): Promise<UserRecord> {
   const timestamp = nowIso()
   const existing = await store.getUserByEmail(identity.email)
-  const user = await store.upsertUser({
+  return store.upsertUser({
     id: existing?.id ?? createEntityId(),
     email: identity.email,
     name: identity.name || existing?.name || identity.email,
@@ -59,52 +73,4 @@ export async function bootstrapAccessUser(
     createdAt: existing?.createdAt ?? timestamp,
     updatedAt: timestamp,
   })
-
-  const companies = await store.listCompanies()
-  if (companies.length === 0) {
-    const company = await store.createCompany({
-      id: DEFAULT_COMPANY_ID,
-      name: 'Bitz Designs',
-      slug: 'bitz-designs',
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    })
-    await seedPresetRoles(store, company.id, timestamp)
-    const owner = (await store.listRoles(company.id)).find(
-      (role) => role.key === 'owner',
-    )
-    if (owner) {
-      await store.createMembership({
-        id: createEntityId(),
-        companyId: company.id,
-        userId: user.id,
-        roleId: owner.id,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      })
-    }
-    return { ...user, lastCompanyId: company.id }
-  }
-
-  await seedPresetRoles(store, DEFAULT_COMPANY_ID, timestamp)
-
-  const userCount = await store.countUsers()
-  const memberships = await store.listMembershipsForUser(user.id)
-  if (memberships.length === 0 && userCount <= 1) {
-    const owner = (await store.listRoles(DEFAULT_COMPANY_ID)).find(
-      (role) => role.key === 'owner',
-    )
-    if (owner) {
-      await store.createMembership({
-        id: createEntityId(),
-        companyId: DEFAULT_COMPANY_ID,
-        userId: user.id,
-        roleId: owner.id,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      })
-    }
-  }
-
-  return user
 }

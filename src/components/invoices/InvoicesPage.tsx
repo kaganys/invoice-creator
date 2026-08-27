@@ -101,96 +101,175 @@ export function InvoicesPage() {
       ) : null}
 
       {invoices.length > 0 ? (
-        <div className="invoices-table-wrap">
-          <table className="invoices-table">
-            <thead>
-              <tr>
-                <th>Number</th>
-                <th>Customer</th>
-                <th>Issue date</th>
-                <th>Due date</th>
-                <th>Amount</th>
-                <th>Status</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {invoices.map((row) => {
-                const deleting = pendingDeleteId === row.id
-                return (
-                  <tr
-                    key={row.id}
-                    className="invoices-table__row"
-                    onClick={() => openInvoice(row.id)}
-                  >
-                    <td>
-                      <button
-                        type="button"
-                        className="invoices-table__link"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          openInvoice(row.id)
-                        }}
-                      >
-                        {row.number}
-                      </button>
-                    </td>
-                    <td>{row.customerName || '—'}</td>
-                    <td>{row.issueDate ? formatInvoiceDate(row.issueDate) : '—'}</td>
-                    <td>{row.dueDate ? formatInvoiceDate(row.dueDate) : '—'}</td>
-                    <td>{formatMoney(row.amountCents, row.currency)}</td>
-                    <td>
-                      <span className={`badge badge--${row.status}`}>
-                        {row.status}
-                      </span>
-                    </td>
-                    <td>
-                      {row.status === 'draft' ? (
-                        deleting ? (
-                          <div className="invoices-table__confirm">
-                            <button
-                              type="button"
-                              className="btn btn--ghost"
-                              disabled={saving}
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                setPendingDeleteId(null)
-                              }}
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn--danger"
-                              disabled={saving}
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                void confirmDelete(row.id)
-                              }}
-                            >
-                              Confirm
-                            </button>
-                          </div>
-                        ) : (
+        <>
+          <div className="invoices-cards">
+            {invoices.map((row) => {
+              const deleting = pendingDeleteId === row.id
+              return (
+                <article key={row.id} className="invoice-card">
+                  <div className="invoice-card__top">
+                    <button
+                      type="button"
+                      className="invoice-card__number invoices-table__link"
+                      onClick={() => openInvoice(row.id)}
+                    >
+                      {row.number}
+                    </button>
+                    <span className={`badge badge--${row.status}`}>
+                      {row.status}
+                    </span>
+                  </div>
+                  <p className="invoice-card__customer">
+                    {row.customerName || 'No customer'}
+                  </p>
+                  <div className="invoice-card__meta">
+                    <span>
+                      Issued{' '}
+                      {row.issueDate ? formatInvoiceDate(row.issueDate) : '—'}
+                    </span>
+                    <span>
+                      Due {row.dueDate ? formatInvoiceDate(row.dueDate) : '—'}
+                    </span>
+                    <strong>{formatMoney(row.amountCents, row.currency)}</strong>
+                  </div>
+                  <div className="invoice-card__actions">
+                    <button
+                      type="button"
+                      className="btn btn--primary"
+                      onClick={() => openInvoice(row.id)}
+                    >
+                      Open
+                    </button>
+                    {row.status === 'draft' ? (
+                      deleting ? (
+                        <>
                           <button
                             type="button"
                             className="btn btn--ghost"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              setPendingDeleteId(row.id)
-                            }}
+                            disabled={saving}
+                            onClick={() => setPendingDeleteId(null)}
                           >
-                            Delete
+                            Cancel
                           </button>
-                        )
-                      ) : null}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                          <button
+                            type="button"
+                            className="btn btn--danger"
+                            disabled={saving}
+                            onClick={() => void confirmDelete(row.id)}
+                          >
+                            Confirm
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn--ghost"
+                          onClick={() => setPendingDeleteId(row.id)}
+                        >
+                          Delete
+                        </button>
+                      )
+                    ) : null}
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+          <div className="invoices-table-wrap">
+            <table className="invoices-table">
+              <thead>
+                <tr>
+                  <th>Number</th>
+                  <th>Customer</th>
+                  <th>Issue date</th>
+                  <th>Due date</th>
+                  <th>Amount</th>
+                  <th>Status</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {invoices.map((row) => {
+                  const deleting = pendingDeleteId === row.id
+                  return (
+                    <tr
+                      key={row.id}
+                      className="invoices-table__row"
+                      onClick={() => openInvoice(row.id)}
+                    >
+                      <td>
+                        <button
+                          type="button"
+                          className="invoices-table__link"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            openInvoice(row.id)
+                          }}
+                        >
+                          {row.number}
+                        </button>
+                      </td>
+                      <td>{row.customerName || '—'}</td>
+                      <td>
+                        {row.issueDate ? formatInvoiceDate(row.issueDate) : '—'}
+                      </td>
+                      <td>
+                        {row.dueDate ? formatInvoiceDate(row.dueDate) : '—'}
+                      </td>
+                      <td>{formatMoney(row.amountCents, row.currency)}</td>
+                      <td>
+                        <span className={`badge badge--${row.status}`}>
+                          {row.status}
+                        </span>
+                      </td>
+                      <td>
+                        {row.status === 'draft' ? (
+                          deleting ? (
+                            <div className="invoices-table__confirm">
+                              <button
+                                type="button"
+                                className="btn btn--ghost"
+                                disabled={saving}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  setPendingDeleteId(null)
+                                }}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn--danger"
+                                disabled={saving}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  void confirmDelete(row.id)
+                                }}
+                              >
+                                Confirm
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn btn--ghost"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                setPendingDeleteId(row.id)
+                              }}
+                            >
+                              Delete
+                            </button>
+                          )
+                        ) : null}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
       ) : null}
 
     </div>

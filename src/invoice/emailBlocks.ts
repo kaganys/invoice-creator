@@ -111,12 +111,15 @@ export function emailBlockHtml(id: EmailBlockId): string {
 }
 
 export function defaultGraphicalEmailBody(): string {
-  return [
-    emailBlockHtml('hero'),
-    emailBlockHtml('greeting'),
-    emailBlockHtml('amount'),
-    emailBlockHtml('payment'),
-    emailBlockHtml('button'),
-    emailBlockHtml('note'),
-  ].join('\n')
+  const layout: EmailBlockId[] = [
+    'hero',
+    'greeting',
+    'amount',
+    'payment',
+    'button',
+    'note',
+  ]
+  return layout
+    .map((id) => `<!--email-block:${id}-->\n${emailBlockHtml(id)}\n<!--/email-block-->`)
+    .join('\n')
 }

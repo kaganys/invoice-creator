@@ -30,6 +30,8 @@ describe('repo security config files', () => {
         'PAYMENT_LINK_KEY=',
         'STRIPE_SECRET_KEY=',
         'STRIPE_WEBHOOK_SECRET=',
+        'PUBLIC_PAYMENT_BASE_URL=https://pay.vrfnw.com',
+        'DEV_ACCESS_EMAIL=dev@localhost',
         '',
       ].join('\n'),
     )

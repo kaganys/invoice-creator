@@ -17,11 +17,27 @@ export const BUILTIN_BRANDING_PATHS: Record<BrandingKind, string> = {
   'invoice-logo': BRAND.icon,
 }
 
-const SAFE_OBJECT_KEY =
-  /^branding\/(site-wordmark|site-icon|invoice-logo)\/[0-9a-f-]{36}\.(png|jpg|webp)$/i
+const KIND_GROUP = 'site-wordmark|site-icon|invoice-logo'
+const UUID36 = '[0-9a-f-]{36}'
+const LEGACY_OBJECT_KEY = new RegExp(
+  `^branding/(${KIND_GROUP})/${UUID36}\\.(png|jpg|webp)$`,
+  'i',
+)
+const TENANT_OBJECT_KEY = new RegExp(
+  `^branding/(${UUID36})/(${KIND_GROUP})/${UUID36}\\.(png|jpg|webp)$`,
+  'i',
+)
 
 export function isSafeObjectKey(key: string): boolean {
-  return SAFE_OBJECT_KEY.test(key) && !key.includes('..') && !key.includes('\\')
+  if (key.includes('..') || key.includes('\\')) {
+    return false
+  }
+  return LEGACY_OBJECT_KEY.test(key) || TENANT_OBJECT_KEY.test(key)
+}
+
+export function companyIdFromObjectKey(key: string): string | null {
+  const match = TENANT_OBJECT_KEY.exec(key)
+  return match?.[1] ?? null
 }
 
 export function brandingFileUrl(objectKey: string): string {

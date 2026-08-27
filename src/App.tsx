@@ -5,6 +5,7 @@ import { PeoplePage } from './components/people/PeoplePage.tsx'
 import { PublicInvoicePage } from './components/public/PublicInvoicePage.tsx'
 import type { ReactNode } from 'react'
 import { SettingsPage } from './components/settings/SettingsPage.tsx'
+import { OnboardingPage } from './components/onboarding/OnboardingPage.tsx'
 import { UsersPage } from './components/users/UsersPage.tsx'
 import { BrandChrome } from './components/BrandChrome.tsx'
 import { DirectoryProvider } from './directory/DirectoryContext.tsx'
@@ -88,15 +89,7 @@ function AdminGate({ children }: { children: ReactNode }) {
     )
   }
   if (session && !session.invited) {
-    return (
-      <div className="app-page">
-        <h1>No company access</h1>
-        <p>
-          You are signed in with Cloudflare as <strong>{session.email}</strong>.
-          An owner must add this email under Users before you can use this app.
-        </p>
-      </div>
-    )
+    return <OnboardingPage />
   }
   return children
 }

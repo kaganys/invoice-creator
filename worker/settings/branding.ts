@@ -2,13 +2,15 @@ import {
   BRAND,
   BUILTIN_BRANDING_PATHS,
   brandingFileUrl,
+  companyIdFromObjectKey,
   isAllowedBrandingPath,
   isSafeObjectKey,
   objectKeyFromFileUrl,
   type BrandingKind,
 } from '../../src/branding.ts'
 import { asTrimmedString, isRecord } from '../lib/json.ts'
-import type { BrandingConfig } from './types.ts'
+import { DEFAULT_COMPANY_ID } from '../tenancy/types.ts'
+import type { BrandingConfig, ObjectStore } from './types.ts'
 import type { ValidationResult } from '../invoices/validation.ts'
 
 export const BRANDING_KINDS: BrandingKind[] = [
@@ -35,25 +37,62 @@ export function isBrandingKind(value: string): value is BrandingKind {
   return BRANDING_KINDS.includes(value as BrandingKind)
 }
 
-function sanitizePath(value: unknown, fallback: string): { path: string } {
-  if (typeof value === 'string' && isAllowedBrandingPath(value.trim())) {
-    return { path: value.trim() }
+export function brandingPathAllowedForCompany(
+  path: string,
+  companyId: string,
+): boolean {
+  if (path === BRAND.wordmark || path === BRAND.icon) {
+    return true
+  }
+  const key = objectKeyFromFileUrl(path) ?? (isSafeObjectKey(path) ? path : null)
+  if (!key) {
+    return false
+  }
+  const owner = companyIdFromObjectKey(key)
+  if (owner) {
+    return owner.toLowerCase() === companyId.toLowerCase()
+  }
+  return companyId === DEFAULT_COMPANY_ID
+}
+
+function sanitizePath(
+  value: unknown,
+  fallback: string,
+  companyId?: string,
+): { path: string } {
+  function accept(path: string): { path: string } | null {
+    if (!isAllowedBrandingPath(path)) {
+      return null
+    }
+    if (companyId && !brandingPathAllowedForCompany(path, companyId)) {
+      return null
+    }
+    return { path }
+  }
+
+  if (typeof value === 'string') {
+    return accept(value.trim()) ?? { path: fallback }
   }
   if (!isRecord(value)) {
     return { path: fallback }
   }
   const nested = asTrimmedString(value.path)
-  if (isAllowedBrandingPath(nested)) {
-    return { path: nested }
+  const nestedAccepted = accept(nested)
+  if (nestedAccepted) {
+    return nestedAccepted
   }
   const objectKey = asTrimmedString(value.objectKey)
   if (isSafeObjectKey(objectKey)) {
-    return { path: brandingFileUrl(objectKey) }
+    const url = brandingFileUrl(objectKey)
+    return accept(url) ?? { path: fallback }
   }
   return { path: fallback }
 }
 
-export function parseBrandingJson(raw: string | null): BrandingConfig {
+export function parseBrandingJson(
+  raw: string | null,
+  companyId?: string,
+): BrandingConfig {
   if (!raw) {
     return {
       siteWordmark: { ...BUILTIN_BRANDING.siteWordmark },
@@ -64,21 +103,27 @@ export function parseBrandingJson(raw: string | null): BrandingConfig {
   try {
     const parsed: unknown = JSON.parse(raw)
     if (!isRecord(parsed)) {
-      return parseBrandingJson(null)
+      return parseBrandingJson(null, companyId)
     }
     return {
       siteWordmark: sanitizePath(
         parsed.siteWordmark,
         BUILTIN_BRANDING.siteWordmark.path,
+        companyId,
       ),
-      siteIcon: sanitizePath(parsed.siteIcon, BUILTIN_BRANDING.siteIcon.path),
+      siteIcon: sanitizePath(
+        parsed.siteIcon,
+        BUILTIN_BRANDING.siteIcon.path,
+        companyId,
+      ),
       invoiceLogo: sanitizePath(
         parsed.invoiceLogo,
         BUILTIN_BRANDING.invoiceLogo.path,
+        companyId,
       ),
     }
   } catch {
-    return parseBrandingJson(null)
+    return parseBrandingJson(null, companyId)
   }
 }
 
@@ -128,8 +173,33 @@ export function builtinPath(kind: BrandingKind): string {
   return BUILTIN_BRANDING_PATHS[kind]
 }
 
-export function safeObjectKey(kind: BrandingKind, id: string, ext: string): string {
+export function safeObjectKey(
+  kind: BrandingKind,
+  id: string,
+  ext: string,
+  companyId?: string,
+): string {
+  if (companyId) {
+    return `branding/${companyId}/${kind}/${id}.${ext}`
+  }
   return `branding/${kind}/${id}.${ext}`
+}
+
+export async function putBrandingObject(
+  objects: ObjectStore,
+  companyId: string,
+  kind: BrandingKind,
+  bytes: Uint8Array,
+  declaredType: string,
+  id: string,
+): Promise<ValidationResult<{ path: string }>> {
+  const validated = validateUploadBytes(bytes, declaredType)
+  if (!validated.ok) {
+    return validated
+  }
+  const objectKey = safeObjectKey(kind, id, validated.value.ext, companyId)
+  await objects.put(objectKey, bytes, validated.value.contentType)
+  return { ok: true, value: { path: brandingFileUrl(objectKey) } }
 }
 
 export { BRAND, brandingFileUrl, isSafeObjectKey, objectKeyFromFileUrl }

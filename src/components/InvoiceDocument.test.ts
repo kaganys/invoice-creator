@@ -22,6 +22,13 @@ describe('canonical invoice document data', () => {
     ).toBe(
       '/api/branding/file/branding%2Finvoice-logo%2Faaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.png',
     )
+    expect(
+      invoiceLogoPath({
+        path: '/api/branding/file/branding%2Fc0a1b1e0-0000-4000-8000-000000000001%2Finvoice-logo%2Faaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.png',
+      }),
+    ).toBe(
+      '/api/branding/file/branding%2Fc0a1b1e0-0000-4000-8000-000000000001%2Finvoice-logo%2Faaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.png',
+    )
   })
 
   it('includes the default payment memo on a new invoice snapshot', () => {

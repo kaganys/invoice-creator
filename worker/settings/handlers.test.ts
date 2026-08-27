@@ -17,6 +17,7 @@ import {
 } from './handlers.ts'
 import type { ObjectStore, SequenceStore, SettingsKvStore } from './types.ts'
 import { MAX_BRANDING_BYTES } from './branding.ts'
+import { DEFAULT_COMPANY_ID } from '../tenancy/types.ts'
 
 const PNG = new Uint8Array([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0,
@@ -106,6 +107,7 @@ function createDeps(overrides: Partial<SettingsDeps> = {}): SettingsDeps {
     people: directory,
     invoices,
     objects: objectStore,
+    companyId: DEFAULT_COMPANY_ID,
     smtpPassword: undefined,
     clock: () => NOW,
     now: () => new Date('2026-08-25T12:00:00.000Z'),
@@ -248,6 +250,7 @@ describe('branding handlers', () => {
     }
     expect(branding.invoiceLogo.isDefault).toBe(false)
     expect(branding.invoiceLogo.path).toContain('/api/branding/file/')
+    expect(branding.invoiceLogo.path).toContain(DEFAULT_COMPANY_ID)
 
     const restored = await restoreBrandingAsset('invoice-logo', deps)
     const afterRestore = await readJson(restored)

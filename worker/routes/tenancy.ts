@@ -3,6 +3,7 @@ import {
   addCompanyUser,
   createCompany,
   createCompanyRole,
+  onboardCompany,
   deleteCompanyRole,
   getSession,
   listCompanyRoles,
@@ -14,6 +15,7 @@ import {
 
 export function registerTenancyRoutes(router: Router): void {
   router.get('/api/session', (request, env) => getSession(request, env))
+  router.post('/api/onboard', (request, env) => onboardCompany(request, env))
   router.post('/api/companies', (request, env) => createCompany(request, env))
   router.get('/api/users', (request, env) => listCompanyUsers(request, env))
   router.post('/api/users', (request, env) => addCompanyUser(request, env))

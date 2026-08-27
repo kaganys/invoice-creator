@@ -56,7 +56,7 @@ export function SmtpPanel() {
         subjectTemplate: draft.subjectTemplate,
         bodyTemplate: draft.bodyTemplate,
       })
-      setSuccess('SMTP settings saved. The password is never stored in D1.')
+      setSuccess('This company’s SMTP settings saved. The password is never stored in D1.')
     } catch {
       // Context error.
     }
@@ -90,7 +90,7 @@ export function SmtpPanel() {
   return (
     <InvoiceSection
       title="Email / SMTP"
-      description="Provider-independent SMTP settings and a customizable mobile-friendly HTML invoice email."
+      description="Host, from-address, and email design are stored for this company only. The Worker SMTP password secret is shared infrastructure and is never stored in D1."
     >
       {loading ? <p className="settings-status">Loading SMTP settings…</p> : null}
       <nav className="format-subnav" aria-label="Email settings">

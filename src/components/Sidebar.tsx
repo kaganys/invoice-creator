@@ -141,7 +141,7 @@ export function Sidebar({ open, isDesktop, onClose }: SidebarProps) {
       </nav>
 
       <div className="sidebar__footer">
-        {session?.companies && session.companies.length > 1 ? (
+        {session?.canSwitchCompanies && session.companies.length > 1 ? (
           <label className="sidebar__company">
             <span>Company</span>
             <select
@@ -156,7 +156,11 @@ export function Sidebar({ open, isDesktop, onClose }: SidebarProps) {
               ))}
             </select>
           </label>
-        ) : null}
+        ) : (
+          <p className="sidebar__company-locked">
+            {session?.currentCompany?.name || 'No company'}
+          </p>
+        )}
         <p className="sidebar__user">{session?.email}</p>
         <ThemeToggle />
       </div>

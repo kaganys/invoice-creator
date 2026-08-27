@@ -407,6 +407,14 @@ textarea {
   }
 }
 
+button,
+a,
+input,
+select,
+textarea {
+  touch-action: manipulation;
+}
+
 .brand-lockup {
   background: #000;
   overflow: hidden;

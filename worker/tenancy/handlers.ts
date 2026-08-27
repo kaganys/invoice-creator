@@ -6,8 +6,12 @@ import {
   type Permission,
 } from '../../src/auth/permissions.ts'
 import { loadSession, requireAdmin } from '../auth/admin.ts'
+import { bootstrapAccessUser } from './bootstrap.ts'
+import { parseAccessIdentity, isEmail } from '../auth/identity.ts'
 import { createD1TenantStore } from './d1Store.ts'
-import { seedPresetRoles, slugifyCompanyName } from './bootstrap.ts'
+import { brandingUploadsFromForm, provisionCompany } from './provision.ts'
+import { createR2ObjectStore } from '../settings/d1Store.ts'
+import { brandingBucket } from '../settings/env.ts'
 
 function publicUser(row: {
   user: { id: string; email: string; name: string; lastSeenAt: string | null }
@@ -39,6 +43,16 @@ export async function getSession(request: Request, env: Env): Promise<Response> 
   return json(payload)
 }
 
+function formText(form: FormData, key: string): string {
+  const value = form.get(key)
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function objectsFromEnv(env: Env) {
+  const bucket = brandingBucket(env)
+  return bucket ? createR2ObjectStore(bucket) : undefined
+}
+
 export async function createCompany(request: Request, env: Env): Promise<Response> {
   const auth = await requireAdmin(request, env, 'companies.create')
   if (!auth.ok) {
@@ -55,35 +69,103 @@ export async function createCompany(request: Request, env: Env): Promise<Respons
   if (name.length < 2) {
     return errorJson('Company name is required.', 400)
   }
-  const store = createD1TenantStore(env.DB)
-  const timestamp = nowIso()
-  const slugBase = slugifyCompanyName(name)
-  let slug = slugBase
-  let attempt = 1
-  while (await store.listCompanies().then((rows) => rows.some((row) => row.slug === slug))) {
-    attempt += 1
-    slug = `${slugBase}-${attempt}`
-  }
-  const company = await store.createCompany({
-    id: createEntityId(),
-    name,
-    slug,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  })
-  await seedPresetRoles(store, company.id, timestamp)
-  const owner = (await store.listRoles(company.id)).find((role) => role.key === 'owner')
-  if (owner) {
-    await store.createMembership({
-      id: createEntityId(),
-      companyId: company.id,
-      userId: auth.ctx.user.id,
-      roleId: owner.id,
-      createdAt: timestamp,
-      updatedAt: timestamp,
+  try {
+    const company = await provisionCompany({
+      store: createD1TenantStore(env.DB),
+      db: env.DB,
+      objects: objectsFromEnv(env),
+      user: auth.ctx.user,
+      name,
+      timestamp: nowIso(),
     })
+    return json({ company }, { status: 201 })
+  } catch (caught) {
+    return errorJson(
+      caught instanceof Error ? caught.message : 'Could not create the company.',
+      400,
+    )
   }
-  return json({ company }, { status: 201 })
+}
+
+export async function onboardCompany(request: Request, env: Env): Promise<Response> {
+  const identity = parseAccessIdentity(request, env)
+  if (!identity) {
+    return errorJson(
+      'Sign in with Cloudflare Access to create a company.',
+      401,
+    )
+  }
+  const store = createD1TenantStore(env.DB)
+  const user = await bootstrapAccessUser(store, identity)
+  const memberships = await store.listMembershipsForUser(user.id)
+  if (memberships.length > 0) {
+    return errorJson(
+      'This Cloudflare login already belongs to a company. Use the company switcher or ask an owner to add another tenant.',
+      409,
+    )
+  }
+
+  let form: FormData
+  try {
+    form = await request.formData()
+  } catch {
+    return errorJson('Expected form data for the new company.', 400)
+  }
+
+  const name = formText(form, 'companyName') || formText(form, 'name')
+  if (name.length < 2) {
+    return errorJson('Company name is required.', 400)
+  }
+  const ownerName = formText(form, 'ownerName')
+  const fromName = formText(form, 'fromName')
+  const fromEmail = formText(form, 'fromEmail').toLowerCase()
+  const zelleEmail = formText(form, 'zelleEmail').toLowerCase()
+  if (fromEmail && !isEmail(fromEmail)) {
+    return errorJson('From email is not valid.', 400)
+  }
+  if (zelleEmail && !isEmail(zelleEmail)) {
+    return errorJson('Zelle email is not valid.', 400)
+  }
+
+  let brandingUploads
+  try {
+    brandingUploads = await brandingUploadsFromForm(form)
+  } catch (caught) {
+    return errorJson(
+      caught instanceof Error ? caught.message : 'Could not read branding files.',
+      400,
+    )
+  }
+
+  const objects = objectsFromEnv(env)
+  if (brandingUploads.length > 0 && !objects) {
+    return errorJson(
+      'Branding uploads need the R2 branding bucket. You can skip images and add them later in Settings.',
+      503,
+    )
+  }
+
+  try {
+    const company = await provisionCompany({
+      store,
+      db: env.DB,
+      objects,
+      user,
+      name,
+      ownerName: ownerName || identity.name,
+      fromName: fromName || ownerName || name,
+      fromEmail,
+      zelleEmail,
+      brandingUploads,
+      timestamp: nowIso(),
+    })
+    return json({ company }, { status: 201 })
+  } catch (caught) {
+    return errorJson(
+      caught instanceof Error ? caught.message : 'Could not create the company.',
+      400,
+    )
+  }
 }
 
 export async function listCompanyUsers(request: Request, env: Env): Promise<Response> {

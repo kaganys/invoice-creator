@@ -1,0 +1,176 @@
+@media (max-width: 899px) {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    font-size: 16px;
+  }
+
+  .btn,
+  .btn--icon,
+  .field__input,
+  .field__select,
+  .field__textarea,
+  .sidebar__link,
+  .settings-nav__button,
+  .theme-toggle__option,
+  .email-tool,
+  .email-mini {
+    min-height: 44px;
+  }
+
+  .btn--icon {
+    width: 44px;
+  }
+
+  .field__input,
+  .field__select,
+  .field__textarea {
+    font-size: 16px;
+  }
+
+  .sidebar {
+    width: min(22rem, 100vw);
+  }
+
+  .sidebar__link {
+    font-size: 1rem;
+    padding: 0.75rem 0.85rem;
+  }
+
+  .sidebar__close {
+    width: 44px;
+    min-height: 44px;
+  }
+
+  .header {
+    padding: 0.55rem 0.7rem;
+    padding-top: max(0.55rem, env(safe-area-inset-top));
+    min-height: 56px;
+  }
+
+  .header__title-group {
+    flex-wrap: wrap;
+  }
+
+  .header__title {
+    font-size: 1rem;
+  }
+
+  .header__actions .btn {
+    min-height: 44px;
+    padding-inline: 0.75rem;
+  }
+
+  .app-page,
+  .invoice-editor {
+    padding: 0.85rem 0.75rem calc(2rem + env(safe-area-inset-bottom));
+  }
+
+  .invoice-section {
+    padding: 0.95rem 0.9rem 1.1rem;
+  }
+
+  .editor-toolbar,
+  .invoices-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .editor-toolbar__actions,
+  .reset-invoice,
+  .line-items__actions,
+  .settings-actions,
+  .people-form__actions,
+  .people-card__actions,
+  .invoice-detail-modal__actions,
+  .invoice-detail-modal__confirm,
+  .preview-modal__actions {
+    width: 100%;
+  }
+
+  .editor-toolbar__actions .btn,
+  .reset-invoice .btn,
+  .invoices-toolbar .btn,
+  .settings-actions .btn,
+  .people-form__actions .btn,
+  .line-items__add {
+    width: 100%;
+  }
+
+  .line-items__totals {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .settings-nav {
+    justify-content: flex-start;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .settings-nav__button {
+    flex: 0 0 auto;
+    padding: 0.55rem 0.9rem;
+  }
+
+  .format-preview__sheet {
+    transform: scale(0.52);
+    transform-origin: top left;
+    min-height: 0;
+  }
+
+  .invoice-detail-modal__header,
+  .preview-modal__toolbar {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .invoice-detail-modal__actions .btn,
+  .invoice-send__body-bar .btn {
+    min-height: 44px;
+  }
+
+  .invoice-detail-modal__confirm .field__select,
+  .invoice-detail-modal__confirm .field__input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .users-perms__item {
+    min-height: 44px;
+  }
+
+  .theme-toggle__option {
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 720px) {
+  .invoices-table-wrap,
+  .users-table {
+    display: none;
+  }
+
+  .invoices-cards,
+  .users-cards {
+    display: grid;
+  }
+
+  .header__preview-label-full {
+    display: none;
+  }
+
+  .header__preview-label-short {
+    display: inline;
+  }
+}
+
+@media (min-width: 721px) {
+  .invoices-cards,
+  .users-cards {
+    display: none;
+  }
+}

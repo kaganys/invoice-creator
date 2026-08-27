@@ -47,6 +47,7 @@ function deps(env: Env, companyId: string): SettingsDeps {
     objects: bucket ? createR2ObjectStore(bucket) : undefined,
     smtpPassword: smtpPasswordSecret(env),
     stripeSecret: stripeSecretKey(env),
+    companyId,
   }
 }
 

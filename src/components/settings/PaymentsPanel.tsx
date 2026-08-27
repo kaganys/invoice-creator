@@ -37,7 +37,7 @@ export function PaymentsPanel() {
   return (
     <InvoiceSection
       title="Payments"
-      description="Stripe configuration for the public customer payment page. There is one payment link. Customers choose card, wallet, or US bank account inside Stripe. Invoice totals stay at the base amount; card fees apply only when paying by card or wallet."
+      description="Stripe configuration for this company only. Publishable key, statement descriptor, and enabled methods are stored per tenant. The Worker Stripe secret is shared infrastructure and is never stored in D1. Customers choose card, wallet, or US bank account inside Stripe."
     >
       {loading ? <p className="settings-status">Loading payments settings…</p> : null}
       <div className="form-grid form-grid--2">

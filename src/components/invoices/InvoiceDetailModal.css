@@ -162,9 +162,28 @@
 
   .invoice-detail-modal__dialog {
     width: 100%;
-    height: 100%;
+    height: 100dvh;
     max-width: none;
     border: 0;
     border-radius: 0;
+  }
+
+  .invoice-detail-modal__header,
+  .invoice-detail-modal__actions,
+  .invoice-detail-modal__meta,
+  .invoice-send,
+  .invoice-payment-link,
+  .invoice-email-history {
+    padding-left: 0.85rem;
+    padding-right: 0.85rem;
+  }
+
+  .invoice-detail-modal__actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .invoice-detail-modal__actions .btn {
+    width: 100%;
   }
 }

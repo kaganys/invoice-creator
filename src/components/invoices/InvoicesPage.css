@@ -69,3 +69,55 @@
   display: flex;
   gap: 0.35rem;
 }
+
+.invoices-cards {
+  display: none;
+  gap: 0.75rem;
+}
+
+.invoice-card {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  text-align: left;
+  color: inherit;
+  width: 100%;
+  cursor: pointer;
+}
+
+.invoice-card__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.invoice-card__number {
+  font-weight: 700;
+  color: var(--brand-teal-strong);
+}
+
+.invoice-card__customer {
+  font-size: 0.95rem;
+}
+
+.invoice-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.9rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.invoice-card__actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.invoice-card__actions .btn {
+  flex: 1;
+}

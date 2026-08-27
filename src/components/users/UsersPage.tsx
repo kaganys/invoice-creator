@@ -121,6 +121,63 @@ export function UsersPage() {
             </div>
           </div>
         ) : null}
+        <div className="users-cards">
+          {users.map((user) => (
+            <article key={user.membershipId} className="user-card">
+              <div className="user-card__email">{user.email}</div>
+              <div>{user.name || '—'}</div>
+              <p className="user-card__meta">
+                {user.lastSeenAt
+                  ? `Last seen ${new Date(user.lastSeenAt).toLocaleString()}`
+                  : 'Never signed in'}
+              </p>
+              {can('users.manage') ? (
+                <select
+                  className="field__select"
+                  value={user.role.id}
+                  onChange={(event) => {
+                    void updateTeamUser(user.membershipId, event.target.value)
+                      .then(load)
+                      .catch((caught: unknown) =>
+                        setError(
+                          caught instanceof Error
+                            ? caught.message
+                            : 'Could not update role.',
+                        ),
+                      )
+                  }}
+                >
+                  {roles.map((role) => (
+                    <option key={role.id} value={role.id}>
+                      {role.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div>{user.role.name}</div>
+              )}
+              {can('users.manage') ? (
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() => {
+                    void removeTeamUser(user.membershipId)
+                      .then(load)
+                      .catch((caught: unknown) =>
+                        setError(
+                          caught instanceof Error
+                            ? caught.message
+                            : 'Could not remove user.',
+                        ),
+                      )
+                  }}
+                >
+                  Remove
+                </button>
+              ) : null}
+            </article>
+          ))}
+        </div>
         <table className="users-table">
           <thead>
             <tr>
@@ -163,7 +220,11 @@ export function UsersPage() {
                     user.role.name
                   )}
                 </td>
-                <td>{user.lastSeenAt ? new Date(user.lastSeenAt).toLocaleString() : 'Never'}</td>
+                <td>
+                  {user.lastSeenAt
+                    ? new Date(user.lastSeenAt).toLocaleString()
+                    : 'Never'}
+                </td>
                 <td>
                   {can('users.manage') ? (
                     <button
@@ -276,7 +337,7 @@ export function UsersPage() {
       {can('companies.create') ? (
         <InvoiceSection
           title="New company"
-          description="Creates a separate tenant with its own invoices, people, settings, and roles."
+          description="Creates another tenant on this login. People who sign in with a new Cloudflare email and have no company yet can also create their own workspace from the setup screen."
         >
           <Field label="Company name" htmlFor="company-name">
             <input

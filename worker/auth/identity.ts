@@ -5,7 +5,11 @@ export type AccessIdentity = {
   name: string
 }
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+export function isEmail(value: string): boolean {
+  return EMAIL_PATTERN.test(value.trim())
+}
 
 export function normalizeEmail(value: string): string {
   return value.trim().toLowerCase()

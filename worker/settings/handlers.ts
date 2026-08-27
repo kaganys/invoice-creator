@@ -75,6 +75,7 @@ export type SettingsDeps = {
   idFactory?: () => string
   mailFactory?: (config: SmtpConfig, password: string) => MailTransport
   stripeSecret?: string
+  companyId?: string
 }
 
 async function loadDefaultFromId(
@@ -111,7 +112,7 @@ async function loadNumbering(deps: SettingsDeps) {
 
 async function loadBranding(deps: SettingsDeps) {
   const raw = await deps.settings.get(SETTINGS_KEYS.branding)
-  return parseBrandingJson(raw)
+  return parseBrandingJson(raw, deps.companyId)
 }
 
 async function loadSmtp(deps: SettingsDeps) {
@@ -333,7 +334,12 @@ export async function uploadBrandingAsset(
   }
 
   const idFactory = deps.idFactory ?? createEntityId
-  const objectKey = safeObjectKey(kindParam, idFactory(), validated.value.ext)
+  const objectKey = safeObjectKey(
+    kindParam,
+    idFactory(),
+    validated.value.ext,
+    deps.companyId,
+  )
   await deps.objects.put(objectKey, bytes, validated.value.contentType)
 
   const current = await loadBranding(deps)

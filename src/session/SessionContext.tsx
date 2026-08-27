@@ -76,10 +76,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [refresh])
 
   const switchCompany = useCallback((nextId: string) => {
+    if (!session?.canSwitchCompanies) {
+      return
+    }
     window.sessionStorage.setItem('bitz-company-id', nextId)
     setCompanyId(nextId)
     window.location.reload()
-  }, [])
+  }, [session?.canSwitchCompanies])
 
   const can = useCallback(
     (permission: Permission) =>

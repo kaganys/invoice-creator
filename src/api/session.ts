@@ -1,5 +1,5 @@
 import type { Permission } from '../auth/permissions.ts'
-import { apiRequest } from './http.ts'
+import { ApiError, apiRequest } from './http.ts'
 
 export type SessionCompany = {
   id: string
@@ -12,7 +12,9 @@ export type SessionPayload = {
   email: string
   name: string
   invited: boolean
+  canCreateTenant: boolean
   userId: string
+  canSwitchCompanies: boolean
   companies: SessionCompany[]
   currentCompany: SessionCompany | null
 }
@@ -103,4 +105,54 @@ export async function createCompany(name: string): Promise<{ company: { id: stri
     method: 'POST',
     body: JSON.stringify({ name }),
   })
+}
+
+export async function onboardCompany(payload: {
+  companyName: string
+  ownerName: string
+  fromName: string
+  fromEmail: string
+  zelleEmail: string
+  wordmark?: File
+  icon?: File
+  invoiceLogo?: File
+}): Promise<{ company: { id: string; name: string } }> {
+  const form = new FormData()
+  form.set('companyName', payload.companyName)
+  form.set('ownerName', payload.ownerName)
+  form.set('fromName', payload.fromName)
+  form.set('fromEmail', payload.fromEmail)
+  form.set('zelleEmail', payload.zelleEmail)
+  if (payload.wordmark) {
+    form.set('site-wordmark', payload.wordmark)
+  }
+  if (payload.icon) {
+    form.set('site-icon', payload.icon)
+  }
+  if (payload.invoiceLogo) {
+    form.set('invoice-logo', payload.invoiceLogo)
+  }
+  const response = await fetch('/api/onboard', {
+    method: 'POST',
+    body: form,
+  })
+  if (!response.ok) {
+    let message = response.statusText || `Request failed (${response.status})`
+    try {
+      const body: unknown = await response.json()
+      if (
+        body &&
+        typeof body === 'object' &&
+        'error' in body &&
+        typeof body.error === 'string' &&
+        body.error.trim()
+      ) {
+        message = body.error
+      }
+    } catch {
+      // Keep status text.
+    }
+    throw new ApiError(message, response.status)
+  }
+  return (await response.json()) as { company: { id: string; name: string } }
 }

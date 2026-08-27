@@ -65,7 +65,7 @@ export function BrandingPanel() {
     setBusyKind(kind)
     try {
       await restoreAsset(kind)
-      setSuccess('Restored the built-in Bitz Designs asset.')
+      setSuccess('Restored the default placeholder asset.')
     } catch {
       // Context error.
     } finally {
@@ -76,12 +76,13 @@ export function BrandingPanel() {
   return (
     <InvoiceSection
       title="Branding"
-      description="Upload a replacement for each asset independently. Built-in files in public/branding/ stay as Restore default."
+      description="These images belong only to this company. Upload this tenant's wordmark, icon, and invoice logo. Restore default returns the placeholder assets."
     >
       {loading ? <p className="settings-status">Loading branding…</p> : null}
       <p className="settings-help">
         PNG, JPEG, or WebP, 2 MB or smaller. SVG is not accepted. Uploads are
-        stored in the branding bucket; D1 only keeps the file path.
+        stored in this company's branding prefix in R2; other tenants cannot
+        see or overwrite them. D1 only keeps the file path.
       </p>
       <div className="branding-assets">
         {ASSETS.map((asset) => {

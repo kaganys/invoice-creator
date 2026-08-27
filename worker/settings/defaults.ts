@@ -35,8 +35,9 @@ export function parseDefaultsJson(raw: string | null): InvoiceDefaults {
     return {
       defaultFromId: BUILTIN_INVOICE_DEFAULTS.defaultFromId,
       zelleEmail:
-        asTrimmedString(parsed.zelleEmail) ||
-        BUILTIN_INVOICE_DEFAULTS.zelleEmail,
+        typeof parsed.zelleEmail === 'string'
+          ? asTrimmedString(parsed.zelleEmail)
+          : BUILTIN_INVOICE_DEFAULTS.zelleEmail,
       cardFeePercentScaled: percent >= 0 ? percent : 0,
       cardFeeFixedCents: fixed >= 0 ? fixed : 0,
       currency: CURRENCY_PATTERN.test(currency)

@@ -1,7 +1,6 @@
 import type { Permission } from '../../src/auth/permissions.ts'
 import { hasPermission } from '../../src/auth/permissions.ts'
 import { errorJson } from '../http.ts'
-import { isUuid } from '../lib/ids.ts'
 import { createD1TenantStore } from '../tenancy/d1Store.ts'
 import { bootstrapAccessUser } from '../tenancy/bootstrap.ts'
 import type {
@@ -9,6 +8,7 @@ import type {
   RoleRecord,
   UserRecord,
 } from '../tenancy/types.ts'
+import { canSwitchCompanies, resolveMembership } from './companyAccess.ts'
 import { parseAccessIdentity } from './identity.ts'
 
 export type AdminContext = {
@@ -48,13 +48,10 @@ export async function requireAdmin(
   }
 
   const requested = request.headers.get('x-company-id')?.trim() ?? ''
-  const preferred =
-    (requested && isUuid(requested) ? requested : null) ??
-    user.lastCompanyId ??
-    memberships[0]?.company.id
-  const current =
-    memberships.find((entry) => entry.company.id === preferred) ??
-    memberships[0]
+  const current = resolveMembership(memberships, {
+    requestedCompanyId: requested,
+    lastCompanyId: user.lastCompanyId,
+  })
   if (!current) {
     return {
       ok: false,
@@ -100,16 +97,17 @@ export async function loadSession(request: Request, env: Env) {
   const user = await bootstrapAccessUser(store, identity)
   const memberships = await store.listMembershipsForUser(user.id)
   const requested = request.headers.get('x-company-id')?.trim() ?? ''
-  const current =
-    memberships.find((entry) => entry.company.id === requested) ??
-    memberships.find((entry) => entry.company.id === user.lastCompanyId) ??
-    memberships[0] ??
-    null
+  const current = resolveMembership(memberships, {
+    requestedCompanyId: requested,
+    lastCompanyId: user.lastCompanyId,
+  })
   return {
     email: identity.email,
     name: user.name,
     invited: memberships.length > 0,
+    canCreateTenant: memberships.length === 0,
     userId: user.id,
+    canSwitchCompanies: canSwitchCompanies(memberships),
     companies: memberships.map((entry) => ({
       id: entry.company.id,
       name: entry.company.name,
