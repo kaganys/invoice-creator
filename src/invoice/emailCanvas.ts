@@ -1,7 +1,9 @@
 import {
   EMAIL_BLOCKS,
+  PAYMENT_LINK_NOTE_HTML,
   emailBlockHtml,
   emailVariableChip,
+  splitButtonAndNote,
   splitTopLevelParagraphs,
   type EmailBlockId,
 } from './emailBlocks.ts'
@@ -71,6 +73,23 @@ function expandCanvasBlocks(blocks: EmailCanvasBlock[]): EmailCanvasBlock[] {
     if (block.type === 'greeting') {
       return [{ ...block, type: 'text' }]
     }
+    if (block.type === 'button') {
+      const split = splitButtonAndNote(block.html)
+      if (split.note) {
+        return [
+          {
+            id: createCanvasBlockId(),
+            type: 'button',
+            html: split.button,
+          },
+          {
+            id: createCanvasBlockId(),
+            type: 'text',
+            html: split.note,
+          },
+        ]
+      }
+    }
     return [block]
   })
 }
@@ -82,6 +101,7 @@ export function defaultCanvasBlocks(): EmailCanvasBlock[] {
     createBlockFromPalette('amount'),
     createBlockFromPalette('payment'),
     createBlockFromPalette('button'),
+    { id: createCanvasBlockId(), type: 'text', html: PAYMENT_LINK_NOTE_HTML },
     createBlockFromPalette('note'),
   ])
 }

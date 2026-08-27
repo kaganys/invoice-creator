@@ -18,6 +18,7 @@ describe('email canvas blocks', () => {
       'amount',
       'payment',
       'button',
+      'text',
       'note',
     ])
     const html = serializeEmailBlocks(blocks)

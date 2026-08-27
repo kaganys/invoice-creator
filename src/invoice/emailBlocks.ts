@@ -100,10 +100,9 @@ export const EMAIL_BLOCKS: EmailBlock[] = [
     id: 'button',
     label: 'Button',
     hint: 'Pay online CTA',
-    html: `<!--payment-url:start--><div><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 16px;"><tr><td align="center" style="padding:4px 0 8px;">
+    html: `<!--payment-url:start--><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 16px;"><tr><td align="center" style="padding:4px 0 8px;">
 <a href="{{payment_url}}" target="_blank" rel="noreferrer noopener" style="display:inline-block;background:#0f766e;color:#ffffff;padding:12px 22px;border-radius:999px;font-size:14px;font-weight:700;letter-spacing:0.01em;text-decoration:none;">Pay Online</a>
-</td></tr></table>
-<p style="margin:0 0 18px;font-size:13px;line-height:1.6;color:#4b5563;text-align:center;">If the button above doesn&#39;t work, use this secure payment link:<br><a href="{{payment_url}}" target="_blank" rel="noreferrer noopener" style="color:#0f766e;word-break:break-all;">{{payment_url}}</a></p></div><!--payment-url:end-->`,
+</td></tr></table><!--payment-url:end-->`,
   },
   {
     id: 'divider',
@@ -133,12 +132,29 @@ export function emailBlockHtml(id: EmailBlockId): string {
   return EMAIL_BLOCKS.find((block) => block.id === id)?.html ?? ''
 }
 
+export const PAYMENT_LINK_NOTE_HTML = `<!--payment-url:start--><p style="margin:0 0 18px;font-size:13px;line-height:1.6;color:#4b5563;text-align:center;">If the button above doesn&#39;t work, use this secure payment link:<br><a href="{{payment_url}}" target="_blank" rel="noreferrer noopener" style="color:#0f766e;word-break:break-all;">{{payment_url}}</a></p><!--payment-url:end-->`
+
 export function splitTopLevelParagraphs(html: string): string[] {
   const matches = html.match(/<p\b[^>]*>[\s\S]*?<\/p>/gi)
   if (matches && matches.length > 1) {
     return matches.map((part) => part.trim())
   }
   return []
+}
+
+export function splitButtonAndNote(html: string): {
+  button: string
+  note: string | null
+} {
+  const table = html.match(/<table[\s\S]*?<\/table>/i)
+  const paragraph = html.match(/<p\b[^>]*>[\s\S]*?<\/p>/i)
+  if (table && paragraph) {
+    return {
+      button: `<!--payment-url:start-->${table[0]}<!--payment-url:end-->`,
+      note: `<!--payment-url:start-->${paragraph[0]}<!--payment-url:end-->`,
+    }
+  }
+  return { button: html, note: null }
 }
 
 export function defaultGraphicalEmailBody(): string {
@@ -149,6 +165,7 @@ export function defaultGraphicalEmailBody(): string {
     { type: 'amount', html: emailBlockHtml('amount') },
     { type: 'payment', html: emailBlockHtml('payment') },
     { type: 'button', html: emailBlockHtml('button') },
+    { type: 'text', html: PAYMENT_LINK_NOTE_HTML },
     { type: 'note', html: emailBlockHtml('note') },
   ]
   return layout

@@ -55,6 +55,7 @@ type DragSession = {
   y: number
   active: boolean
   label: string
+  art: EmailCanvasBlockType | EmailBlockId | 'field'
 }
 
 const ITEM_LABEL: Record<EmailCanvasBlockType, string> = {
@@ -71,6 +72,12 @@ const ITEM_LABEL: Record<EmailCanvasBlockType, string> = {
   note: 'Sign-off',
   html: 'Text',
 }
+
+const HARD_BOX = new Set<EmailCanvasBlockType>([
+  'button',
+  'divider',
+  'spacer',
+])
 
 function runCommand(command: string, value?: string) {
   document.execCommand(command, false, value)
@@ -94,43 +101,48 @@ function Glyph({ path }: { path: string }) {
   )
 }
 
-function Dots() {
-  return (
-    <svg width="8" height="14" viewBox="0 0 8 14" aria-hidden="true">
-      <circle cx="2" cy="2" r="1" fill="currentColor" />
-      <circle cx="6" cy="2" r="1" fill="currentColor" />
-      <circle cx="2" cy="7" r="1" fill="currentColor" />
-      <circle cx="6" cy="7" r="1" fill="currentColor" />
-      <circle cx="2" cy="12" r="1" fill="currentColor" />
-      <circle cx="6" cy="12" r="1" fill="currentColor" />
-    </svg>
-  )
+function Art({ kind }: { kind: string }) {
+  return <span className={`email-art email-art--${kind}`} aria-hidden="true" />
 }
 
-function CanvasItem({
+function TileStage({
   block,
-  dragging,
+  locked,
   onFocus,
   onChange,
 }: {
   block: EmailCanvasBlock
-  dragging: boolean
+  locked: boolean
   onFocus: () => void
   onChange: (html: string) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (ref.current) {
+    if (ref.current && block.type !== 'button' && block.type !== 'divider' && block.type !== 'spacer') {
       ref.current.innerHTML = block.html || '<p></p>'
     }
-  }, [block.id])
+  }, [block.id, block.type])
+
+  if (block.type === 'button') {
+    return (
+      <div className="email-visual email-visual--button">
+        <span className="email-cta">Pay Online</span>
+      </div>
+    )
+  }
+  if (block.type === 'divider') {
+    return <div className="email-visual email-visual--rule" />
+  }
+  if (block.type === 'spacer') {
+    return <div className="email-visual email-visual--spacer" />
+  }
 
   return (
     <div
       ref={ref}
-      className="email-item__edit"
-      contentEditable={!dragging}
+      className={`email-visual email-visual--${block.type}`}
+      contentEditable={!locked}
       suppressContentEditableWarning
       role="textbox"
       aria-label={ITEM_LABEL[block.type]}
@@ -156,7 +168,6 @@ export function EmailTemplateEditor({
   const [blocks, setBlocks] = useState<EmailCanvasBlock[]>([])
   const [focusedId, setFocusedId] = useState<string | null>(null)
   const [mobilePane, setMobilePane] = useState<MobilePane>('write')
-  const [previewing, setPreviewing] = useState(false)
   const [drag, setDrag] = useState<DragSession | null>(null)
   const [dropIndex, setDropIndex] = useState<number | null>(null)
 
@@ -182,7 +193,6 @@ export function EmailTemplateEditor({
     setBlocks(parsed.length > 0 ? parsed : defaultCanvasBlocks())
     setFocusedId(parsed[0]?.id ?? null)
     setMobilePane('write')
-    setPreviewing(false)
     setDrag(null)
     setDropIndex(null)
     dragRef.current = null
@@ -253,13 +263,11 @@ export function EmailTemplateEditor({
     if (session.kind === 'palette' && session.type) {
       insertBlockAt(session.type, at)
       setMobilePane('write')
-      setPreviewing(false)
       return
     }
     if (session.kind === 'field' && session.variableId) {
       insertFieldAt(session.variableId, at)
       setMobilePane('write')
-      setPreviewing(false)
       return
     }
     if (session.kind === 'reorder' && session.id) {
@@ -282,13 +290,8 @@ export function EmailTemplateEditor({
       event.clientX - session.startX,
       event.clientY - session.startY,
     )
-    const active = session.active || dist > 6
-    const next = {
-      ...session,
-      active,
-      x: event.clientX,
-      y: event.clientY,
-    }
+    const active = session.active || dist > 5
+    const next = { ...session, active, x: event.clientX, y: event.clientY }
     dragRef.current = next
     setDrag(next)
     if (active) {
@@ -317,7 +320,11 @@ export function EmailTemplateEditor({
     event: ReactPointerEvent,
     session: Omit<DragSession, 'startX' | 'startY' | 'x' | 'y' | 'active'>,
   ) {
-    if (session.kind === 'reorder') {
+    if (
+      session.kind === 'reorder' &&
+      session.art &&
+      HARD_BOX.has(session.art as EmailCanvasBlockType)
+    ) {
       event.preventDefault()
     }
     event.stopPropagation()
@@ -342,309 +349,247 @@ export function EmailTemplateEditor({
     })
   }
 
-  const library = (
-    <aside className="email-lib">
-      <p className="email-lib__label">Add</p>
-      <ul className="email-lib__list">
-        {PALETTE_BLOCKS.map((block) => (
-          <li key={block.id}>
-            <button
-              type="button"
-              className="email-lib__row"
-              onClick={() => {
-                if (skipClickRef.current) {
-                  skipClickRef.current = false
-                  return
-                }
-                insertBlockAt(block.id, insertIndex())
-                setMobilePane('write')
-                setPreviewing(false)
-              }}
-            >
-              <span
-                className="email-lib__handle"
-                onPointerDown={(event) =>
-                  beginDrag(event, {
-                    kind: 'palette',
-                    type: block.id,
-                    fromIndex: -1,
-                    label: ITEM_LABEL[block.id],
-                  })
-                }
-              >
-                <Dots />
-              </span>
-              {ITEM_LABEL[block.id]}
-            </button>
-          </li>
-        ))}
-      </ul>
-      <p className="email-lib__label">Fields</p>
-      <ul className="email-lib__list">
-        {EMAIL_VARIABLES.map((variable) => (
-          <li key={variable.id}>
-            <button
-              type="button"
-              className="email-lib__row"
-              onPointerDown={(event) =>
-                beginDrag(event, {
-                  kind: 'field',
-                  variableId: variable.id,
-                  fromIndex: -1,
-                  label: variable.label,
-                })
-              }
-              onClick={() => {
-                if (skipClickRef.current) {
-                  skipClickRef.current = false
-                  return
-                }
-                runCommand(
-                  'insertHTML',
-                  `&nbsp;${emailVariableChip(variable.id)}&nbsp;`,
-                )
-              }}
-            >
-              {variable.label}
-            </button>
-          </li>
-        ))}
-      </ul>
-      <button
-        type="button"
-        className="email-lib__reset"
-        onClick={() => {
-          const next = defaultCanvasBlocks()
-          setBlocks(next)
-          setFocusedId(next[0]?.id ?? null)
-        }}
-      >
-        Start over
-      </button>
-    </aside>
-  )
-
   return (
-    <div
-      className="email-editor-modal"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onClose()
-        }
-      }}
-    >
+    <div className="email-studio-root">
       <div
         ref={dialogRef}
-        className={`email-desk is-pane-${mobilePane}${previewing ? ' is-previewing' : ''}${drag?.active ? ' is-dragging' : ''}`}
+        className={`email-studio is-pane-${mobilePane}${drag?.active ? ' is-dragging' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="email-editor-title"
         tabIndex={-1}
       >
-        <header className="email-desk__bar">
-          <h2 id="email-editor-title">Email</h2>
-          <div className="email-desk__bar-actions">
-            <button
-              type="button"
-              className={previewing ? 'email-text-btn is-on' : 'email-text-btn'}
-              onClick={() => {
-                setPreviewing((current) => !current)
-                setMobilePane((current) =>
-                  current === 'preview' ? 'write' : current,
-                )
-              }}
-            >
-              <IconEye />
-              Preview
+        <header className="email-studio__top">
+          <h2 id="email-editor-title">Studio</h2>
+          <div className="email-studio__top-actions">
+            <button type="button" className="email-ghost-btn" onClick={onClose}>
+              Close
             </button>
-            <button type="button" className="email-text-btn" onClick={onClose}>
-              Cancel
-            </button>
-            <button type="button" className="email-done" onClick={save}>
-              Done
+            <button type="button" className="email-gold-btn" onClick={save}>
+              Use this email
             </button>
           </div>
         </header>
 
-        <div className="email-desk__body">
-          {library}
+        <div className="email-studio__work">
+          <aside className="email-kit">
+            <p className="email-kit__kicker">Pieces</p>
+            <div className="email-kit__grid">
+              {PALETTE_BLOCKS.map((block) => (
+                <button
+                  key={block.id}
+                  type="button"
+                  className="email-kit__card"
+                  onPointerDown={(event) =>
+                    beginDrag(event, {
+                      kind: 'palette',
+                      type: block.id,
+                      fromIndex: -1,
+                      label: ITEM_LABEL[block.id],
+                      art: block.id,
+                    })
+                  }
+                  onClick={() => {
+                    if (skipClickRef.current) {
+                      skipClickRef.current = false
+                      return
+                    }
+                    insertBlockAt(block.id, insertIndex())
+                    setMobilePane('write')
+                  }}
+                >
+                  <Art kind={block.id} />
+                  <span>{ITEM_LABEL[block.id]}</span>
+                </button>
+              ))}
+            </div>
+            <p className="email-kit__kicker">Fields</p>
+            <div className="email-kit__fields">
+              {EMAIL_VARIABLES.map((variable) => (
+                <button
+                  key={variable.id}
+                  type="button"
+                  className="email-chip"
+                  onPointerDown={(event) =>
+                    beginDrag(event, {
+                      kind: 'field',
+                      variableId: variable.id,
+                      fromIndex: -1,
+                      label: variable.label,
+                      art: 'field',
+                    })
+                  }
+                  onClick={() => {
+                    if (skipClickRef.current) {
+                      skipClickRef.current = false
+                      return
+                    }
+                    runCommand(
+                      'insertHTML',
+                      `&nbsp;${emailVariableChip(variable.id)}&nbsp;`,
+                    )
+                  }}
+                >
+                  {variable.label}
+                </button>
+              ))}
+            </div>
+          </aside>
 
-          <div className="email-desk__stage" ref={stageRef}>
-            {previewing ? (
-              <div className="email-letter email-letter--preview">
-                <iframe title="Email preview" srcDoc={preview.html} />
-              </div>
-            ) : (
-              <div className="email-letter">
-                <div className="email-letter__tools" role="toolbar" aria-label="Format">
-                  <button type="button" onClick={() => runCommand('bold')} aria-label="Bold">
-                    <strong>B</strong>
-                  </button>
-                  <button type="button" onClick={() => runCommand('italic')} aria-label="Italic">
-                    <em>I</em>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => runCommand('underline')}
-                    aria-label="Underline"
-                  >
-                    <span className="email-u">U</span>
-                  </button>
-                  <i />
-                  <button
-                    type="button"
-                    onClick={() => runCommand('insertUnorderedList')}
-                    aria-label="List"
-                  >
-                    <Glyph path="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Link"
-                    onClick={() => {
-                      const url = window.prompt('Link', 'https://')
-                      if (url) {
-                        runCommand('createLink', url)
-                      }
-                    }}
-                  >
-                    <Glyph path="M10 13a5 5 0 0 0 7.07 0l1.4-1.4a5 5 0 0 0-7.07-7.07L10 6M14 11a5 5 0 0 0-7.07 0L5.5 12.4a5 5 0 0 0 7.07 7.07L14 18" />
-                  </button>
-                </div>
+          <section className="email-board" ref={stageRef}>
+            <div className="email-board__tools" role="toolbar" aria-label="Format">
+              <button type="button" onClick={() => runCommand('bold')}>
+                B
+              </button>
+              <button type="button" onClick={() => runCommand('italic')}>
+                <em>I</em>
+              </button>
+              <button type="button" onClick={() => runCommand('underline')}>
+                <span className="email-u">U</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => runCommand('insertUnorderedList')}
+                aria-label="List"
+              >
+                <Glyph path="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01" />
+              </button>
+              <button
+                type="button"
+                aria-label="Link"
+                onClick={() => {
+                  const url = window.prompt('Link', 'https://')
+                  if (url) {
+                    runCommand('createLink', url)
+                  }
+                }}
+              >
+                <Glyph path="M10 13a5 5 0 0 0 7.07 0l1.4-1.4a5 5 0 1 0-7.07-7.07L10 6M14 11a5 5 0 0 0-7.07 0L5.5 12.4a5 5 0 0 0 7.07 7.07L14 18" />
+              </button>
+              <input
+                className="email-board__subject"
+                value={draftSubject}
+                onChange={(event) => setDraftSubject(event.target.value)}
+                aria-label="Subject"
+              />
+            </div>
 
-                <label className="email-letter__subject" htmlFor="email-editor-subject">
-                  <span>Subject</span>
-                  <input
-                    id="email-editor-subject"
-                    value={draftSubject}
-                    onChange={(event) => setDraftSubject(event.target.value)}
-                  />
-                </label>
-
-                <div className="email-letter__body">
-                  {blocks.map((block, index) => (
-                    <div key={block.id}>
-                      <div
-                        className={
-                          dropIndex === index && drag?.active
-                            ? 'email-gap is-drop'
-                            : 'email-gap'
-                        }
-                      >
-                        <button
-                          type="button"
-                          className="email-gap__add"
-                          aria-label="Add text here"
-                          onClick={() => insertBlockAt('text', index)}
-                        >
-                          +
-                        </button>
-                      </div>
-                      <div
-                        className={
-                          drag?.active && drag.id === block.id
-                            ? 'email-item is-source'
-                            : focusedId === block.id
-                              ? 'email-item is-focused'
-                              : 'email-item'
-                        }
-                        data-item-index={index}
-                      >
-                        <button
-                          type="button"
-                          className="email-item__grab"
-                          aria-label={`Move ${ITEM_LABEL[block.type]}`}
-                          onPointerDown={(event) =>
-                            beginDrag(event, {
-                              kind: 'reorder',
-                              id: block.id,
-                              fromIndex: index,
-                              label: ITEM_LABEL[block.type],
-                            })
-                          }
-                        >
-                          <Dots />
-                        </button>
-                        <CanvasItem
-                          block={block}
-                          dragging={Boolean(drag?.active)}
-                          onFocus={() => setFocusedId(block.id)}
-                          onChange={(nextHtml) =>
-                            updateBlockHtml(block.id, nextHtml)
-                          }
-                        />
-                        <button
-                          type="button"
-                          className="email-item__remove"
-                          aria-label="Remove"
-                          onClick={() => removeBlock(block.id)}
-                        >
-                          <IconX />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+            <div className="email-artboard">
+              {blocks.map((block, index) => (
+                <div key={block.id}>
                   <div
                     className={
-                      dropIndex === blocks.length && drag?.active
-                        ? 'email-gap is-drop'
-                        : 'email-gap'
+                      dropIndex === index && drag?.active
+                        ? 'email-drop is-on'
+                        : 'email-drop'
                     }
+                  />
+                  <article
+                    className={[
+                      'email-tile',
+                      `email-tile--${block.type}`,
+                      HARD_BOX.has(block.type) ? 'is-box' : '',
+                      focusedId === block.id ? 'is-on' : '',
+                      drag?.active && drag.id === block.id ? 'is-lift' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    data-item-index={index}
+                    onPointerDown={(event) => {
+                      const target = event.target as HTMLElement
+                      if (target.closest('.email-tile__x')) {
+                        return
+                      }
+                      if (
+                        target.closest('[contenteditable="true"]') &&
+                        !HARD_BOX.has(block.type)
+                      ) {
+                        return
+                      }
+                      beginDrag(event, {
+                        kind: 'reorder',
+                        id: block.id,
+                        fromIndex: index,
+                        label: ITEM_LABEL[block.type],
+                        art: block.type,
+                      })
+                    }}
+                    onClick={() => setFocusedId(block.id)}
                   >
-                    <button
-                      type="button"
-                      className="email-gap__add"
-                      aria-label="Add text at the end"
-                      onClick={() => insertBlockAt('text', blocks.length)}
-                    >
-                      +
-                    </button>
-                  </div>
+                    <header className="email-tile__bar">
+                      <span>{ITEM_LABEL[block.type]}</span>
+                      <button
+                        type="button"
+                        className="email-tile__x"
+                        aria-label="Remove"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          removeBlock(block.id)
+                        }}
+                      >
+                        <IconX />
+                      </button>
+                    </header>
+                    <TileStage
+                      block={block}
+                      locked={Boolean(drag?.active)}
+                      onFocus={() => setFocusedId(block.id)}
+                      onChange={(nextHtml) => updateBlockHtml(block.id, nextHtml)}
+                    />
+                  </article>
                 </div>
-              </div>
-            )}
-          </div>
+              ))}
+              <div
+                className={
+                  dropIndex === blocks.length && drag?.active
+                    ? 'email-drop is-on'
+                    : 'email-drop'
+                }
+              />
+            </div>
+          </section>
+
+          <aside className="email-live">
+            <p>
+              <IconEye /> Live
+            </p>
+            <div className="email-phone">
+              <iframe title="Live preview" srcDoc={preview.html} />
+            </div>
+          </aside>
         </div>
 
         {drag?.active ? (
           <div
-            className="email-drag-ghost"
+            className="email-ghost"
             style={{ top: drag.y, left: drag.x }}
           >
-            {drag.label}
+            <Art kind={drag.art} />
+            <span>{drag.label}</span>
           </div>
         ) : null}
 
-        <nav className="email-desk__tabs" aria-label="Editor">
+        <nav className="email-studio__tabs">
           <button
             type="button"
             className={mobilePane === 'blocks' ? 'is-active' : ''}
-            onClick={() => {
-              setMobilePane('blocks')
-              setPreviewing(false)
-            }}
+            onClick={() => setMobilePane('blocks')}
           >
-            Add
+            Pieces
           </button>
           <button
             type="button"
-            className={mobilePane === 'write' && !previewing ? 'is-active' : ''}
-            onClick={() => {
-              setMobilePane('write')
-              setPreviewing(false)
-            }}
+            className={mobilePane === 'write' ? 'is-active' : ''}
+            onClick={() => setMobilePane('write')}
           >
-            Letter
+            Canvas
           </button>
           <button
             type="button"
-            className={previewing || mobilePane === 'preview' ? 'is-active' : ''}
-            onClick={() => {
-              setMobilePane('preview')
-              setPreviewing(true)
-            }}
+            className={mobilePane === 'preview' ? 'is-active' : ''}
+            onClick={() => setMobilePane('preview')}
           >
-            Preview
+            Live
           </button>
         </nav>
       </div>
