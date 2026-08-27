@@ -1,5 +1,7 @@
 export type EmailBlockId =
   | 'hero'
+  | 'heading'
+  | 'text'
   | 'greeting'
   | 'amount'
   | 'details'
@@ -14,7 +16,11 @@ export type EmailBlock = {
   label: string
   hint: string
   html: string
+  palette?: boolean
 }
+
+const PARAGRAPH =
+  'margin:0 0 16px;font-size:16px;line-height:1.55;color:#111111;'
 
 function token(id: string): string {
   return `<span style="display:inline-block;background:#ecfdf5;color:#0f766e;border:1px solid #99f6e4;border-radius:999px;padding:1px 8px;font-size:13px;font-weight:700;line-height:1.6;">{{${id}}}</span>`
@@ -26,9 +32,21 @@ export function emailVariableChip(id: string): string {
 
 export const EMAIL_BLOCKS: EmailBlock[] = [
   {
+    id: 'heading',
+    label: 'Heading',
+    hint: 'Section title',
+    html: `<h2 style="margin:0 0 12px;font-size:20px;line-height:1.3;font-weight:700;color:#111111;">Heading</h2>`,
+  },
+  {
+    id: 'text',
+    label: 'Text',
+    hint: 'A paragraph',
+    html: `<p style="${PARAGRAPH}">Write a sentence…</p>`,
+  },
+  {
     id: 'hero',
-    label: 'Hero',
-    hint: 'Dark invoice header',
+    label: 'Header',
+    hint: 'Invoice number banner',
     html: `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px;"><tr><td style="background:#111111;color:#ffffff;padding:22px 20px;border-radius:12px;">
 <p style="margin:0;font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:#5eead4;font-weight:700;">Invoice</p>
 <p style="margin:8px 0 0;font-size:26px;line-height:1.2;font-weight:700;">${token('invoice_number')}</p>
@@ -39,8 +57,9 @@ export const EMAIL_BLOCKS: EmailBlock[] = [
     id: 'greeting',
     label: 'Greeting',
     hint: 'Hello customer',
-    html: `<p style="margin:0 0 16px;font-size:16px;line-height:1.55;color:#111111;">Hello ${token('customer_name')},</p>
-<p style="margin:0 0 16px;font-size:16px;line-height:1.55;color:#111111;">Please find invoice ${token('invoice_number')} attached as a PDF.</p>`,
+    palette: false,
+    html: `<p style="${PARAGRAPH}">Hello ${token('customer_name')},</p>
+<p style="${PARAGRAPH}">Please find invoice ${token('invoice_number')} attached as a PDF.</p>`,
   },
   {
     id: 'amount',
@@ -102,24 +121,40 @@ export const EMAIL_BLOCKS: EmailBlock[] = [
     id: 'note',
     label: 'Note',
     hint: 'Closing thanks',
-    html: `<p style="margin:0 0 8px;font-size:16px;line-height:1.55;color:#111111;">Thank you,<br>${token('business_name')}</p>`,
+    html: `<p style="${PARAGRAPH}">Thank you,<br>${token('business_name')}</p>`,
   },
 ]
+
+export const PALETTE_BLOCKS: EmailBlock[] = EMAIL_BLOCKS.filter(
+  (block) => block.palette !== false,
+)
 
 export function emailBlockHtml(id: EmailBlockId): string {
   return EMAIL_BLOCKS.find((block) => block.id === id)?.html ?? ''
 }
 
+export function splitTopLevelParagraphs(html: string): string[] {
+  const matches = html.match(/<p\b[^>]*>[\s\S]*?<\/p>/gi)
+  if (matches && matches.length > 1) {
+    return matches.map((part) => part.trim())
+  }
+  return []
+}
+
 export function defaultGraphicalEmailBody(): string {
-  const layout: EmailBlockId[] = [
-    'hero',
-    'greeting',
-    'amount',
-    'payment',
-    'button',
-    'note',
+  const greeting = splitTopLevelParagraphs(emailBlockHtml('greeting'))
+  const layout: Array<{ type: EmailBlockId; html: string }> = [
+    { type: 'hero', html: emailBlockHtml('hero') },
+    ...greeting.map((html) => ({ type: 'text' as const, html })),
+    { type: 'amount', html: emailBlockHtml('amount') },
+    { type: 'payment', html: emailBlockHtml('payment') },
+    { type: 'button', html: emailBlockHtml('button') },
+    { type: 'note', html: emailBlockHtml('note') },
   ]
   return layout
-    .map((id) => `<!--email-block:${id}-->\n${emailBlockHtml(id)}\n<!--/email-block-->`)
+    .map(
+      (item) =>
+        `<!--email-block:${item.type}-->\n${item.html}\n<!--/email-block-->`,
+    )
     .join('\n')
 }

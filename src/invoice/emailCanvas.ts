@@ -1,6 +1,8 @@
 import {
   EMAIL_BLOCKS,
   emailBlockHtml,
+  emailVariableChip,
+  splitTopLevelParagraphs,
   type EmailBlockId,
 } from './emailBlocks.ts'
 
@@ -42,10 +44,46 @@ export function createBlockFromPalette(type: EmailBlockId): EmailCanvasBlock {
   }
 }
 
+export function createFieldItem(variableId: string): EmailCanvasBlock {
+  return {
+    id: createCanvasBlockId(),
+    type: 'text',
+    html: `<p style="margin:0 0 16px;font-size:16px;line-height:1.55;color:#111111;">${emailVariableChip(variableId)}</p>`,
+  }
+}
+
+function expandCanvasBlocks(blocks: EmailCanvasBlock[]): EmailCanvasBlock[] {
+  return blocks.flatMap((block) => {
+    if (
+      block.type === 'greeting' ||
+      block.type === 'html' ||
+      block.type === 'text'
+    ) {
+      const parts = splitTopLevelParagraphs(block.html)
+      if (parts.length > 1) {
+        return parts.map((html) => ({
+          id: createCanvasBlockId(),
+          type: 'text' as const,
+          html,
+        }))
+      }
+    }
+    if (block.type === 'greeting') {
+      return [{ ...block, type: 'text' }]
+    }
+    return [block]
+  })
+}
+
 export function defaultCanvasBlocks(): EmailCanvasBlock[] {
-  return (
-    ['hero', 'greeting', 'amount', 'payment', 'button', 'note'] as EmailBlockId[]
-  ).map((id) => createBlockFromPalette(id))
+  return expandCanvasBlocks([
+    createBlockFromPalette('hero'),
+    createBlockFromPalette('greeting'),
+    createBlockFromPalette('amount'),
+    createBlockFromPalette('payment'),
+    createBlockFromPalette('button'),
+    createBlockFromPalette('note'),
+  ])
 }
 
 function splitUnmarkedHtml(html: string): EmailCanvasBlock[] {
@@ -87,9 +125,11 @@ function splitUnmarkedHtml(html: string): EmailCanvasBlock[] {
   if (tail) {
     blocks.push({ id: createCanvasBlockId(), type: 'html', html: tail })
   }
-  return blocks.length > 0
-    ? blocks
-    : [{ id: createCanvasBlockId(), type: 'html', html }]
+  return expandCanvasBlocks(
+    blocks.length > 0
+      ? blocks
+      : [{ id: createCanvasBlockId(), type: 'html', html }],
+  )
 }
 
 export function parseEmailHtmlToBlocks(html: string): EmailCanvasBlock[] {
@@ -128,7 +168,7 @@ export function parseEmailHtmlToBlocks(html: string): EmailCanvasBlock[] {
   if (tail) {
     marked.push({ id: createCanvasBlockId(), type: 'html', html: tail })
   }
-  return marked
+  return expandCanvasBlocks(marked)
 }
 
 export function moveCanvasBlock(

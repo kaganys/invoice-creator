@@ -10,12 +10,13 @@ import {
   type EmailVariableId,
 } from '../../invoice/emailTemplates.ts'
 import {
-  EMAIL_BLOCKS,
+  PALETTE_BLOCKS,
   emailVariableChip,
   type EmailBlockId,
 } from '../../invoice/emailBlocks.ts'
 import {
   createBlockFromPalette,
+  createFieldItem,
   defaultCanvasBlocks,
   insertCanvasBlock,
   moveCanvasBlock,
@@ -43,9 +44,19 @@ type EmailTemplateEditorProps = {
 
 type MobilePane = 'write' | 'blocks' | 'preview'
 
-type DragState =
-  | { kind: 'palette'; type: EmailBlockId }
-  | { kind: 'reorder'; id: string }
+type DragSession = {
+  kind: 'palette' | 'reorder' | 'field'
+  type?: EmailBlockId
+  variableId?: EmailVariableId
+  id?: string
+  fromIndex: number
+  startX: number
+  startY: number
+  x: number
+  y: number
+  active: boolean
+  label: string
+}
 
 const FONT_SIZES = ['2', '3', '4', '5', '6'] as const
 const FONT_SIZE_LABELS: Record<(typeof FONT_SIZES)[number], string> = {
@@ -56,15 +67,17 @@ const FONT_SIZE_LABELS: Record<(typeof FONT_SIZES)[number], string> = {
   '6': '24',
 }
 
-const BLOCK_LABEL: Record<EmailCanvasBlockType, string> = {
+const ITEM_LABEL: Record<EmailCanvasBlockType, string> = {
   hero: 'Header',
-  greeting: 'Greeting',
+  heading: 'Heading',
+  text: 'Text',
+  greeting: 'Text',
   amount: 'Amount',
   details: 'Details',
   payment: 'Payment',
   button: 'Button',
-  divider: 'Divider',
-  spacer: 'Spacer',
+  divider: 'Line',
+  spacer: 'Space',
   note: 'Sign-off',
   html: 'Text',
 }
@@ -93,19 +106,17 @@ function Glyph({ path }: { path: string }) {
 
 function ToolButton({
   label,
-  active,
   onClick,
   children,
 }: {
   label: string
-  active?: boolean
   onClick: () => void
   children: ReactNode
 }) {
   return (
     <button
       type="button"
-      className={active ? 'email-tool is-active' : 'email-tool'}
+      className="email-tool"
       title={label}
       aria-label={label}
       onClick={onClick}
@@ -115,18 +126,18 @@ function ToolButton({
   )
 }
 
-function CanvasBlock({
+function CanvasItem({
   block,
   selected,
+  dragging,
   onFocus,
   onChange,
-  onPointerDragStart,
 }: {
   block: EmailCanvasBlock
   selected: boolean
+  dragging: boolean
   onFocus: () => void
   onChange: (html: string) => void
-  onPointerDragStart: (event: ReactPointerEvent<HTMLButtonElement>) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
 
@@ -138,25 +149,20 @@ function CanvasBlock({
 
   return (
     <div
-      className={selected ? 'email-doc-block is-selected' : 'email-doc-block'}
-      data-block-id={block.id}
+      className={
+        selected
+          ? 'email-item__body is-selected'
+          : 'email-item__body'
+      }
+      data-kind={block.type}
     >
-      <button
-        type="button"
-        className="email-doc-block__handle"
-        aria-label={`Move ${BLOCK_LABEL[block.type]}`}
-        title="Drag to move"
-        onPointerDown={onPointerDragStart}
-      >
-        <Glyph path="M10 5v14M14 5v14" />
-      </button>
       <div
         ref={ref}
-        className="email-doc-block__body"
-        contentEditable
+        className="email-item__edit"
+        contentEditable={!dragging}
         suppressContentEditableWarning
         role="textbox"
-        aria-label={`${BLOCK_LABEL[block.type]} block`}
+        aria-label={`${ITEM_LABEL[block.type]} item`}
         onFocus={onFocus}
         onInput={() => onChange(ref.current?.innerHTML ?? '')}
       />
@@ -172,6 +178,10 @@ export function EmailTemplateEditor({
   onApply,
 }: EmailTemplateEditorProps) {
   const dialogRef = useRef<HTMLDivElement>(null)
+  const stageRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<DragSession | null>(null)
+  const dropIndexRef = useRef<number | null>(null)
+  const skipClickRef = useRef(false)
   const [draftSubject, setDraftSubject] = useState(subject)
   const [blocks, setBlocks] = useState<EmailCanvasBlock[]>([])
   const [focusedId, setFocusedId] = useState<string | null>(null)
@@ -180,9 +190,8 @@ export function EmailTemplateEditor({
   const [textColor, setTextColor] = useState('#111111')
   const [highlight, setHighlight] = useState('#fde68a')
   const [fontSize, setFontSize] = useState<(typeof FONT_SIZES)[number]>('4')
-  const [drag, setDrag] = useState<DragState | null>(null)
+  const [drag, setDrag] = useState<DragSession | null>(null)
   const [dropIndex, setDropIndex] = useState<number | null>(null)
-  const skipPaletteClick = useRef(false)
 
   useFocusTrap(open, dialogRef, onClose)
 
@@ -208,18 +217,9 @@ export function EmailTemplateEditor({
     setMobilePane('write')
     setDrag(null)
     setDropIndex(null)
+    dragRef.current = null
+    dropIndexRef.current = null
   }, [open, subject, html])
-
-  useEffect(() => {
-    if (!drag) {
-      return
-    }
-    function onPointerUp() {
-      finishDrop()
-    }
-    window.addEventListener('pointerup', onPointerUp)
-    return () => window.removeEventListener('pointerup', onPointerUp)
-  }, [drag, dropIndex, blocks])
 
   if (!open) {
     return null
@@ -249,10 +249,13 @@ export function EmailTemplateEditor({
   }
 
   function insertBlockAt(type: EmailBlockId, index: number) {
-    if (!EMAIL_BLOCKS.some((block) => block.id === type)) {
-      return
-    }
     const next = createBlockFromPalette(type)
+    setBlocks((current) => insertCanvasBlock(current, index, next))
+    setFocusedId(next.id)
+  }
+
+  function insertFieldAt(variableId: EmailVariableId, index: number) {
+    const next = createFieldItem(variableId)
     setBlocks((current) => insertCanvasBlock(current, index, next))
     setFocusedId(next.id)
   }
@@ -282,35 +285,108 @@ export function EmailTemplateEditor({
     )
   }
 
-  function finishDrop() {
-    if (drag && dropIndex != null) {
-      skipPaletteClick.current = true
-      if (drag.kind === 'palette') {
-        insertBlockAt(drag.type, dropIndex)
-        setMobilePane('write')
-      } else {
-        const from = blocks.findIndex((block) => block.id === drag.id)
-        if (from >= 0) {
-          setBlocks((current) => moveCanvasBlock(current, from, dropIndex))
-        }
+  function readDropIndex(clientY: number): number {
+    const nodes = stageRef.current?.querySelectorAll<HTMLElement>(
+      '[data-item-index]',
+    )
+    if (!nodes || nodes.length === 0) {
+      return 0
+    }
+    for (const node of nodes) {
+      const rect = node.getBoundingClientRect()
+      const index = Number(node.dataset.itemIndex)
+      if (clientY < rect.top + rect.height / 2) {
+        return index
       }
     }
+    return nodes.length
+  }
+
+  function applyDrag(session: DragSession, at: number) {
+    if (session.kind === 'palette' && session.type) {
+      insertBlockAt(session.type, at)
+      setMobilePane('write')
+      return
+    }
+    if (session.kind === 'field' && session.variableId) {
+      insertFieldAt(session.variableId, at)
+      setMobilePane('write')
+      return
+    }
+    if (session.kind === 'reorder' && session.id) {
+      setBlocks((current) => {
+        const from = current.findIndex((block) => block.id === session.id)
+        if (from < 0) {
+          return current
+        }
+        return moveCanvasBlock(current, from, at)
+      })
+    }
+  }
+
+  function onPointerMove(event: PointerEvent) {
+    const session = dragRef.current
+    if (!session) {
+      return
+    }
+    const dist = Math.hypot(
+      event.clientX - session.startX,
+      event.clientY - session.startY,
+    )
+    const active = session.active || dist > 6
+    const next = {
+      ...session,
+      active,
+      x: event.clientX,
+      y: event.clientY,
+    }
+    dragRef.current = next
+    setDrag(next)
+    if (active) {
+      event.preventDefault()
+      const at = readDropIndex(event.clientY)
+      dropIndexRef.current = at
+      setDropIndex(at)
+    }
+  }
+
+  function onPointerUp() {
+    const session = dragRef.current
+    window.removeEventListener('pointermove', onPointerMove)
+    window.removeEventListener('pointerup', onPointerUp)
+    if (session?.active) {
+      skipClickRef.current = true
+      applyDrag(
+        session,
+        dropIndexRef.current ?? readDropIndex(session.y),
+      )
+    }
+    dragRef.current = null
+    dropIndexRef.current = null
     setDrag(null)
     setDropIndex(null)
   }
 
-  function onPalettePointerDown(type: EmailBlockId) {
-    skipPaletteClick.current = false
-    setDrag({ kind: 'palette', type })
-  }
-
-  function onHandlePointerDown(
-    event: ReactPointerEvent<HTMLButtonElement>,
-    id: string,
+  function beginDrag(
+    event: ReactPointerEvent,
+    session: Omit<DragSession, 'startX' | 'startY' | 'x' | 'y' | 'active'>,
   ) {
-    event.preventDefault()
+    if (session.kind === 'reorder') {
+      event.preventDefault()
+    }
     event.stopPropagation()
-    setDrag({ kind: 'reorder', id })
+    const next: DragSession = {
+      ...session,
+      startX: event.clientX,
+      startY: event.clientY,
+      x: event.clientX,
+      y: event.clientY,
+      active: false,
+    }
+    dragRef.current = next
+    setDrag(next)
+    window.addEventListener('pointermove', onPointerMove, { passive: false })
+    window.addEventListener('pointerup', onPointerUp)
   }
 
   const toolbar = (
@@ -388,7 +464,7 @@ export function EmailTemplateEditor({
         label="Numbered list"
         onClick={() => format('insertOrderedList')}
       >
-        <Glyph path="M10 6h11M10 12h11M10 18h11M4 6h1v4M4 16l2 2 2-2" />
+        <Glyph path="M10 6h11M10 12h11M10 18h11M4 6h1v4" />
       </ToolButton>
       <ToolButton label="Align left" onClick={() => format('justifyLeft')}>
         <Glyph path="M4 6h16M4 12h10M4 18h14" />
@@ -402,46 +478,50 @@ export function EmailTemplateEditor({
       <ToolButton label="Link" onClick={addLink}>
         <Glyph path="M10 13a5 5 0 0 0 7.07 0l1.41-1.41a5 5 0 0 0-7.07-7.07L10 5.93M14 11a5 5 0 0 0-7.07 0L5.52 12.4a5 5 0 0 0 7.07 7.07L14 18.07" />
       </ToolButton>
-      <ToolButton label="Clear formatting" onClick={() => format('removeFormat')}>
-        <Glyph path="M5 5l14 14M9 9 4 20M15 4 8.5 17" />
-      </ToolButton>
     </div>
   )
 
   const palette = (
     <aside className="email-editor-palette">
       <div className="email-editor-palette__head">
-        <p className="email-editor-palette__title">Blocks</p>
+        <p className="email-editor-palette__title">Items</p>
         <p className="email-editor-palette__hint">
-          Drag onto the page, or tap to add.
+          Drag any item onto the email. Each one moves on its own.
         </p>
       </div>
       <div className="email-block-grid">
-        {EMAIL_BLOCKS.map((block) => (
+        {PALETTE_BLOCKS.map((block) => (
           <button
             key={block.id}
             type="button"
             className={`email-block-card email-block-card--${block.id}`}
-            draggable
-            onDragStart={(event) => {
-              event.dataTransfer.setData('application/x-email-block', block.id)
-              event.dataTransfer.setData('text/plain', `palette:${block.id}`)
-              event.dataTransfer.effectAllowed = 'copy'
-            }}
-            onPointerDown={() => onPalettePointerDown(block.id)}
             onClick={() => {
-              if (skipPaletteClick.current) {
-                skipPaletteClick.current = false
+              if (skipClickRef.current) {
+                skipClickRef.current = false
                 return
               }
               insertBlockAt(block.id, blocks.length)
               setMobilePane('write')
             }}
           >
+            <span
+              className="email-block-card__grip"
+              aria-hidden="true"
+              onPointerDown={(event) =>
+                beginDrag(event, {
+                  kind: 'palette',
+                  type: block.id,
+                  fromIndex: -1,
+                  label: ITEM_LABEL[block.id],
+                })
+              }
+            >
+              <Glyph path="M10 5v14M14 5v14" />
+            </span>
             <span className="email-block-card__preview" aria-hidden="true" />
             <span className="email-block-card__meta">
               <span className="email-block-card__label">
-                {BLOCK_LABEL[block.id]}
+                {ITEM_LABEL[block.id]}
               </span>
               <span className="email-block-card__hint">{block.hint}</span>
             </span>
@@ -450,6 +530,9 @@ export function EmailTemplateEditor({
       </div>
       <div className="email-editor-palette__head">
         <p className="email-editor-palette__title">Fields</p>
+        <p className="email-editor-palette__hint">
+          Drag onto the page, or tap to insert at the cursor.
+        </p>
       </div>
       <div className="email-editor-vars">
         {EMAIL_VARIABLES.map((variable) => (
@@ -457,7 +540,21 @@ export function EmailTemplateEditor({
             key={variable.id}
             type="button"
             className="email-editor-var"
-            onClick={() => insertVariable(variable.id)}
+            onPointerDown={(event) =>
+              beginDrag(event, {
+                kind: 'field',
+                variableId: variable.id,
+                fromIndex: -1,
+                label: variable.label,
+              })
+            }
+            onClick={() => {
+              if (skipClickRef.current) {
+                skipClickRef.current = false
+                return
+              }
+              insertVariable(variable.id)
+            }}
           >
             {variable.label}
           </button>
@@ -469,7 +566,7 @@ export function EmailTemplateEditor({
   const previewPane = (
     <div className="email-editor-preview">
       <div className="email-editor-preview__bar">
-        <span>Customer inbox</span>
+        <span>Inbox</span>
         <div className="email-seg">
           <button
             type="button"
@@ -495,7 +592,7 @@ export function EmailTemplateEditor({
         }
       >
         <div className="email-device__chrome">
-          <p className="email-device__from">Bitz Designs</p>
+          <p className="email-device__from">{SAMPLE_EMAIL_VARS.business_name}</p>
           <p className="email-device__subject">{draftSubject || 'Subject'}</p>
         </div>
         <iframe
@@ -527,7 +624,7 @@ export function EmailTemplateEditor({
         <header className="email-editor-top">
           <div className="email-editor-top__title">
             <h2 id="email-editor-title">Invoice email</h2>
-            <p>Compose the message customers receive</p>
+            <p>Drag each line, card, or button into place</p>
           </div>
           <div className="email-editor-top__actions">
             <button
@@ -567,55 +664,57 @@ export function EmailTemplateEditor({
         {toolbar}
 
         <div
-          className={`email-editor-workspace is-${mobilePane}${drag ? ' is-dragging' : ''}`}
-          onPointerMove={(event) => {
-            if (!drag) {
-              return
-            }
-            const target = document.elementFromPoint(
-              event.clientX,
-              event.clientY,
-            )
-            const slot = target?.closest('[data-drop-index]')
-            if (slot instanceof HTMLElement) {
-              const index = Number(slot.dataset.dropIndex)
-              if (Number.isFinite(index)) {
-                setDropIndex(index)
-              }
-            }
-          }}
-          onDragOver={(event) => {
-            event.preventDefault()
-          }}
+          className={`email-editor-workspace is-${mobilePane}${drag?.active ? ' is-dragging' : ''}`}
         >
           {palette}
 
-          <div className="email-editor-stage">
+          <div className="email-editor-stage" ref={stageRef}>
             <div className="email-page">
               <div className="email-page__sheet">
-                <DropSlot
-                  index={0}
-                  active={dropIndex === 0}
-                  onDragEnter={() => setDropIndex(0)}
-                  onDropType={(type) => insertBlockAt(type, 0)}
-                  onDropId={(id) => {
-                    const from = blocks.findIndex((block) => block.id === id)
-                    if (from >= 0) {
-                      setBlocks((current) => moveCanvasBlock(current, from, 0))
-                    }
-                  }}
-                  onDropped={() => {
-                    skipPaletteClick.current = true
-                    setDrag(null)
-                    setDropIndex(null)
-                    setMobilePane('write')
-                  }}
-                />
                 {blocks.map((block, index) => (
-                  <div key={block.id} className="email-doc-stack">
-                    <div className="email-doc-block__chrome">
-                      <span>{BLOCK_LABEL[block.type]}</span>
-                      <div className="email-doc-block__actions">
+                  <div key={block.id}>
+                    <div
+                      className={
+                        dropIndex === index && drag?.active
+                          ? 'email-slot is-active'
+                          : 'email-slot'
+                      }
+                    />
+                    <div
+                      className={
+                        drag?.active && drag.id === block.id
+                          ? 'email-item is-source'
+                          : focusedId === block.id
+                            ? 'email-item is-focused'
+                            : 'email-item'
+                      }
+                      data-item-index={index}
+                    >
+                      <button
+                        type="button"
+                        className="email-item__grab"
+                        aria-label={`Drag ${ITEM_LABEL[block.type]}`}
+                        onPointerDown={(event) =>
+                          beginDrag(event, {
+                            kind: 'reorder',
+                            id: block.id,
+                            fromIndex: index,
+                            label: ITEM_LABEL[block.type],
+                          })
+                        }
+                      >
+                        <Glyph path="M10 5v14M14 5v14" />
+                      </button>
+                      <CanvasItem
+                        block={block}
+                        selected={focusedId === block.id}
+                        dragging={Boolean(drag?.active)}
+                        onFocus={() => setFocusedId(block.id)}
+                        onChange={(nextHtml) =>
+                          updateBlockHtml(block.id, nextHtml)
+                        }
+                      />
+                      <div className="email-item__ops">
                         <button
                           type="button"
                           className="email-mini"
@@ -637,72 +736,37 @@ export function EmailTemplateEditor({
                         <button
                           type="button"
                           className="email-mini"
-                          aria-label="Delete block"
+                          aria-label="Delete item"
                           onClick={() => removeBlock(block.id)}
                         >
                           <Glyph path="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
                         </button>
                       </div>
                     </div>
-                    <div
-                      draggable
-                      onDragStart={(event) => {
-                        event.dataTransfer.setData(
-                          'application/x-email-block-id',
-                          block.id,
-                        )
-                        event.dataTransfer.setData(
-                          'text/plain',
-                          `reorder:${block.id}`,
-                        )
-                        event.dataTransfer.effectAllowed = 'move'
-                        setDrag({ kind: 'reorder', id: block.id })
-                      }}
-                      onDragEnd={() => {
-                        setDrag(null)
-                        setDropIndex(null)
-                      }}
-                    >
-                      <CanvasBlock
-                        block={block}
-                        selected={focusedId === block.id}
-                        onFocus={() => setFocusedId(block.id)}
-                        onChange={(nextHtml) =>
-                          updateBlockHtml(block.id, nextHtml)
-                        }
-                        onPointerDragStart={(event) =>
-                          onHandlePointerDown(event, block.id)
-                        }
-                      />
-                    </div>
-                    <DropSlot
-                      index={index + 1}
-                      active={dropIndex === index + 1}
-                      onDragEnter={() => setDropIndex(index + 1)}
-                      onDropType={(type) => insertBlockAt(type, index + 1)}
-                      onDropId={(id) => {
-                        const from = blocks.findIndex((item) => item.id === id)
-                        if (from >= 0) {
-                          setBlocks((current) =>
-                            moveCanvasBlock(current, from, index + 1),
-                          )
-                        }
-                      }}
-                      onDropped={() => {
-                        skipPaletteClick.current = true
-                        setDrag(null)
-                        setDropIndex(null)
-                        setMobilePane('write')
-                      }}
-                    />
                   </div>
                 ))}
+                <div
+                  className={
+                    dropIndex === blocks.length && drag?.active
+                      ? 'email-slot is-active'
+                      : 'email-slot'
+                  }
+                />
               </div>
             </div>
           </div>
 
           {previewPane}
         </div>
+
+        {drag?.active ? (
+          <div
+            className="email-drag-ghost"
+            style={{ top: drag.y, left: drag.x }}
+          >
+            {drag.label}
+          </div>
+        ) : null}
 
         <nav className="email-mobile-panes" aria-label="Designer views">
           <button
@@ -711,7 +775,7 @@ export function EmailTemplateEditor({
             onClick={() => setMobilePane('blocks')}
           >
             <Glyph path="M4 6h7v5H4zM13 6h7v5h-7zM4 13h7v5H4zM13 13h7v5h-7z" />
-            Blocks
+            Items
           </button>
           <button
             type="button"
@@ -750,53 +814,5 @@ export function EmailTemplateEditor({
         </footer>
       </div>
     </div>
-  )
-}
-
-function DropSlot({
-  index,
-  active,
-  onDragEnter,
-  onDropType,
-  onDropId,
-  onDropped,
-}: {
-  index: number
-  active: boolean
-  onDragEnter: () => void
-  onDropType: (type: EmailBlockId) => void
-  onDropId: (id: string) => void
-  onDropped: () => void
-}) {
-  return (
-    <div
-      className={active ? 'email-drop is-active' : 'email-drop'}
-      data-drop-index={index}
-      onDragEnter={(event) => {
-        event.preventDefault()
-        onDragEnter()
-      }}
-      onDragOver={(event) => event.preventDefault()}
-      onDrop={(event) => {
-        event.preventDefault()
-        const fallback = event.dataTransfer.getData('text/plain')
-        const type = (event.dataTransfer.getData('application/x-email-block') ||
-          (fallback.startsWith('palette:')
-            ? fallback.slice('palette:'.length)
-            : '')) as EmailBlockId
-        const id =
-          event.dataTransfer.getData('application/x-email-block-id') ||
-          (fallback.startsWith('reorder:')
-            ? fallback.slice('reorder:'.length)
-            : '')
-        if (type) {
-          onDropType(type)
-          onDropped()
-        } else if (id) {
-          onDropId(id)
-          onDropped()
-        }
-      }}
-    />
   )
 }

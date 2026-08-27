@@ -13,7 +13,8 @@ describe('email canvas blocks', () => {
     const blocks = parseEmailHtmlToBlocks(defaultGraphicalEmailBody())
     expect(blocks.map((block) => block.type)).toEqual([
       'hero',
-      'greeting',
+      'text',
+      'text',
       'amount',
       'payment',
       'button',
@@ -32,13 +33,21 @@ describe('email canvas blocks', () => {
       emailBlockHtml('greeting'),
     ].join('\n')
     const blocks = parseEmailHtmlToBlocks(unmarked)
-    expect(blocks.map((block) => block.type)).toEqual(['hero', 'greeting'])
+    expect(blocks.map((block) => block.type)).toEqual(['hero', 'text', 'text'])
+  })
+
+  it('splits a greeting box into draggable paragraphs', () => {
+    const html = `<!--email-block:greeting-->\n${emailBlockHtml('greeting')}\n<!--/email-block-->`
+    expect(parseEmailHtmlToBlocks(html).map((block) => block.type)).toEqual([
+      'text',
+      'text',
+    ])
   })
 
   it('moves and inserts blocks', () => {
     const start = defaultCanvasBlocks()
     const moved = moveCanvasBlock(start, 0, 2)
-    expect(moved[0]?.type).toBe('greeting')
+    expect(moved[0]?.type).toBe('text')
     expect(moved[1]?.type).toBe('hero')
     const inserted = insertCanvasBlock(moved, 0, {
       id: 'new',
