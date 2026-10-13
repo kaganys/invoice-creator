@@ -11,7 +11,14 @@ import {
   type StripeExpressCheckoutElementClickEvent,
   type StripeExpressCheckoutElementConfirmEvent,
 } from '@stripe/stripe-js'
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from 'react'
 import {
   confirmPublicPayment,
   createPublicPaymentIntent,
@@ -19,11 +26,23 @@ import {
   type PublicInvoice,
   type PublicPaymentSession,
 } from '../../api/publicInvoice.ts'
+import { useMediaQuery } from '../../hooks/useMediaQuery.ts'
 import {
   displayQuote,
   type PaymentCategory,
 } from '../../payments/surcharge.ts'
+import {
+  EXPRESS_WALLET_BUTTON_TYPE,
+  cardWalletLineItems,
+  expressWalletLayout,
+  expressWalletOptions,
+  walletAvailabilityFromChange,
+  walletButtonsVisible,
+  walletLineTotal,
+} from '../../payments/wallets.ts'
 import { formatMoney } from '../../utils/money.ts'
+
+const NARROW_WALLET_QUERY = '(max-width: 640px)'
 
 const stripeCache = new Map<string, Promise<Stripe | null>>()
 
@@ -53,11 +72,13 @@ function CheckoutForm({
 }) {
   const stripe = useStripe()
   const elements = useElements()
+  const narrowWallets = useMediaQuery(NARROW_WALLET_QUERY)
   const [submitting, setSubmitting] = useState(false)
   const [elementReady, setElementReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedType, setSelectedType] = useState<string | null>(null)
   const [walletsVisible, setWalletsVisible] = useState(false)
+  const amountChain = useRef<Promise<void>>(Promise.resolve())
   const quote = displayQuote(
     invoice.amountDueCents,
     invoice.cardFeeCents,
@@ -66,12 +87,26 @@ function CheckoutForm({
   )
   const amountLabel = `${formatMoney(quote.totalCents, invoice.currency)} ${invoice.currency}`
 
+  const queueAmountUpdate = useCallback(
+    (amount: number) => {
+      const run = amountChain.current.then(async () => {
+        if (!elements) {
+          return
+        }
+        await elements.update({ amount })
+      })
+      amountChain.current = run.then(
+        () => undefined,
+        () => undefined,
+      )
+      return run
+    },
+    [elements],
+  )
+
   useEffect(() => {
-    if (!elements) {
-      return
-    }
-    void elements.update({ amount: quote.totalCents })
-  }, [elements, quote.totalCents])
+    void queueAmountUpdate(quote.totalCents)
+  }, [queueAmountUpdate, quote.totalCents])
 
   async function onPay(event: FormEvent) {
     event.preventDefault()
@@ -99,8 +134,7 @@ function CheckoutForm({
   }
 
   const canPay = Boolean(stripe && elements && elementReady && !submitting)
-  const cardTotalCents = invoice.amountDueCents + invoice.cardFeeCents
-  const showWallets = fallbackCategory === 'card' || invoice.cardPaymentAvailable
+  const showWallets = invoice.cardPaymentAvailable
 
   async function payWithConfirmationToken(): Promise<'processing' | 'submitted' | 'failed'> {
     if (!stripe || !elements) {
@@ -141,21 +175,19 @@ function CheckoutForm({
     return 'submitted'
   }
 
-  function onExpressClick(event: StripeExpressCheckoutElementClickEvent) {
+  async function onExpressClick(event: StripeExpressCheckoutElementClickEvent) {
+    const lineItems = cardWalletLineItems({
+      invoiceNumber: invoice.number,
+      invoiceAmountCents: invoice.amountDueCents,
+      cardFeeCents: invoice.cardFeeCents,
+    })
+    const total = walletLineTotal(lineItems)
     setSelectedType(event.expressPaymentType)
-    if (elements) {
-      void elements.update({ amount: cardTotalCents })
+    try {
+      await queueAmountUpdate(total)
+    } finally {
+      event.resolve({ lineItems })
     }
-    const lineItems = [
-      { name: `Invoice ${invoice.number}`, amount: invoice.amountDueCents },
-    ]
-    if (invoice.cardFeeCents > 0) {
-      lineItems.push({
-        name: 'Card processing fee',
-        amount: invoice.cardFeeCents,
-      })
-    }
-    event.resolve({ lineItems })
   }
 
   async function onExpressConfirm(event: StripeExpressCheckoutElementConfirmEvent) {
@@ -203,27 +235,26 @@ function CheckoutForm({
             options={{
               emailRequired: true,
               billingAddressRequired: true,
-              paymentMethods: {
-                applePay: 'always',
-                googlePay: 'always',
-                link: 'auto',
-                paypal: 'never',
-                amazonPay: 'never',
-                klarna: 'never',
-              },
+              paymentMethods: expressWalletOptions(invoice.cardPaymentAvailable),
+              buttonType: EXPRESS_WALLET_BUTTON_TYPE,
               buttonHeight: 44,
-              layout: { maxColumns: 2, maxRows: 1, overflow: 'auto' },
+              layout: expressWalletLayout(narrowWallets),
             }}
             onReady={(event) => {
-              const methods = event.availablePaymentMethods
               setWalletsVisible(
-                Boolean(
-                  methods &&
-                    (methods.applePay || methods.googlePay || methods.link),
+                walletButtonsVisible(event.availablePaymentMethods),
+              )
+            }}
+            onAvailablePaymentMethodsChange={(event) => {
+              setWalletsVisible(
+                walletButtonsVisible(
+                  walletAvailabilityFromChange(event.paymentMethods),
                 ),
               )
             }}
-            onClick={onExpressClick}
+            onClick={(event) => {
+              void onExpressClick(event)
+            }}
             onConfirm={(event) => {
               void onExpressConfirm(event)
             }}

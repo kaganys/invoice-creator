@@ -921,4 +921,47 @@ describe('Stripe webhook finalization', () => {
     expect((await invoices.get(INVOICE_ID))?.paidMethod).toBe('apple_pay')
     expect((await invoices.get(INVOICE_ID))?.paidAmountCents).toBe(5180)
   })
+
+  it('treats Google Pay webhook success as card-like', async () => {
+    const invoices = invoiceStore(invoiceRecord())
+    const tokens = tokenStore({
+      id: TOKEN_ID,
+      invoiceId: INVOICE_ID,
+      tokenHash: 'abc',
+      encryptedToken: 'v1.x',
+      createdAt: NOW,
+      revokedAt: null,
+      revokedReason: null,
+      status: 'active',
+    })
+    const books = ledger()
+    await handleStripeWebhook(
+      await signedRequest(
+        intentEvent('payment_intent.succeeded', {
+          charges: {
+            data: [
+              {
+                payment_method_details: {
+                  type: 'card',
+                  card: { wallet: { type: 'google_pay' } },
+                },
+              },
+            ],
+          },
+        }),
+      ),
+      {
+        invoices,
+        tokens,
+        ledger: books,
+        webhookSecret: SECRET,
+        clock: () => NOW,
+        nowSeconds: () => TIMESTAMP,
+        idFactory: () => '99999999-9999-4999-8999-999999999999',
+      },
+    )
+    expect((await invoices.get(INVOICE_ID))?.paidMethod).toBe('google_pay')
+    expect((await invoices.get(INVOICE_ID))?.paidAmountCents).toBe(5180)
+    expect((await invoices.get(INVOICE_ID))?.status).toBe('paid')
+  })
 })
