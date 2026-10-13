@@ -1,0 +1,90 @@
+.companies-page {
+  max-width: 760px;
+}
+
+.companies-page__title {
+  margin: 0 0 0.35rem;
+  font-family: var(--font-display);
+  font-size: 1.8rem;
+}
+
+.companies-page__intro {
+  margin: 0 0 1.25rem;
+  color: var(--text-muted);
+  max-width: 40rem;
+}
+
+.companies-add,
+.companies-list__item,
+.companies-confirm {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 1rem 1.1rem;
+}
+
+.companies-add h2,
+.companies-confirm h2 {
+  margin: 0 0 0.75rem;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+}
+
+.companies-add__row,
+.companies-list__actions,
+.companies-confirm__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: end;
+}
+
+.companies-add__row .field {
+  flex: 1 1 16rem;
+  margin: 0;
+}
+
+.companies-list {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.companies-list__item {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.companies-list__name {
+  margin: 0;
+  font-weight: 650;
+}
+
+.companies-list__current {
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.4rem;
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.companies-list__meta,
+.companies-list__locked,
+.companies-confirm p {
+  margin: 0.2rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.companies-list__actions .field__input {
+  width: 14rem;
+}
+
+.companies-confirm {
+  margin-top: 1rem;
+}

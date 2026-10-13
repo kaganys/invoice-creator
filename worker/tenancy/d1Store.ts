@@ -442,6 +442,37 @@ export function createD1TenantStore(db: D1Database): TenantStore {
       return row?.count ?? 0
     },
 
+    async countMembers(companyId) {
+      const row = await db
+        .prepare(
+          'SELECT COUNT(*) AS count FROM memberships WHERE company_id = ?',
+        )
+        .bind(companyId)
+        .first<{ count: number }>()
+      return Number(row?.count ?? 0)
+    },
+
+    async deleteCompany(id) {
+      const existing = await db
+        .prepare('SELECT id FROM companies WHERE id = ?')
+        .bind(id)
+        .first<{ id: string }>()
+      if (!existing) {
+        return false
+      }
+      await db.batch([
+        db.prepare('DELETE FROM memberships WHERE company_id = ?').bind(id),
+        db.prepare('DELETE FROM roles WHERE company_id = ?').bind(id),
+        db.prepare('DELETE FROM company_settings WHERE company_id = ?').bind(id),
+        db.prepare('DELETE FROM company_secrets WHERE company_id = ?').bind(id),
+        db.prepare('DELETE FROM invoice_sequences WHERE company_id = ?').bind(id),
+        db.prepare('DELETE FROM people WHERE company_id = ?').bind(id),
+        db.prepare('UPDATE users SET last_company_id = NULL WHERE last_company_id = ?').bind(id),
+        db.prepare('DELETE FROM companies WHERE id = ?').bind(id),
+      ])
+      return true
+    },
+
     async countUsers() {
       const row = await db
         .prepare('SELECT COUNT(*) AS count FROM users')

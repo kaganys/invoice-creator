@@ -2,13 +2,18 @@ import { json, errorJson } from '../http.ts'
 import { asTrimmedString, isRecord, readJsonBody } from '../lib/json.ts'
 import { createEntityId, isUuid, nowIso } from '../lib/ids.ts'
 import {
+  hasPermission,
   normalizePermissions,
   type Permission,
 } from '../../src/auth/permissions.ts'
 import { loadSession, requireAdmin } from '../auth/admin.ts'
 import { canAssignRole } from '../auth/companyAccess.ts'
+import {
+  decideCompanyRemoval,
+  decideCompanyRename,
+} from './companyAdmin.ts'
 import { inviteAllowsOnboard } from '../auth/invite.ts'
-import { bootstrapAccessUser } from './bootstrap.ts'
+import { allocateCompanySlug, bootstrapAccessUser } from './bootstrap.ts'
 import { parseAccessIdentity, isEmail } from '../auth/identity.ts'
 import { createD1TenantStore } from './d1Store.ts'
 import { brandingUploadsFromForm, provisionCompany } from './provision.ts'
@@ -407,6 +412,112 @@ export async function updateCompanyRole(
     updatedAt: nowIso(),
   })
   return json({ role: updated })
+}
+
+async function invoiceCount(env: Env, companyId: string): Promise<number> {
+  const row = await env.DB.prepare(
+    'SELECT COUNT(*) AS count FROM invoices WHERE company_id = ?',
+  )
+    .bind(companyId)
+    .first<{ count: number | string }>()
+  return Number(row?.count ?? 0)
+}
+
+export async function listMyCompanies(request: Request, env: Env): Promise<Response> {
+  const auth = await requireAdmin(request, env, 'companies.create')
+  if (!auth.ok) {
+    return auth.response
+  }
+  const store = createD1TenantStore(env.DB)
+  const memberships = await store.listMembershipsForUser(auth.ctx.user.id)
+  const companies = []
+  for (const entry of memberships) {
+    companies.push({
+      id: entry.company.id,
+      name: entry.company.name,
+      role: entry.role.name,
+      memberCount: await store.countMembers(entry.company.id),
+      invoiceCount: await invoiceCount(env, entry.company.id),
+      canRename: hasPermission(entry.role.permissions, 'companies.edit'),
+      canRemove: hasPermission(entry.role.permissions, 'companies.create'),
+      current: entry.company.id === auth.ctx.company.id,
+    })
+  }
+  return json({ companies })
+}
+
+export async function renameMyCompany(
+  request: Request,
+  env: Env,
+  companyId: string,
+): Promise<Response> {
+  const auth = await requireAdmin(request, env, 'companies.create')
+  if (!auth.ok) {
+    return auth.response
+  }
+  if (!isUuid(companyId)) {
+    return errorJson('Company not found.', 404)
+  }
+  const body = await readJsonBody(request)
+  if (!body.ok) {
+    return body.response
+  }
+  if (!isRecord(body.value)) {
+    return errorJson('Company data must be a JSON object.', 400)
+  }
+  const store = createD1TenantStore(env.DB)
+  const membership = await store.getMembership(companyId, auth.ctx.user.id)
+  const decision = decideCompanyRename({
+    isMember: Boolean(membership),
+    permissions: membership?.role.permissions ?? [],
+    name: asTrimmedString(body.value.name),
+  })
+  if (!decision.ok) {
+    return errorJson(decision.message, decision.status)
+  }
+  if (!decision.name) {
+    return errorJson('Company name is required.', 400)
+  }
+  const slug = await allocateCompanySlug(store, decision.name, companyId)
+  const updated = await store.updateCompany(companyId, {
+    name: decision.name,
+    slug,
+    updatedAt: nowIso(),
+  })
+  if (!updated) {
+    return errorJson('Company not found.', 404)
+  }
+  return json({ company: { id: updated.id, name: updated.name } })
+}
+
+export async function removeMyCompany(
+  request: Request,
+  env: Env,
+  companyId: string,
+): Promise<Response> {
+  const auth = await requireAdmin(request, env, 'companies.create')
+  if (!auth.ok) {
+    return auth.response
+  }
+  if (!isUuid(companyId)) {
+    return errorJson('Company not found.', 404)
+  }
+  const store = createD1TenantStore(env.DB)
+  const membership = await store.getMembership(companyId, auth.ctx.user.id)
+  const invoices = membership ? await invoiceCount(env, companyId) : 0
+  const decision = decideCompanyRemoval({
+    isMember: Boolean(membership),
+    permissions: membership?.role.permissions ?? [],
+    invoiceCount: invoices,
+  })
+  if (!decision.ok) {
+    return errorJson(decision.message, decision.status)
+  }
+  const removed = await store.deleteCompany(companyId)
+  if (!removed) {
+    return errorJson('Company not found.', 404)
+  }
+  return json({ ok: true })
 }
 
 export async function deleteCompanyRole(

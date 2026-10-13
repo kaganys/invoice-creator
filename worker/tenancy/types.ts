@@ -83,5 +83,7 @@ export interface TenantStore {
   ): Promise<RoleRecord | null>
   deleteRole(id: string): Promise<boolean>
   countMembershipsForRole(roleId: string): Promise<number>
+  countMembers(companyId: string): Promise<number>
+  deleteCompany(id: string): Promise<boolean>
   countUsers(): Promise<number>
 }

@@ -6,7 +6,7 @@ import { useAppView } from '../nav/AppViewContext.tsx'
 import { useSession } from '../session/SessionContext.tsx'
 import { useSettings } from '../settings/SettingsContext.tsx'
 import type { AppView } from '../types/person.ts'
-import { IconDocument, IconInvoices, IconPeople, IconSettings, IconX } from './icons.tsx'
+import { IconCompany, IconDocument, IconInvoices, IconPeople, IconSettings, IconX } from './icons.tsx'
 import { ThemeToggle } from './ThemeToggle.tsx'
 import './Sidebar.css'
 
@@ -136,6 +136,17 @@ export function Sidebar({ open, isDesktop, onClose }: SidebarProps) {
           >
             <IconPeople />
             Users
+          </button>
+        ) : null}
+        {can('companies.create') ? (
+          <button
+            type="button"
+            className={view === 'companies' ? 'sidebar__link is-active' : 'sidebar__link'}
+            aria-current={view === 'companies' ? 'page' : undefined}
+            onClick={() => goTo('companies')}
+          >
+            <IconCompany />
+            Companies
           </button>
         ) : null}
       </nav>
