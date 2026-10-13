@@ -40,7 +40,7 @@ export function SettingsPage() {
         </nav>
         <div
           className={
-            category === 'format' || category === 'email'
+            category === 'format' || category === 'email' || category === 'branding'
               ? 'settings-panel settings-panel--wide'
               : 'settings-panel'
           }

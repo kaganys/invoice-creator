@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { testSmtp } from '../../api/settings.ts'
 import { ApiError } from '../../api/http.ts'
 import {
@@ -6,30 +6,28 @@ import {
   SAMPLE_EMAIL_BRAND,
   SAMPLE_EMAIL_VARS,
 } from '../../invoice/emailHtml.ts'
-import { defaultEmailTemplates } from '../../invoice/emailTemplates.ts'
+import { applyEmailTemplate, defaultEmailTemplates } from '../../invoice/emailTemplates.ts'
 import { useSettings } from '../../settings/SettingsContext.tsx'
 import type { SmtpSecurity, SmtpSettingsPayload } from '../../types/settings.ts'
 import { Field } from '../Field.tsx'
-import { InvoiceSection } from '../InvoiceSection.tsx'
 import { EmailTemplateEditor } from './EmailTemplateEditor.tsx'
-
-type EmailTab = 'connection' | 'customize'
+import { SettingsWorkbench } from './SettingsWorkbench.tsx'
+import { smtpFieldsChanged } from './settingsDraft.ts'
 
 const SECURITY_OPTIONS: Array<{ value: SmtpSecurity; label: string }> = [
-  { value: 'none', label: 'None (unencrypted)' },
-  { value: 'starttls', label: 'STARTTLS (upgrade to TLS)' },
-  { value: 'ssl', label: 'SSL / implicit TLS' },
+  { value: 'starttls', label: 'STARTTLS (port 587)' },
+  { value: 'ssl', label: 'SSL (port 465)' },
+  { value: 'none', label: 'None' },
 ]
 
 export function SmtpPanel() {
-  const { smtp, loading, saving, error, saveSmtp } = useSettings()
+  const { smtp, branding, loading, saving, error, saveSmtp } = useSettings()
   const [draft, setDraft] = useState(smtp)
   const [success, setSuccess] = useState<string | null>(null)
   const [testMessage, setTestMessage] = useState<string | null>(null)
   const [testOk, setTestOk] = useState(false)
   const [testBusy, setTestBusy] = useState(false)
   const [testTo, setTestTo] = useState('')
-  const [tab, setTab] = useState<EmailTab>('connection')
   const [editorOpen, setEditorOpen] = useState(false)
   const [password, setPassword] = useState('')
 
@@ -41,6 +39,8 @@ export function SmtpPanel() {
     setDraft((current) => ({ ...current, ...partial }))
     setSuccess(null)
   }
+
+  const dirty = smtpFieldsChanged(smtp, draft, password)
 
   async function onSave() {
     setSuccess(null)
@@ -61,7 +61,7 @@ export function SmtpPanel() {
       setPassword('')
       setSuccess('Email settings saved.')
     } catch {
-      // Context error.
+      // The settings context stores the error.
     }
   }
 
@@ -84,247 +84,227 @@ export function SmtpPanel() {
     }
   }
 
+  const previewVars = useMemo(
+    () => ({
+      ...SAMPLE_EMAIL_VARS,
+      business_name: draft.fromName.trim() || SAMPLE_EMAIL_VARS.business_name,
+    }),
+    [draft.fromName],
+  )
   const preview = prepareInvoiceEmail(
     draft.bodyTemplate || defaultEmailTemplates().body,
-    SAMPLE_EMAIL_VARS,
-    SAMPLE_EMAIL_BRAND,
+    previewVars,
+    {
+      ...SAMPLE_EMAIL_BRAND,
+      logoUrl: branding.invoiceLogo.url || SAMPLE_EMAIL_BRAND.logoUrl,
+      wordmarkUrl: branding.siteWordmark.url || SAMPLE_EMAIL_BRAND.wordmarkUrl,
+    },
   )
+  const subjectPreview = applyEmailTemplate(
+    draft.subjectTemplate || defaultEmailTemplates().subject,
+    previewVars,
+  )
+  const passwordHint = smtp.passwordConfigured
+    ? smtp.passwordSource === 'platform'
+      ? 'Using the shared password. A password saved here is used for this company only.'
+      : 'A password is saved. Leave this blank to keep it.'
+    : 'No password yet. Leave this blank to use the shared SMTP password, if one is set.'
 
   return (
-    <InvoiceSection
-      title="Email / SMTP"
-      description="Mail server, from-address, and email design for this company. A password saved here is encrypted and is not shown again. If you leave it blank, the existing password stays."
-    >
-      {loading ? <p className="settings-status">Loading SMTP settings…</p> : null}
-      <nav className="format-subnav" aria-label="Email settings">
-        <button
-          type="button"
-          className={
-            tab === 'connection'
-              ? 'settings-nav__button is-active'
-              : 'settings-nav__button'
-          }
-          onClick={() => setTab('connection')}
-        >
-          Connection
-        </button>
-        <button
-          type="button"
-          className={
-            tab === 'customize'
-              ? 'settings-nav__button is-active'
-              : 'settings-nav__button'
-          }
-          onClick={() => setTab('customize')}
-        >
-          Customize
-        </button>
-      </nav>
-      {tab === 'connection' ? (
-      <>
-      <div className="form-grid form-grid--2">
-        <Field label="SMTP host / server" htmlFor="smtp-host">
-          <input
-            id="smtp-host"
-            className="field__input"
-            value={draft.host}
-            disabled={saving || loading}
-            placeholder="smtp.example.com"
-            onChange={(event) => patch({ host: event.target.value })}
-          />
-        </Field>
-        <Field label="Port" htmlFor="smtp-port">
-          <input
-            id="smtp-port"
-            className="field__input"
-            inputMode="numeric"
-            value={String(draft.port)}
-            disabled={saving || loading}
-            onChange={(event) => patch({ port: Number(event.target.value) || 0 })}
-          />
-        </Field>
-        <Field label="Username" htmlFor="smtp-username">
-          <input
-            id="smtp-username"
-            className="field__input"
-            autoComplete="off"
-            value={draft.username}
-            disabled={saving || loading}
-            onChange={(event) => patch({ username: event.target.value })}
-          />
-        </Field>
-        <Field label="Connection security" htmlFor="smtp-security">
-          <select
-            id="smtp-security"
-            className="field__select"
-            value={draft.security}
-            disabled={saving || loading}
-            onChange={(event) =>
-              patch({ security: event.target.value as SmtpSecurity })
-            }
-          >
-            {SECURITY_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Default From name" htmlFor="smtp-from-name">
-          <input
-            id="smtp-from-name"
-            className="field__input"
-            value={draft.fromName}
-            disabled={saving || loading}
-            onChange={(event) => patch({ fromName: event.target.value })}
-          />
-        </Field>
-        <Field label="Default From email" htmlFor="smtp-from-email">
-          <input
-            id="smtp-from-email"
-            className="field__input"
-            type="email"
-            value={draft.fromEmail}
-            disabled={saving || loading}
-            onChange={(event) => patch({ fromEmail: event.target.value })}
-          />
-        </Field>
-        <Field label="Reply-To address" htmlFor="smtp-reply-to">
-          <input
-            id="smtp-reply-to"
-            className="field__input"
-            type="email"
-            value={draft.replyTo}
-            disabled={saving || loading}
-            onChange={(event) => patch({ replyTo: event.target.value })}
-          />
-        </Field>
-        <Field label="Password" htmlFor="smtp-password">
-          <input
-            id="smtp-password"
-            className="field__input"
-            type="password"
-            autoComplete="new-password"
-            value={password}
-            disabled={saving || loading}
-            placeholder={smtp.passwordConfigured ? 'Leave blank to keep the current password' : 'SMTP password'}
-            onChange={(event) => {
-              setPassword(event.target.value)
-              setSuccess(null)
-            }}
-          />
-        </Field>
-      </div>
-      <p className="settings-help">
-        {smtp.passwordConfigured
-          ? smtp.passwordSource === 'platform'
-            ? 'Using the platform SMTP password. Saving a password here replaces it for this company only.'
-            : 'A password is saved for this company. It is not shown after you leave this page.'
-          : 'No password yet. You can save one here, or set SMTP_PASSWORD on the Worker as a fallback.'}
-        {' '}Port 25 is not accepted.
-      </p>
-      <Field label="Send a real test email to" htmlFor="smtp-test-to">
-        <input
-          id="smtp-test-to"
-          className="field__input"
-          type="email"
-          value={testTo}
-          disabled={saving || loading || testBusy}
-          placeholder="you@example.com"
-          onChange={(event) => setTestTo(event.target.value)}
-        />
-      </Field>
-      <p className="settings-help">
-        Test configuration sends a real message using the current SMTP settings and
-        Worker secret. Successful authentication alone is not enough.
-      </p>
-      <div className="settings-actions">
-        <button
-          type="button"
-          className="btn btn--primary"
-          disabled={saving || loading}
-          onClick={() => void onSave()}
-        >
-          {saving ? 'Saving…' : 'Save changes'}
-        </button>
-        <button
-          type="button"
-          className="btn btn--ghost"
-          disabled={saving || loading || testBusy}
-          onClick={() => void onTest()}
-        >
-          {testBusy ? 'Sending test…' : 'Send test email'}
-        </button>
-        {success ? (
-          <p className="settings-status settings-status--success">{success}</p>
-        ) : null}
-        {error ? (
-          <p className="settings-status settings-status--error">{error}</p>
-        ) : null}
-        {testMessage ? (
-          <p
-            className={
-              testOk
-                ? 'settings-status settings-status--success'
-                : 'settings-status settings-status--error'
-            }
-          >
-            {testMessage}
-          </p>
-        ) : null}
-      </div>
-      </>
-      ) : (
-        <>
-          <Field label="Default email subject" htmlFor="smtp-subject">
-            <input
-              id="smtp-subject"
-              className="field__input"
-              value={draft.subjectTemplate}
-              disabled={saving || loading}
-              onChange={(event) => patch({ subjectTemplate: event.target.value })}
-            />
-          </Field>
-          <p className="settings-help">
-            The invoice email is HTML and is wrapped in a mobile-friendly layout when
-            sent. Open the editor to format text and insert variables.
-          </p>
-          <div className="settings-actions">
-            <button
-              type="button"
-              className="btn btn--primary"
-              onClick={() => setEditorOpen(true)}
-            >
-              Open customize editor
-            </button>
-          </div>
-          <div className="email-customize-preview">
+    <>
+      <SettingsWorkbench
+        previewTitle="Email preview"
+        saving={saving}
+        dirty={dirty}
+        success={success}
+        error={error}
+        onSave={() => void onSave()}
+        saveLabel="Save email"
+        form={
+          <>
+            <fieldset className="settings-group" disabled={saving || loading}>
+              <legend>Mail server</legend>
+              <p className="settings-help">
+                Port 587 with STARTTLS is the usual choice. Port 25 is not accepted.
+              </p>
+              <div className="form-grid form-grid--2">
+                <Field label="Host" htmlFor="smtp-host">
+                  <input
+                    id="smtp-host"
+                    className="field__input"
+                    value={draft.host}
+                    placeholder="smtp.example.com"
+                    onChange={(event) => patch({ host: event.target.value })}
+                  />
+                </Field>
+                <Field label="Port" htmlFor="smtp-port">
+                  <input
+                    id="smtp-port"
+                    className="field__input"
+                    inputMode="numeric"
+                    value={String(draft.port)}
+                    onChange={(event) =>
+                      patch({ port: Number(event.target.value) || 0 })
+                    }
+                  />
+                </Field>
+                <Field label="Username" htmlFor="smtp-username">
+                  <input
+                    id="smtp-username"
+                    className="field__input"
+                    autoComplete="off"
+                    value={draft.username}
+                    onChange={(event) => patch({ username: event.target.value })}
+                  />
+                </Field>
+                <Field label="Security" htmlFor="smtp-security">
+                  <select
+                    id="smtp-security"
+                    className="field__select"
+                    value={draft.security}
+                    onChange={(event) =>
+                      patch({ security: event.target.value as SmtpSecurity })
+                    }
+                  >
+                    {SECURITY_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Password" htmlFor="smtp-password" className="form-grid__full">
+                  <input
+                    id="smtp-password"
+                    className="field__input"
+                    type="password"
+                    autoComplete="new-password"
+                    value={password}
+                    placeholder={
+                      smtp.passwordConfigured
+                        ? 'Leave blank to keep the current password'
+                        : 'SMTP password'
+                    }
+                    onChange={(event) => {
+                      setPassword(event.target.value)
+                      setSuccess(null)
+                    }}
+                  />
+                </Field>
+              </div>
+              <p className="settings-help">{passwordHint}</p>
+            </fieldset>
+
+            <fieldset className="settings-group" disabled={saving || loading}>
+              <legend>From</legend>
+              <p className="settings-help">Shown on the messages this company sends.</p>
+              <div className="form-grid form-grid--2">
+                <Field label="Name" htmlFor="smtp-from-name">
+                  <input
+                    id="smtp-from-name"
+                    className="field__input"
+                    value={draft.fromName}
+                    onChange={(event) => patch({ fromName: event.target.value })}
+                  />
+                </Field>
+                <Field label="Email" htmlFor="smtp-from-email">
+                  <input
+                    id="smtp-from-email"
+                    className="field__input"
+                    type="email"
+                    value={draft.fromEmail}
+                    onChange={(event) => patch({ fromEmail: event.target.value })}
+                  />
+                </Field>
+                <Field label="Reply-to" htmlFor="smtp-reply-to" className="form-grid__full">
+                  <input
+                    id="smtp-reply-to"
+                    className="field__input"
+                    type="email"
+                    value={draft.replyTo}
+                    placeholder="Optional"
+                    onChange={(event) => patch({ replyTo: event.target.value })}
+                  />
+                </Field>
+              </div>
+            </fieldset>
+
+            <fieldset className="settings-group" disabled={saving || loading}>
+              <legend>Message</legend>
+              <p className="settings-help">
+                The preview uses a sample invoice. Save to keep the subject and layout.
+              </p>
+              <Field label="Subject" htmlFor="smtp-subject">
+                <input
+                  id="smtp-subject"
+                  className="field__input"
+                  value={draft.subjectTemplate}
+                  onChange={(event) =>
+                    patch({ subjectTemplate: event.target.value })
+                  }
+                />
+              </Field>
+              <div className="settings-actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() => setEditorOpen(true)}
+                >
+                  Edit message layout
+                </button>
+              </div>
+            </fieldset>
+
+            <fieldset className="settings-group" disabled={saving || loading || testBusy}>
+              <legend>Send a test</legend>
+              <p className="settings-help">
+                Sends a real message with the saved settings, not the unsaved draft.
+              </p>
+              <Field label="To" htmlFor="smtp-test-to">
+                <input
+                  id="smtp-test-to"
+                  className="field__input"
+                  type="email"
+                  value={testTo}
+                  placeholder="you@example.com"
+                  onChange={(event) => setTestTo(event.target.value)}
+                />
+              </Field>
+              <div className="settings-actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  disabled={testBusy}
+                  onClick={() => void onTest()}
+                >
+                  {testBusy ? 'Sending…' : 'Send test'}
+                </button>
+                {testMessage ? (
+                  <p
+                    className={
+                      testOk
+                        ? 'settings-status settings-status--success'
+                        : 'settings-status settings-status--error'
+                    }
+                  >
+                    {testMessage}
+                  </p>
+                ) : null}
+              </div>
+            </fieldset>
+          </>
+        }
+        preview={
+          <>
+            <p className="settings-preview__subject">{subjectPreview}</p>
             <iframe
               title="Invoice email preview"
-              className="email-customize-preview__frame"
+              className="settings-preview__email"
               srcDoc={preview.html}
             />
-          </div>
-        </>
-      )}
-      {tab === 'customize' ? (
-        <div className="settings-actions">
-          <button
-            type="button"
-            className="btn btn--primary"
-            disabled={saving || loading}
-            onClick={() => void onSave()}
-          >
-            {saving ? 'Saving…' : 'Save email'}
-          </button>
-          {success ? (
-            <p className="settings-status settings-status--success">{success}</p>
-          ) : null}
-          {error ? (
-            <p className="settings-status settings-status--error">{error}</p>
-          ) : null}
-        </div>
-      ) : null}
+          </>
+        }
+      />
       <EmailTemplateEditor
         open={editorOpen}
         subject={draft.subjectTemplate}
@@ -335,6 +315,6 @@ export function SmtpPanel() {
           setEditorOpen(false)
         }}
       />
-    </InvoiceSection>
+    </>
   )
 }

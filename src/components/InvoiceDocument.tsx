@@ -52,6 +52,16 @@ function PartyLines({
   )
 }
 
+function safePreviewLogo(url: string | undefined): string | null {
+  if (!url) {
+    return null
+  }
+  if (url.startsWith('blob:') || url.startsWith('/branding/') || url.startsWith('/api/branding/')) {
+    return url
+  }
+  return null
+}
+
 function displayQuantity(raw: string): string {
   const scaled = parseQuantityScaled(raw)
   if (scaled === null || scaled <= 0) {
@@ -102,15 +112,16 @@ type InvoiceDocumentProps = {
   invoice: Invoice
   format?: InvoiceFormat
   paymentUrl?: string
+  logoUrl?: string
 }
 
 export const InvoiceDocument = forwardRef<HTMLElement, InvoiceDocumentProps>(
   function InvoiceDocument(
-    { invoice, format = defaultInvoiceFormat(), paymentUrl = '' },
+    { invoice, format = defaultInvoiceFormat(), paymentUrl = '', logoUrl },
     ref,
   ) {
   const totals = calculateInvoiceTotals(invoice)
-  const logoSrc = invoiceLogoPath(invoice.invoiceLogo)
+  const logoSrc = safePreviewLogo(logoUrl) || invoiceLogoPath(invoice.invoiceLogo)
   const cssVars = formatToCssVars(format)
   const notes = invoice.notes.trim()
   const invoiceNumber = invoice.number.trim()
