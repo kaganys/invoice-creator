@@ -174,13 +174,20 @@ export function PaymentsPanel() {
         customer browser.
       </p>
       <p className="settings-help">
-        Apple Pay, Google Pay, and US bank / ACH methods come from the Stripe
-        Dashboard — they are not custom buttons. Enable them under Stripe →
-        Settings → Payment methods, and register{' '}
-        <code>pay.vrfnw.com</code> under Payment method domains. Apple Pay needs
-        Safari (or a supported browser) with a card in Wallet; Google Pay needs
-        Chrome with a saved card. ACH uses Stripe Financial Connections when
-        enabled on the account.
+        The pay page shows Apple Pay and Google Pay above the card form when
+        the browser supports them. Safari on a Mac, iPhone, or iPad shows
+        Apple Pay. Chrome on a computer or Android shows Google Pay. Those
+        wallet payments use the card total, including the card processing fee.
+        ACH uses Stripe Financial Connections when it is enabled, and is not
+        surcharged.
+      </p>
+      <p className="settings-help">
+        Enable Apple Pay and Google Pay under Stripe → Settings → Payment
+        methods. Register <code>pay.vrfnw.com</code> under Payment method
+        domains so Apple Pay domain verification can finish. The pay site
+        already serves the association file. If this company uses its own
+        Stripe secret key, enable the wallets and register that domain on that
+        Stripe account as well.
       </p>
       <div className="settings-actions">
         <button

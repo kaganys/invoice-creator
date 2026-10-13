@@ -167,7 +167,7 @@ Card payment on the public page (`/i/:token`) uses Stripe Payment Element. Creat
 2. Verifies `Stripe-Signature` with `STRIPE_WEBHOOK_SECRET` (HMAC SHA-256, 5-minute tolerance)
 3. Handles `payment_intent.succeeded` (mark paid), plus `payment_intent.payment_failed` / `payment_intent.canceled` (audit only)
 4. Recalculates the expected card total from the saved invoice snapshot and compares amount/currency
-5. Writes `invoice_payments`, sets `paid_method = card`, stores the PaymentIntent id and amount paid, and revokes the public token
+5. Writes `invoice_payments`, sets `paid_method` from the method Stripe reports (`card`, `apple_pay`, `google_pay`, or `ach`), stores the PaymentIntent id and amount paid, and revokes the public token
 
 Do not process unsigned JSON. Do not trust Stripe metadata for the charge amount.
 
@@ -188,6 +188,21 @@ stripe trigger payment_intent.succeeded
 ```
 
 Cloudflare Access must allow unauthenticated access to `/i/*`, `/api/public/*`, and `POST /api/webhooks/stripe`.
+
+### Apple Pay and Google Pay
+
+The public pay page (`pay.vrfnw.com/i/:token`) shows Stripe’s Express Checkout buttons for Apple Pay and Google Pay above the card form. Stripe decides which button to show from the browser:
+
+- Safari on a Mac, iPhone, or iPad: Apple Pay
+- Chrome on a computer or Android: Google Pay
+
+The card form stays as the fallback. Wallet payments are card payments, so they include the card processing fee. ACH does not. The webhook still marks the invoice paid, and records `paid_method` as `apple_pay` or `google_pay`.
+
+Before wallets work in production:
+
+1. In the Stripe Dashboard, open **Settings → Payment methods** and turn on Apple Pay and Google Pay.
+2. Under **Payment method domains**, register `pay.vrfnw.com`. The Worker already serves `/.well-known/apple-developer-merchantid-domain-association` on that host, which is what Apple Pay domain verification checks.
+3. If a company saves its own Stripe secret key, repeat both steps on that Stripe account. Domain verification is per Stripe account, not just the platform account.
 
 Webhook/payment schema is `migrations/0008_stripe_webhook_payments.sql`. After reviewing it, apply **only** with:
 
