@@ -50,6 +50,9 @@ describe('email compose document', () => {
     expect(writeEmailDocument(readEmailDocument(once))).toBe(once)
     expect(emailSectionEnabled(once, 'zelle')).toBe(false)
     expect(emailSectionEnabled(once, 'payment-memo')).toBe(true)
+    expect(once).not.toMatch(/<p[^>]*>\s*Invoice\s*<\/p>/)
+    expect(once).toContain('Hello {{customer_name}},')
+    expect(once.indexOf('Hello')).toBeLessThan(once.indexOf('{{amount}}'))
   })
 
   it('folds a legacy payment block into separate toggles', () => {
@@ -93,6 +96,36 @@ describe('email compose document', () => {
     expect(saved).toContain('{{invoice_number}}')
     expect(saved).toContain('{{customer_name}}')
     expect(saved).not.toContain('data-email-var')
+  })
+
+  it('starts the default message at the greeting and keeps its comma', () => {
+    const body = defaultRichEmailBody()
+    const prepared = prepareInvoiceEmail(body, SAMPLE_EMAIL_VARS)
+    expect(body.startsWith('<p')).toBe(true)
+    expect(body).toContain('Hello {{customer_name}},')
+    expect(body).not.toContain('>Invoice<')
+    const text = prepared.text
+    expect(text.startsWith('Hello Ada Lovelace,')).toBe(true)
+    expect(text).not.toMatch(/Due soon\.,/)
+    expect(prepared.html).toContain('Due September 24, 2026')
+    expect(prepared.html).not.toContain('Due September 24, 2026,')
+  })
+
+  it('keeps a line break after the greeting and puts a moved comma back on the name', () => {
+    const edited = [
+      '<p>Hello <span data-email-var="customer_name" contenteditable="false">Customer name</span>',
+      '<div>Thanks for the project.</div>',
+      '<div>Due soon.,</div></p>',
+    ].join('')
+    const saved = editorHtmlToTemplate(edited, emptyEmailSections())
+    expect(saved).toContain('Hello {{customer_name}},')
+    expect(saved).toContain('<p')
+    expect(saved).toContain('Thanks for the project.')
+    expect(saved).toContain('Due soon.')
+    expect(saved).not.toContain('Due soon.,')
+    expect(saved).not.toContain('{{customer_name}}Thanks')
+    expect(saved.indexOf('Hello')).toBeLessThan(saved.indexOf('Thanks for the project.'))
+    expect(saved.indexOf('Thanks for the project.')).toBeLessThan(saved.indexOf('Due soon.'))
   })
 
   it('edits the subject with chips and rejects line breaks', () => {

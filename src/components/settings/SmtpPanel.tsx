@@ -83,6 +83,16 @@ export function SmtpPanel() {
     }
   }
 
+  const previewAsset = (url: string | undefined) => {
+    const value = url?.trim() ?? ''
+    if (!value || /^https?:\/\//i.test(value)) {
+      return value
+    }
+    if (value.startsWith('/') && typeof window !== 'undefined') {
+      return `${window.location.origin}${value}`
+    }
+    return value
+  }
   const previewVars = useMemo(
     () => ({
       ...SAMPLE_EMAIL_VARS,
@@ -95,8 +105,8 @@ export function SmtpPanel() {
     previewVars,
     {
       ...SAMPLE_EMAIL_BRAND,
-      logoUrl: branding.invoiceLogo.url || SAMPLE_EMAIL_BRAND.logoUrl,
-      wordmarkUrl: branding.siteWordmark.url || SAMPLE_EMAIL_BRAND.wordmarkUrl,
+      logoUrl: previewAsset(branding.invoiceLogo.url || SAMPLE_EMAIL_BRAND.logoUrl),
+      wordmarkUrl: previewAsset(branding.siteWordmark.url || SAMPLE_EMAIL_BRAND.wordmarkUrl),
     },
   )
   const subjectPreview = applyEmailTemplate(
@@ -292,13 +302,6 @@ export function SmtpPanel() {
               title="Invoice email preview"
               className="settings-preview__email"
               srcDoc={preview.html}
-              onLoad={(event) => {
-                const frame = event.currentTarget
-                const height = frame.contentDocument?.documentElement.scrollHeight
-                if (height) {
-                  frame.style.height = `${height}px`
-                }
-              }}
             />
           </>
         }

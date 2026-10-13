@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from 'react'
 import {
   EMAIL_SECTION_IDS,
   editorHtmlToSubject,
@@ -34,6 +40,50 @@ function preventFocusLoss(event: { preventDefault: () => void }) {
   event.preventDefault()
 }
 
+function ToolIcon({ children }: { children: ReactNode }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  )
+}
+
+function ToolButton({
+  label,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string
+  disabled?: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      className="email-editor__tool"
+      title={label}
+      aria-label={label}
+      disabled={disabled}
+      onMouseDown={preventFocusLoss}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  )
+}
+
 export function EmailMessageEditor({
   subject,
   html,
@@ -63,6 +113,8 @@ export function EmailMessageEditor({
   const [linkError, setLinkError] = useState<string | null>(null)
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
+  const [fieldsOpen, setFieldsOpen] = useState(false)
+  const fieldsRef = useRef<HTMLDivElement>(null)
 
   function rememberSelection(field: 'subject' | 'body') {
     activeField.current = field
@@ -159,6 +211,28 @@ export function EmailMessageEditor({
       onChange({ subject, html: canonical })
     }
   }, [subject, html, onChange])
+
+  useEffect(() => {
+    if (!fieldsOpen) {
+      return
+    }
+    function onPointerDown(event: MouseEvent) {
+      if (!fieldsRef.current?.contains(event.target as Node)) {
+        setFieldsOpen(false)
+      }
+    }
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setFieldsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [fieldsOpen])
 
   function restore(snapshot: Snapshot) {
     skipHistory.current = true
@@ -285,50 +359,138 @@ export function EmailMessageEditor({
         <p className="settings-help">Reads as: {subjectPreview}</p>
       </div>
 
+      <div className="email-editor__bar">
       <div className="email-editor__toolbar" role="toolbar" aria-label="Formatting">
-        <button type="button" className="email-editor__tool" disabled={disabled} onMouseDown={preventFocusLoss} onClick={() => runCommand('bold')}>
-          Bold
-        </button>
-        <button type="button" className="email-editor__tool" disabled={disabled} onMouseDown={preventFocusLoss} onClick={() => runCommand('italic')}>
-          Italic
-        </button>
-        <button
-          type="button"
-          className="email-editor__tool"
-          disabled={disabled}
-          onMouseDown={preventFocusLoss}
-          onClick={() => {
-            setLinkOpen((open) => !open)
-            setLinkError(null)
-          }}
-        >
-          Link
-        </button>
-        <button type="button" className="email-editor__tool" disabled={disabled} onMouseDown={preventFocusLoss} onClick={() => runCommand('insertUnorderedList')}>
-          List
-        </button>
-        <button type="button" className="email-editor__tool" disabled={disabled} onMouseDown={preventFocusLoss} onClick={() => runCommand('insertOrderedList')}>
-          Numbered
-        </button>
-        <button type="button" className="email-editor__tool" disabled={disabled} onMouseDown={preventFocusLoss} onClick={() => runCommand('justifyLeft')}>
-          Left
-        </button>
-        <button type="button" className="email-editor__tool" disabled={disabled} onMouseDown={preventFocusLoss} onClick={() => runCommand('justifyCenter')}>
-          Center
-        </button>
-        <button type="button" className="email-editor__tool" disabled={disabled} onMouseDown={preventFocusLoss} onClick={() => runCommand('justifyRight')}>
-          Right
-        </button>
-        <span className="email-editor__tool-gap" />
-        <button type="button" className="email-editor__tool" disabled={disabled || !canUndo} onMouseDown={preventFocusLoss} onClick={undo}>
-          Undo
-        </button>
-        <button type="button" className="email-editor__tool" disabled={disabled || !canRedo} onMouseDown={preventFocusLoss} onClick={redo}>
-          Redo
-        </button>
-        <button type="button" className="email-editor__tool" disabled={disabled} onMouseDown={preventFocusLoss} onClick={resetTemplate}>
-          Reset
-        </button>
+        <div className="email-editor__group">
+          <ToolButton label="Bold" disabled={disabled} onClick={() => runCommand('bold')}>
+            <ToolIcon>
+              <path d="M7 5h6a3.5 3.5 0 0 1 0 7H7z" />
+              <path d="M7 12h7a3.5 3.5 0 0 1 0 7H7z" />
+            </ToolIcon>
+          </ToolButton>
+          <ToolButton label="Italic" disabled={disabled} onClick={() => runCommand('italic')}>
+            <ToolIcon>
+              <path d="M19 4h-9" />
+              <path d="M14 20H5" />
+              <path d="m15 4-6 16" />
+            </ToolIcon>
+          </ToolButton>
+          <ToolButton
+            label="Link"
+            disabled={disabled}
+            onClick={() => {
+              setLinkOpen((open) => !open)
+              setLinkError(null)
+            }}
+          >
+            <ToolIcon>
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </ToolIcon>
+          </ToolButton>
+        </div>
+        <span className="email-editor__divider" aria-hidden="true" />
+        <div className="email-editor__group">
+          <ToolButton label="Bulleted list" disabled={disabled} onClick={() => runCommand('insertUnorderedList')}>
+            <ToolIcon>
+              <path d="M9 6h12" />
+              <path d="M9 12h12" />
+              <path d="M9 18h12" />
+              <circle cx="4" cy="6" r="1" fill="currentColor" stroke="none" />
+              <circle cx="4" cy="12" r="1" fill="currentColor" stroke="none" />
+              <circle cx="4" cy="18" r="1" fill="currentColor" stroke="none" />
+            </ToolIcon>
+          </ToolButton>
+          <ToolButton label="Numbered list" disabled={disabled} onClick={() => runCommand('insertOrderedList')}>
+            <ToolIcon>
+              <path d="M10 6h11" />
+              <path d="M10 12h11" />
+              <path d="M10 18h11" />
+              <path d="M4 6h1v4" />
+              <path d="M4 10h2" />
+              <path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" />
+            </ToolIcon>
+          </ToolButton>
+        </div>
+        <span className="email-editor__divider" aria-hidden="true" />
+        <div className="email-editor__group">
+          <ToolButton label="Align left" disabled={disabled} onClick={() => runCommand('justifyLeft')}>
+            <ToolIcon>
+              <path d="M4 6h16" />
+              <path d="M4 12h10" />
+              <path d="M4 18h14" />
+            </ToolIcon>
+          </ToolButton>
+          <ToolButton label="Align center" disabled={disabled} onClick={() => runCommand('justifyCenter')}>
+            <ToolIcon>
+              <path d="M4 6h16" />
+              <path d="M7 12h10" />
+              <path d="M5 18h14" />
+            </ToolIcon>
+          </ToolButton>
+          <ToolButton label="Align right" disabled={disabled} onClick={() => runCommand('justifyRight')}>
+            <ToolIcon>
+              <path d="M4 6h16" />
+              <path d="M10 12h10" />
+              <path d="M6 18h14" />
+            </ToolIcon>
+          </ToolButton>
+        </div>
+        <span className="email-editor__divider" aria-hidden="true" />
+        <div className="email-editor__group">
+          <ToolButton label="Undo" disabled={disabled || !canUndo} onClick={undo}>
+            <ToolIcon>
+              <path d="M9 14 4 9l5-5" />
+              <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H12" />
+            </ToolIcon>
+          </ToolButton>
+          <ToolButton label="Redo" disabled={disabled || !canRedo} onClick={redo}>
+            <ToolIcon>
+              <path d="m15 14 5-5-5-5" />
+              <path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H12" />
+            </ToolIcon>
+          </ToolButton>
+          <ToolButton label="Reset to the default message" disabled={disabled} onClick={resetTemplate}>
+            <ToolIcon>
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+              <path d="M3 3v5h5" />
+            </ToolIcon>
+          </ToolButton>
+        </div>
+      </div>
+        <div className="email-editor__fields" ref={fieldsRef}>
+          <button
+            type="button"
+            className="email-editor__insert"
+            aria-haspopup="menu"
+            aria-expanded={fieldsOpen}
+            disabled={disabled}
+            onMouseDown={preventFocusLoss}
+            onClick={() => setFieldsOpen((open) => !open)}
+          >
+            Insert field
+          </button>
+          {fieldsOpen ? (
+            <ul className="email-editor__menu" role="menu">
+              {EMAIL_VARIABLES.map((variable) => (
+                <li key={variable.id} role="none">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={disabled}
+                    onMouseDown={preventFocusLoss}
+                    onClick={() => {
+                      insertVariable(variable.id)
+                      setFieldsOpen(false)
+                    }}
+                  >
+                    {variable.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       </div>
       {linkOpen ? (
         <div className="email-editor__link">
@@ -357,21 +519,6 @@ export function EmailMessageEditor({
         </div>
       ) : null}
 
-      <div className="email-vars" role="group" aria-label="Insert variable">
-        {EMAIL_VARIABLES.map((variable) => (
-          <button
-            key={variable.id}
-            type="button"
-            className="email-var"
-            disabled={disabled}
-            onMouseDown={preventFocusLoss}
-            onClick={() => insertVariable(variable.id)}
-          >
-            {variable.label}
-          </button>
-        ))}
-      </div>
-
       <div
         ref={bodyRef}
         className="email-editor__body"
@@ -389,11 +536,7 @@ export function EmailMessageEditor({
       />
 
       <div className="email-sections" role="group" aria-label="Payment blocks">
-        <p className="email-sections__title">Payment blocks</p>
-        <p className="settings-help">
-          These sit in the message once. Leave Zelle off when the payment memo
-          already tells the customer how to pay.
-        </p>
+        <p className="email-sections__title">Include</p>
         {EMAIL_SECTION_IDS.map((id) => (
           <label key={id} className="email-sections__option">
             <input

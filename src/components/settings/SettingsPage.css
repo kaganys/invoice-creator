@@ -56,7 +56,7 @@
 }
 
 .settings-panel--wide {
-  max-width: 1120px;
+  max-width: none;
 }
 
 .settings-workbench {
@@ -101,19 +101,31 @@
 }
 
 .settings-workbench--compose {
-  grid-template-columns: minmax(0, 1.05fr) minmax(340px, 560px);
+  grid-template-columns: minmax(45%, 1.05fr) minmax(0, 0.95fr);
+  gap: 1.25rem 1.75rem;
+  align-items: start;
+}
+
+.settings-workbench--compose .settings-workbench__form,
+.settings-workbench--compose .settings-workbench__preview {
+  min-width: 0;
 }
 
 .settings-workbench--compose .settings-workbench__preview {
-  position: static;
-  max-height: none;
-  overflow: visible;
+  position: sticky;
+  top: 0.75rem;
+  align-self: start;
+  max-height: calc(100vh - 5.5rem);
+  overflow: hidden;
 }
 
 .settings-workbench--compose .settings-preview__email {
-  height: auto;
-  min-height: 32rem;
-  overflow: hidden;
+  display: block;
+  width: 100%;
+  height: min(720px, calc(100vh - 11rem));
+  min-height: 28rem;
+  border: 1px solid var(--border);
+  background: #fffcf8;
 }
 
 .email-editor {
@@ -124,15 +136,17 @@
 
 .email-editor__subject-line,
 .email-editor__body {
-  padding: 0.65rem 0.75rem;
+  padding: 0.7rem 0.9rem;
   background: var(--input-bg);
   border: 1px solid var(--border-strong);
   color: var(--text);
-  line-height: 1.5;
+  line-height: 1.65;
+  overflow-wrap: break-word;
 }
 
 .email-editor__subject-line {
-  min-height: 2.6rem;
+  min-height: 2.75rem;
+  font-size: 1rem;
 }
 
 .email-editor__subject-line:focus,
@@ -142,8 +156,14 @@
 }
 
 .email-editor__body {
-  min-height: 16rem;
-  overflow: visible;
+  min-height: 24rem;
+  padding: 1.05rem 1.15rem;
+  font-size: 1.0625rem;
+  line-height: 1.7;
+}
+
+.email-editor__body p {
+  margin: 0 0 0.8rem;
 }
 
 .email-editor__body:empty::before {
@@ -151,39 +171,118 @@
   color: var(--text-subtle);
 }
 
-.email-editor__toolbar,
-.email-vars,
-.email-sections {
+.email-editor__bar {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
   align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
 }
 
-.email-editor__tool,
-.email-var {
-  border: 1px solid var(--border);
+.email-editor__toolbar {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.15rem;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 0.2rem 0.25rem;
   background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.email-editor__group {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.05rem;
+}
+
+.email-editor__divider {
+  flex: 0 0 1px;
+  align-self: stretch;
+  width: 1px;
+  margin: 0.35rem 0.2rem;
+  background: var(--border);
+}
+
+.email-editor__tool {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--text);
-  padding: 0.28rem 0.5rem;
-  font: inherit;
-  font-size: 0.78rem;
   cursor: pointer;
 }
 
-.email-editor__tool:disabled,
-.email-var:disabled {
+.email-editor__tool:hover:not(:disabled) {
+  background: var(--nav-hover);
+}
+
+.email-editor__tool:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.email-editor__fields {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.email-editor__insert {
+  height: 2rem;
+  padding: 0 0.7rem;
+  border: 1px solid var(--border-strong);
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.email-editor__insert:hover:not(:disabled) {
+  background: var(--nav-hover);
+}
+
+.email-editor__insert:disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
 
-.email-var {
-  background: var(--badge-bg);
-  color: var(--badge-text);
+.email-editor__menu {
+  position: absolute;
+  z-index: 4;
+  top: calc(100% + 0.3rem);
+  right: 0;
+  min-width: 11.5rem;
+  margin: 0;
+  padding: 0.3rem;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-md);
 }
 
-.email-editor__tool-gap {
-  flex: 1 1 0.5rem;
+.email-editor__menu button {
+  display: block;
+  width: 100%;
+  padding: 0.4rem 0.55rem;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.email-editor__menu button:hover {
+  background: var(--nav-hover);
 }
 
 .email-editor__link {
@@ -202,33 +301,47 @@
 }
 
 .email-sections {
-  margin: 0.25rem 0 0;
+  display: flex;
+  flex-flow: row wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.15rem 0 0;
   padding: 0;
   border: 0;
-  flex-direction: column;
-  align-items: flex-start;
 }
 
 .email-sections__title {
-  width: 100%;
-  margin: 0;
+  margin: 0 0.25rem 0 0;
+  font-size: 0.75rem;
   font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 .email-sections__option {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 0.8125rem;
 }
 
 .email-editor [data-email-var] {
   display: inline-block;
-  margin: 0 0.1rem;
-  padding: 0 0.35rem;
+  white-space: nowrap;
+  vertical-align: baseline;
+  margin: 0;
+  padding: 0.02rem 0.42rem;
+  border-radius: 999px;
   background: var(--badge-bg);
   color: var(--badge-text);
-  font-size: 0.85em;
-  line-height: 1.5;
+  font-size: 0.84em;
+  font-weight: 600;
+  line-height: 1.45;
 }
 
 .settings-preview__frame {
@@ -275,6 +388,8 @@
 }
 
 .settings-group {
+  min-width: 0;
+  max-width: 100%;
   margin: 0 0 0.35rem;
   padding: 0 0 1.1rem;
   border: 0;
@@ -505,7 +620,8 @@
     grid-template-columns: 1fr;
   }
 
-  .settings-workbench {
+  .settings-workbench,
+  .settings-workbench--compose {
     grid-template-columns: 1fr;
   }
 
@@ -516,7 +632,14 @@
   }
 
   .settings-workbench--compose .settings-workbench__preview {
+    position: static;
     max-height: none;
+    overflow: visible;
+  }
+
+  .settings-workbench--compose .settings-preview__email {
+    height: 36rem;
+    min-height: 24rem;
   }
 
   .settings-workbench__form {

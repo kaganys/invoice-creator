@@ -238,16 +238,26 @@ function sectionId(value: string | undefined): EmailSectionId | null {
   return null
 }
 
+function appendInline(html: string, piece: string): string {
+  if (!piece) {
+    return html
+  }
+  if (html && /[A-Za-z0-9}]$/.test(html) && /^[A-Za-z0-9]/.test(piece)) {
+    return `${html} ${piece}`
+  }
+  return html + piece
+}
+
 function renderInline(nodes: AnyNode[]): string {
   let html = ''
   for (const node of nodes) {
     if (!isElement(node)) {
-      html += escapeText(node.text)
+      html = appendInline(html, escapeText(node.text))
       continue
     }
     const variable = node.tag === 'span' ? variableId(node.attrs['data-email-var']) : null
     if (variable) {
-      html += `{{${variable}}}`
+      html = appendInline(html, `{{${variable}}}`)
       continue
     }
     if (node.tag === 'br') {
@@ -257,14 +267,14 @@ function renderInline(nodes: AnyNode[]): string {
     if (node.tag === 'strong' || node.tag === 'b') {
       const inner = renderInline(node.children)
       if (inner.trim()) {
-        html += `<strong>${inner}</strong>`
+        html = appendInline(html, `<strong>${inner}</strong>`)
       }
       continue
     }
     if (node.tag === 'em' || node.tag === 'i') {
       const inner = renderInline(node.children)
       if (inner.trim()) {
-        html += `<em>${inner}</em>`
+        html = appendInline(html, `<em>${inner}</em>`)
       }
       continue
     }
@@ -272,13 +282,16 @@ function renderInline(nodes: AnyNode[]): string {
       const href = safeHref(node.attrs.href)
       const inner = renderInline(node.children)
       if (href && inner.trim()) {
-        html += `<a href="${escapeAttr(href)}" target="_blank" rel="noreferrer noopener">${inner}</a>`
+        html = appendInline(
+          html,
+          `<a href="${escapeAttr(href)}" target="_blank" rel="noreferrer noopener">${inner}</a>`,
+        )
       } else {
-        html += inner
+        html = appendInline(html, inner)
       }
       continue
     }
-    html += renderInline(node.children)
+    html = appendInline(html, renderInline(node.children))
   }
   return html
 }
@@ -316,6 +329,48 @@ const BLOCK_TAGS = new Set([
   'section',
   'article',
 ])
+
+function containsBlock(nodes: AnyNode[]): boolean {
+  return nodes.some(
+    (node) => isElement(node) && (BLOCK_TAGS.has(node.tag) || containsBlock(node.children)),
+  )
+}
+
+function renderMixed(node: ElementNode, into: Rendered, align: string | null) {
+  let inline: AnyNode[] = []
+  const pieces: Array<{ type: 'text'; value: string } | { type: 'html'; value: string }> = []
+  const flush = () => {
+    const inner = renderInline(inline).replace(/[ \t]+/g, ' ').trim()
+    inline = []
+    if (inner) {
+      pieces.push({ type: 'text', value: inner })
+    }
+  }
+  for (const child of node.children) {
+    if (!isElement(child) || child.tag === 'br' || !BLOCK_TAGS.has(child.tag)) {
+      if (!isElement(child) && !child.text.trim() && inline.length === 0) {
+        continue
+      }
+      inline.push(child)
+      continue
+    }
+    flush()
+    const nested: Rendered = { prose: [], sections: [] }
+    renderBlocks([child], nested, textAlign(child.attrs) ?? align)
+    for (const block of nested.prose) {
+      pieces.push({ type: 'html', value: block })
+    }
+    into.sections.push(...nested.sections)
+  }
+  flush()
+  for (const piece of pieces) {
+    if (piece.type === 'html') {
+      into.prose.push(piece.value)
+      continue
+    }
+    into.prose.push(`<p style="${paragraphStyle(align)}">${piece.value}</p>`)
+  }
+}
 
 function renderBlocks(nodes: AnyNode[], into: Rendered, inheritedAlign: string | null) {
   let inline: AnyNode[] = []
@@ -368,7 +423,11 @@ function renderBlocks(nodes: AnyNode[], into: Rendered, inheritedAlign: string |
       }
       continue
     }
-    if (node.tag === 'p' || node.tag === 'h1' || node.tag === 'h2' || node.tag === 'h3' || node.tag === 'li') {
+    if (node.tag === 'p' || node.tag === 'div' || node.tag === 'h1' || node.tag === 'h2' || node.tag === 'h3' || node.tag === 'li') {
+      if ((node.tag === 'p' || node.tag === 'div') && containsBlock(node.children)) {
+        renderMixed(node, into, align)
+        continue
+      }
       const inner = renderInline(node.children).trim()
       if (!inner) {
         continue
@@ -377,7 +436,7 @@ function renderBlocks(nodes: AnyNode[], into: Rendered, inheritedAlign: string |
         into.prose.push(`<p style="${paragraphStyle(align)}">${inner}</p>`)
         continue
       }
-      const tag = node.tag === 'p' ? 'p' : 'h2'
+      const tag = node.tag === 'h1' || node.tag === 'h2' || node.tag === 'h3' ? 'h2' : 'p'
       const style =
         tag === 'h2'
           ? `margin:0 0 12px;font-size:20px;line-height:1.3;font-weight:700;color:#111111;${align && align !== 'left' ? `text-align:${align};` : ''}`
@@ -392,6 +451,7 @@ function renderBlocks(nodes: AnyNode[], into: Rendered, inheritedAlign: string |
 
 function markKnownSections(html: string): string {
   let next = html
+  next = next.replace(/<!--email-block:hero-->[\s\S]*?<!--\/email-block-->/gi, '')
   next = next.replace(
     /<!--email-section:(amount|payment-memo|zelle|pay-button)-->[\s\S]*?<!--\/email-section-->/gi,
     (_full, id: string) => `<x-section data-id="${id}"></x-section>`,
@@ -450,6 +510,9 @@ export function readEmailDocument(html: string): EmailDocument {
   const rendered: Rendered = { prose: [], sections: [] }
   renderBlocks(parseNodes(markKnownSections(html)), rendered, null)
   absorbDuplicateInstructions(rendered)
+  rendered.prose = repairStrayComma(
+    dropLeadingSubjectEcho(rendered.prose).map(separateMergeFields),
+  )
   const sections = emptyEmailSections()
   for (const id of rendered.sections) {
     sections[id] = true
@@ -458,6 +521,66 @@ export function readEmailDocument(html: string): EmailDocument {
     proseHtml: rendered.prose.join('\n'),
     sections,
   }
+}
+
+function isSubjectEcho(block: string): boolean {
+  const text = plainish(block)
+  return (
+    text === 'invoice' ||
+    text === '{{invoice_number}}' ||
+    text === 'from {{business_name}}' ||
+    text === 'invoice {{invoice_number}}' ||
+    text === 'invoice {{invoice_number}} from {{business_name}}'
+  )
+}
+
+function dropLeadingSubjectEcho(prose: string[]): string[] {
+  let index = 0
+  while (index < prose.length && isSubjectEcho(prose[index])) {
+    index += 1
+  }
+  if (index === 0) {
+    return prose
+  }
+  const echoed = prose.slice(0, index).map(plainish).join(' ')
+  if (!echoed.includes('{{invoice_number}}')) {
+    return prose
+  }
+  return prose.slice(index)
+}
+
+function separateMergeFields(block: string): string {
+  return block.replace(/(\{\{[a-z_]+\}\})(?=[A-Za-z])/g, '$1 ')
+}
+
+function repairStrayComma(prose: string[]): string[] {
+  let stray = false
+  const cleaned = prose.flatMap((block) => {
+    const text = plainish(block)
+    if (text === ',') {
+      stray = true
+      return []
+    }
+    if (!text.endsWith('.,')) {
+      return [block]
+    }
+    stray = true
+    return [block.replace(/,\s*(<\/[a-z][^>]*>\s*)$/i, '$1')]
+  })
+  if (!stray) {
+    return cleaned
+  }
+  let moved = false
+  return cleaned.map((block) => {
+    if (moved || !block.includes('{{customer_name}}')) {
+      return block
+    }
+    const next = block.replace(/(\{\{customer_name\}\})(?!,)/, '$1,')
+    if (next !== block) {
+      moved = true
+    }
+    return next
+  })
 }
 
 function isSignoff(block: string): boolean {

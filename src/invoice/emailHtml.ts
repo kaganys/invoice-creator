@@ -107,29 +107,35 @@ function brandHeaderHtml(options: EmailWrapOptions): string {
   const logo = options.logoUrl?.trim() ?? ''
   const wordmark = options.wordmarkUrl?.trim() ?? ''
   const business = escapeHtml(options.businessName ?? 'Bitz Designs')
+  const nameCell = `<td valign="middle" style="padding:0;background:#111111;font-family:Georgia,'Times New Roman',serif;font-size:22px;line-height:1.2;font-weight:700;color:#f7f3ec;">${business}</td>`
   if (!logo && !wordmark) {
     return `<tr>
-            <td class="email-pad" style="padding:8px 12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.4;color:#6b7280;text-align:center;">
-              Invoice from ${business}
+            <td class="email-pad" align="center" bgcolor="#111111" style="background:#111111;padding:22px 28px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
+                <tr>${nameCell}</tr>
+              </table>
             </td>
           </tr>`
   }
   const logoCell = logo
-    ? `<td valign="middle" style="padding:0 12px 0 0;">
-<img src="${escapeHtml(logo)}" width="44" height="44" alt="" style="display:block;border:0;outline:none;text-decoration:none;width:44px;height:44px;" />
+    ? `<td valign="middle" bgcolor="#111111" style="padding:0 16px 0 0;background:#111111;font-size:0;line-height:0;">
+<img class="email-logo" src="${escapeHtml(logo)}" width="56" height="56" alt="" style="display:block;border:0;outline:none;text-decoration:none;width:56px;height:56px;background:#111111;" />
 </td>`
     : ''
   const wordmarkCell = wordmark
-    ? `<td valign="middle" style="padding:0;">
-<img src="${escapeHtml(wordmark)}" alt="${business}" height="32" style="display:block;border:0;outline:none;text-decoration:none;max-width:220px;height:32px;width:auto;" />
+    ? `<td valign="middle" bgcolor="#111111" style="padding:0;background:#111111;font-size:0;line-height:0;">
+<img class="email-wordmark" src="${escapeHtml(wordmark)}" alt="${business}" height="42" style="display:block;border:0;outline:none;text-decoration:none;height:42px;width:auto;max-width:280px;background:#111111;" />
 </td>`
-    : `<td valign="middle" style="padding:0;font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:700;color:#111111;">${business}</td>`
+    : ''
   return `<tr>
-            <td class="email-pad" align="center" style="padding:12px 12px 18px;">
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
+            <td class="email-pad" align="center" bgcolor="#111111" style="background:#111111;padding:26px 28px 22px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" bgcolor="#111111" style="margin:0 auto;background:#111111;">
                 <tr>
                   ${logoCell}
                   ${wordmarkCell}
+                </tr>
+                <tr>
+                  <td colspan="2" align="center" bgcolor="#111111" style="padding:12px 0 0;background:#111111;font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:1.3;letter-spacing:0.04em;color:#f7f3ec;">${business}</td>
                 </tr>
               </table>
             </td>
@@ -161,6 +167,8 @@ export function wrapInvoiceEmailHtml(
   * { -ms-text-size-adjust: 100%; -webkit-text-size-adjust: 100%; }
   table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
   img { -ms-interpolation-mode: bicubic; border: 0; outline: none; text-decoration: none; max-width: 100%; height: auto; display: block; }
+  img.email-logo { width: 56px !important; height: 56px !important; max-width: 56px !important; background: #111111; }
+  img.email-wordmark { height: 42px !important; width: auto !important; max-width: 280px !important; max-height: 42px !important; background: #111111; }
   a { text-decoration: underline; }
   .email-root { width: 100% !important; }
   .email-content p { margin: 0 0 16px; }
@@ -175,15 +183,15 @@ export function wrapInvoiceEmailHtml(
   }
 </style>
 </head>
-<body style="margin:0;padding:0;background:#f3f5f7;width:100%;">
+<body style="margin:0;padding:0;background:#f3efe6;width:100%;">
   <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">${preheader}</div>
-  <table class="email-root" role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;background:#f3f5f7;">
+  <table class="email-root" role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;background:#f3efe6;">
     <tr>
       <td align="center" style="padding:16px 8px;">
         <table class="email-shell" role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="width:100%;max-width:600px;">
           ${brandHeaderHtml(options)}
           <tr>
-            <td class="email-card" style="background:#ffffff;border-radius:12px;overflow:hidden;">
+            <td class="email-card" style="background:#fffcf8;border:1px solid #e4ddd2;overflow:hidden;">
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                 <tr>
                   <td class="email-pad email-content" style="padding:28px 28px 8px;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.55;color:#111111;">

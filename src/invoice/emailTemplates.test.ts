@@ -106,6 +106,9 @@ describe('HTML invoice email', () => {
     expect(html.indexOf('bitz-designs-wordmark.png')).toBeLessThan(
       html.indexOf('<p>Hello</p>'),
     )
+    expect(html).toContain('bgcolor="#111111"')
+    expect(html).toContain('class="email-logo"')
+    expect(html).toContain('class="email-wordmark"')
   })
 
   it('strips scripts from custom HTML', () => {
