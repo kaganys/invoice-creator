@@ -98,6 +98,31 @@ describe('email compose document', () => {
     expect(saved).not.toContain('data-email-var')
   })
 
+  it('previews and sends a legacy message without pills, the subject banner, or a zelle line', () => {
+    const legacy = defaultGraphicalEmailBody()
+    const prepared = prepareInvoiceEmail(legacy, SAMPLE_EMAIL_VARS)
+    expect(emailSectionEnabled(legacy, 'zelle')).toBe(false)
+    expect(prepared.html).not.toContain('border-radius:999px')
+    expect(prepared.html).not.toContain('#ecfdf5')
+    expect(prepared.html).not.toContain('billing@bitzdesigns.co')
+    expect(prepared.html).not.toContain('color:#5eead4')
+    expect(prepared.html).toContain('Hello Ada Lovelace,')
+    expect(prepared.html).not.toContain('Hello Ada Lovelace ,')
+    expect(prepared.html).toContain(
+      'Please pay by Zelle using your invoice number as the memo.',
+    )
+    expect(prepared.html.match(/Please pay by Zelle/g)).toHaveLength(1)
+
+    const withZelle = prepareInvoiceEmail(
+      setEmailSection(legacy, 'zelle', true),
+      SAMPLE_EMAIL_VARS,
+    )
+    expect(withZelle.html.match(/billing@bitzdesigns.co/g)).toHaveLength(1)
+    expect(withZelle.html).toContain('Zelle:')
+    expect(withZelle.html).not.toContain('border-radius:999px')
+    expect(withZelle.html).not.toContain('color:#5eead4')
+  })
+
   it('starts the default message at the greeting and keeps its comma', () => {
     const body = defaultRichEmailBody()
     const prepared = prepareInvoiceEmail(body, SAMPLE_EMAIL_VARS)

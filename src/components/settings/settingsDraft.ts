@@ -1,3 +1,4 @@
+import { canonicalizeEmailBody } from '../../invoice/emailCompose.ts'
 import type { SmtpSettingsPayload } from '../../types/settings.ts'
 
 export type SmtpComparable = Pick<
@@ -30,7 +31,7 @@ export function smtpFieldsChanged(
     saved.fromEmail !== draft.fromEmail ||
     saved.replyTo !== draft.replyTo ||
     saved.subjectTemplate !== draft.subjectTemplate ||
-    saved.bodyTemplate !== draft.bodyTemplate
+    canonicalizeEmailBody(saved.bodyTemplate) !== canonicalizeEmailBody(draft.bodyTemplate)
   )
 }
 

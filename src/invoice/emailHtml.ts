@@ -1,3 +1,4 @@
+import { canonicalizeEmailBody } from './emailCompose.ts'
 import {
   applyEmailTemplate,
   applyEmailTemplateHtml,
@@ -227,7 +228,9 @@ export function prepareInvoiceEmail(
   const source = bodyTemplate.trim()
     ? bodyTemplate
     : '<p></p>'
-  const fragment = looksLikeHtml(source) ? source : plainTextToHtml(source)
+  const fragment = looksLikeHtml(source)
+    ? canonicalizeEmailBody(source)
+    : plainTextToHtml(source)
   const applied = applyEmailTemplateHtml(fragment, vars)
   const normalized = normalizePaymentUrlBlocks(applied, vars.payment_url)
   const clean = sanitizeEmailHtml(normalized)

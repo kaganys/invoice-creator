@@ -6,6 +6,7 @@ import {
   SAMPLE_EMAIL_BRAND,
   SAMPLE_EMAIL_VARS,
 } from '../../invoice/emailHtml.ts'
+import { canonicalizeEmailBody } from '../../invoice/emailCompose.ts'
 import { applyEmailTemplate, defaultEmailTemplates } from '../../invoice/emailTemplates.ts'
 import { useSettings } from '../../settings/SettingsContext.tsx'
 import type { SmtpSecurity, SmtpSettingsPayload } from '../../types/settings.ts'
@@ -13,6 +14,13 @@ import { Field } from '../Field.tsx'
 import { EmailMessageEditor } from './EmailMessageEditor.tsx'
 import { SettingsWorkbench } from './SettingsWorkbench.tsx'
 import { smtpFieldsChanged } from './settingsDraft.ts'
+
+function withCanonicalBody<T extends { bodyTemplate: string }>(value: T): T {
+  return {
+    ...value,
+    bodyTemplate: canonicalizeEmailBody(value.bodyTemplate),
+  }
+}
 
 const SECURITY_OPTIONS: Array<{ value: SmtpSecurity; label: string }> = [
   { value: 'starttls', label: 'STARTTLS (port 587)' },
@@ -22,7 +30,7 @@ const SECURITY_OPTIONS: Array<{ value: SmtpSecurity; label: string }> = [
 
 export function SmtpPanel() {
   const { smtp, branding, loading, saving, error, saveSmtp } = useSettings()
-  const [draft, setDraft] = useState(smtp)
+  const [draft, setDraft] = useState(() => withCanonicalBody(smtp))
   const [success, setSuccess] = useState<string | null>(null)
   const [testMessage, setTestMessage] = useState<string | null>(null)
   const [testOk, setTestOk] = useState(false)
@@ -31,7 +39,7 @@ export function SmtpPanel() {
   const [password, setPassword] = useState('')
 
   useEffect(() => {
-    setDraft(smtp)
+    setDraft(withCanonicalBody(smtp))
   }, [smtp])
 
   function patch(partial: Partial<SmtpSettingsPayload>) {
