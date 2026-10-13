@@ -52,7 +52,10 @@ export async function allocateInvoiceNumber(): Promise<{
 }
 
 export async function updateSmtp(
-  smtp: Omit<SmtpSettingsPayload, 'passwordConfigured'>,
+  smtp: Omit<SmtpSettingsPayload, 'passwordConfigured' | 'passwordSource'> & {
+    password?: string
+    clearPassword?: boolean
+  },
 ): Promise<{ smtp: SmtpSettingsPayload }> {
   return apiRequest('/api/settings/smtp', {
     method: 'PUT',
@@ -68,7 +71,15 @@ export async function testSmtp(to: string): Promise<{ message: string; to: strin
 }
 
 export async function updatePayments(
-  payments: Omit<PaymentsSettingsPayload, 'secretConfigured'>,
+  payments: Omit<
+    PaymentsSettingsPayload,
+    'secretConfigured' | 'webhookSecretConfigured' | 'secretSource'
+  > & {
+    secretKey?: string
+    webhookSecret?: string
+    clearSecret?: boolean
+    clearWebhookSecret?: boolean
+  },
 ): Promise<{ payments: PaymentsSettingsPayload }> {
   return apiRequest('/api/settings/payments', {
     method: 'PUT',

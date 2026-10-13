@@ -92,7 +92,7 @@ export function validateNumberingWrite(
     }
   }
 
-  let padding = DEFAULT_NUMBERING.padding
+  let padding: number
   if (typeof input.padding === 'number') {
     padding = input.padding
   } else if (typeof input.padding === 'string' && input.padding.trim()) {

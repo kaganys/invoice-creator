@@ -69,7 +69,7 @@ function mapUser(row: UserRow): UserRecord {
 }
 
 function mapRole(row: RoleRow): RoleRecord {
-  let parsed: unknown = []
+  let parsed: unknown
   try {
     parsed = JSON.parse(row.permissions_json)
   } catch {
@@ -311,6 +311,29 @@ export function createD1TenantStore(db: D1Database): TenantStore {
       return row ? toMembershipView(row, userId) : null
     },
 
+    async getMembershipById(id) {
+      const row = await db
+        .prepare(
+          `SELECT
+             companies.id AS company_id, companies.name AS company_name, companies.slug,
+             companies.created_at AS company_created_at, companies.updated_at AS company_updated_at,
+             roles.id AS role_id, roles.key, roles.name AS role_name, roles.permissions_json,
+             roles.is_system, roles.created_at AS role_created_at, roles.updated_at AS role_updated_at,
+             memberships.id AS membership_id, memberships.user_id, memberships.created_at AS membership_created_at,
+             memberships.updated_at AS membership_updated_at
+           FROM memberships
+           JOIN companies ON companies.id = memberships.company_id
+           JOIN roles ON roles.id = memberships.role_id
+           WHERE memberships.id = ?`,
+        )
+        .bind(id)
+        .first<Record<string, string | number | null>>()
+      if (!row) {
+        return null
+      }
+      return toMembershipView(row, String(row.user_id))
+    },
+
     async createMembership(record) {
       await db
         .prepare(
@@ -329,13 +352,16 @@ export function createD1TenantStore(db: D1Database): TenantStore {
       return record
     },
 
-    async updateMembershipRole(id, roleId, updatedAt) {
-      await db
+    async updateMembershipRole(id, companyId, roleId, updatedAt) {
+      const result = await db
         .prepare(
-          'UPDATE memberships SET role_id = ?, updated_at = ? WHERE id = ?',
+          `UPDATE memberships
+           SET role_id = ?, updated_at = ?
+           WHERE id = ? AND company_id = ?`,
         )
-        .bind(roleId, updatedAt, id)
+        .bind(roleId, updatedAt, id, companyId)
         .run()
+      return (result.meta.changes ?? 0) > 0
     },
 
     async deleteMembership(id) {

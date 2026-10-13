@@ -16,7 +16,7 @@
 .invoices-table-wrap {
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: 0;
   background: var(--surface);
 }
 
@@ -36,8 +36,17 @@
 
 .invoices-table th {
   color: var(--text-muted);
-  font-size: 0.75rem;
+  font-size: 0.68rem;
   font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: color-mix(in srgb, var(--nav-hover) 70%, var(--surface));
+}
+
+.invoices-table td:nth-child(5),
+.invoices-table th:nth-child(5) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .invoices-table tbody tr:last-child td {
@@ -55,8 +64,9 @@
 .invoices-table__link {
   border: 0;
   background: transparent;
-  color: var(--brand-teal-strong);
+  color: var(--text);
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
   padding: 0;
 }

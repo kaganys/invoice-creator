@@ -1,39 +1,40 @@
 :root {
-  --font: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --brand-coral: #e89574;
-  --brand-teal: #1aa99c;
-  --brand-teal-strong: #0f766e;
-  --brand-teal-strong-hover: #0d9488;
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --sidebar-width: 232px;
-  --header-height: 64px;
-  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
-  --shadow-md: 0 8px 24px rgba(16, 24, 40, 0.08);
+  --font: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --font-display: "Source Serif 4", Georgia, serif;
+  --brand-coral: #8a5a3c;
+  --brand-teal: #3e5348;
+  --brand-teal-strong: #24352c;
+  --brand-teal-strong-hover: #1a2821;
+  --radius-sm: 2px;
+  --radius-md: 2px;
+  --radius-lg: 2px;
+  --sidebar-width: 228px;
+  --header-height: 60px;
+  --shadow-sm: none;
+  --shadow-md: 0 16px 40px rgba(28, 25, 23, 0.16);
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #f3f5f7;
-  --surface: #ffffff;
-  --sidebar-bg: #fbfcfd;
-  --header-bg: #ffffff;
-  --text: #121417;
-  --text-muted: #5d6670;
-  --text-subtle: #8b939e;
-  --border: #e4e7eb;
-  --border-strong: #cfd4da;
-  --input-bg: #ffffff;
-  --nav-hover: #eef1f4;
-  --badge-bg: #eef8f6;
-  --badge-text: #0f766e;
-  --focus: #1aa99c;
-  --overlay: rgba(16, 18, 22, 0.5);
-  --canvas: #e7eaee;
-  --primary-fg: #ffffff;
-  --lockup-ring: rgba(16, 24, 40, 0.08);
-  --danger: #b42318;
+  --bg: #f3efe6;
+  --surface: #fffcf8;
+  --sidebar-bg: #1c2420;
+  --header-bg: #fffcf8;
+  --text: #1c1917;
+  --text-muted: #5c564e;
+  --text-subtle: #8a8176;
+  --border: #e4ddd2;
+  --border-strong: #cfc6b8;
+  --input-bg: #fffcf8;
+  --nav-hover: #efeae2;
+  --badge-bg: #e7efe9;
+  --badge-text: #24352c;
+  --focus: #3e5348;
+  --overlay: rgba(28, 25, 23, 0.46);
+  --canvas: #e7e1d6;
+  --primary-fg: #f7f3ec;
+  --lockup-ring: rgba(28, 25, 23, 0.12);
+  --danger: #9f2d22;
 }
 
 :root[data-theme="dark"] {
@@ -49,14 +50,14 @@
   --border-strong: #3a424c;
   --input-bg: #1a1e26;
   --nav-hover: #1c2129;
-  --badge-bg: rgba(26, 169, 156, 0.16);
-  --badge-text: #5eead4;
-  --focus: #2dd4bf;
+  --badge-bg: #24352c;
+  --badge-text: #d7e4da;
+  --focus: #c4b49a;
   --overlay: rgba(0, 0, 0, 0.64);
-  --canvas: #0b0d11;
-  --brand-teal-strong: #14b8a6;
-  --brand-teal-strong-hover: #2dd4bf;
-  --primary-fg: #042f2e;
+  --canvas: #12110f;
+  --brand-teal-strong: #d7e4da;
+  --brand-teal-strong-hover: #f4f0e6;
+  --primary-fg: #1c2420;
   --lockup-ring: rgba(255, 255, 255, 0.08);
   --danger: #f97066;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
@@ -81,8 +82,8 @@ body {
   color: var(--text);
   font-family: var(--font);
   font-size: 15px;
-  line-height: 1.45;
-  letter-spacing: -0.011em;
+  line-height: 1.5;
+  letter-spacing: 0;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -204,9 +205,9 @@ textarea {
 .badge {
   display: inline-flex;
   align-items: center;
-  height: 1.5rem;
-  padding: 0 0.5rem;
-  border-radius: 999px;
+  height: 1.4rem;
+  padding: 0 0.4rem;
+  border-radius: 2px;
   background: var(--badge-bg);
   color: var(--badge-text);
   font-size: 0.6875rem;

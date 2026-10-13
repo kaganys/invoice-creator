@@ -48,6 +48,7 @@ export type SmtpSettingsPayload = {
   subjectTemplate: string
   bodyTemplate: string
   passwordConfigured: boolean
+  passwordSource?: 'company' | 'platform' | 'none'
 }
 
 export type BrandingAssetPayload = {
@@ -70,6 +71,8 @@ export type PaymentsSettingsPayload = {
   publishableKey: string
   statementDescriptor: string
   secretConfigured: boolean
+  webhookSecretConfigured?: boolean
+  secretSource?: 'company' | 'platform' | 'none'
 }
 
 export type AppSettingsPayload = {

@@ -128,10 +128,23 @@ type SettingsContextValue = {
     >,
   ) => Promise<void>
   saveNextSequence: (nextSequence: number) => Promise<void>
-  saveSmtp: (payload: Omit<SmtpSettingsPayload, 'passwordConfigured'>) => Promise<void>
+  saveSmtp: (
+    payload: Omit<SmtpSettingsPayload, 'passwordConfigured' | 'passwordSource'> & {
+      password?: string
+      clearPassword?: boolean
+    },
+  ) => Promise<void>
   saveFormat: (payload: InvoiceFormat) => Promise<void>
   savePayments: (
-    payload: Omit<PaymentsSettingsPayload, 'secretConfigured'>,
+    payload: Omit<
+      PaymentsSettingsPayload,
+      'secretConfigured' | 'webhookSecretConfigured' | 'secretSource'
+    > & {
+      secretKey?: string
+      webhookSecret?: string
+      clearSecret?: boolean
+      clearWebhookSecret?: boolean
+    },
   ) => Promise<void>
   uploadAsset: (kind: BrandingKind, file: File) => Promise<void>
   restoreAsset: (kind: BrandingKind) => Promise<void>
@@ -218,7 +231,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     } catch (caught) {
       const message = errorMessage(caught)
       setError(message)
-      throw new Error(message)
+      throw new Error(message, { cause: caught })
     } finally {
       setSaving(false)
     }
@@ -268,7 +281,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   )
 
   const saveSmtp = useCallback(
-    (payload: Omit<SmtpSettingsPayload, 'passwordConfigured'>) =>
+    (
+      payload: Omit<SmtpSettingsPayload, 'passwordConfigured' | 'passwordSource'> & {
+        password?: string
+        clearPassword?: boolean
+      },
+    ) =>
       runMutation(async () => {
         const result = await updateSmtp(payload)
         setSettings((current) => ({
@@ -280,7 +298,17 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   )
 
   const savePayments = useCallback(
-    (payload: Omit<PaymentsSettingsPayload, 'secretConfigured'>) =>
+    (
+      payload: Omit<
+        PaymentsSettingsPayload,
+        'secretConfigured' | 'webhookSecretConfigured' | 'secretSource'
+      > & {
+        secretKey?: string
+        webhookSecret?: string
+        clearSecret?: boolean
+        clearWebhookSecret?: boolean
+      },
+    ) =>
       runMutation(async () => {
         const result = await updatePayments(payload)
         setSettings((current) => ({

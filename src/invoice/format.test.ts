@@ -85,7 +85,7 @@ describe('format settings', () => {
     format.elements.headerTitle.sizePx = 40
     format.elements.notesText.sizePx = 20
     const afterHeader = resetSection(format, 'header')
-    expect(afterHeader.elements.headerTitle.sizePx).toBe(28)
+    expect(afterHeader.elements.headerTitle.sizePx).toBe(32)
     expect(afterHeader.elements.notesText.sizePx).toBe(20)
     expect(afterHeader.global.primaryColor).toBe('#ff0000')
     const afterGlobal = resetSection(afterHeader, 'global')

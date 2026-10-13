@@ -212,11 +212,32 @@ async function finalizeSucceededPayment(
   }
 
   const method = methodFromIntent(paymentIntent)
-  const category: PaymentCategory = method.category ?? 'card'
+  if (!method.category) {
+    const reviewReason = 'Stripe did not identify a card or bank payment method.'
+    await deps.ledger.insertPayment({
+      id: (deps.idFactory ?? createEntityId)(),
+      invoiceId,
+      provider: 'stripe',
+      providerPaymentId: paymentIntent.id,
+      amountCents: paymentIntent.amountReceived,
+      currency: paymentIntent.currency.toLowerCase(),
+      status: 'mismatch',
+      paidAt: timestamp,
+      createdAt: timestamp,
+      stripeEventId: eventId,
+      reviewReason,
+      paymentCategory: 'card',
+      paymentMethodType: method.type,
+      walletType: method.wallet,
+      surchargeCents: 0,
+    })
+    return { ok: false, review: true, error: reviewReason }
+  }
+  const category: PaymentCategory = method.category
   const snapshot = calculateCardCharge(invoice)
   const quote = quoteForCategory(snapshot.baseCents, snapshot.feeCents, category)
   const expectedAmount = toStripeAmount(quote.totalCents, snapshot.currency)
-  const paidAmount = paymentIntent.amountReceived || paymentIntent.amount
+  const paidAmount = paymentIntent.amountReceived
   const currency = paymentIntent.currency.toLowerCase()
   const expectedCurrency = snapshot.currency.toLowerCase()
   const amountMatches = paidAmount === expectedAmount

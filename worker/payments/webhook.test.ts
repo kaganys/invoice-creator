@@ -323,6 +323,7 @@ function intentEvent(
           invoice_number: 'BD2026-0051',
           payment_token_id: TOKEN_ID,
         },
+        payment_method_types: ['card'],
         ...overrides,
       },
     },

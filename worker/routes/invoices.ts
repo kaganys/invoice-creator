@@ -29,6 +29,10 @@ import {
 } from '../settings/env.ts'
 import { serializeFormat } from '../settings/format.ts'
 import { nowIso } from '../lib/ids.ts'
+import {
+  createD1CompanySecretStore,
+  resolveCompanyOrPlatformSecret,
+} from '../secrets/d1Store.ts'
 
 function pdfDeps(env: Env, request: Request, companyId: string) {
   return {
@@ -140,9 +144,16 @@ export function registerInvoiceRoutes(router: Router): void {
     if (!auth.ok) {
       return auth.response
     }
+    const smtp = await resolveCompanyOrPlatformSecret(
+      createD1CompanySecretStore(env.DB),
+      auth.ctx.company.id,
+      'smtp_password',
+      env,
+      smtpPasswordSecret(env),
+    )
     return sendInvoice(params.id ?? '', request, {
       ...pdfDeps(env, request, auth.ctx.company.id),
-      smtpPassword: smtpPasswordSecret(env),
+      smtpPassword: smtp.value,
       tokens: createD1PaymentTokenStore(env.DB),
       paymentLinkKey: paymentLinkKeySecret(env),
       paymentBaseUrl: publicPaymentBaseUrlConfig(env),

@@ -13,7 +13,10 @@ import {
   brandingBucket,
   smtpPasswordSecret,
   stripeSecretKey,
+  stripeWebhookSecret,
 } from '../settings/env.ts'
+import { createD1CompanySecretStore } from '../secrets/d1Store.ts'
+import { tenantSecretsKey } from '../secrets/cipher.ts'
 import {
   allocateInvoiceNumber,
   changeNextSequence,
@@ -47,6 +50,9 @@ function deps(env: Env, companyId: string): SettingsDeps {
     objects: bucket ? createR2ObjectStore(bucket) : undefined,
     smtpPassword: smtpPasswordSecret(env),
     stripeSecret: stripeSecretKey(env),
+    stripeWebhookSecret: stripeWebhookSecret(env),
+    tenantSecretsKey: tenantSecretsKey(env),
+    secrets: createD1CompanySecretStore(env.DB),
     companyId,
   }
 }

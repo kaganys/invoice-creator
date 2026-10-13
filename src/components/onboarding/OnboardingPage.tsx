@@ -36,6 +36,7 @@ export function OnboardingPage() {
   const [fromName, setFromName] = useState('')
   const [fromEmail, setFromEmail] = useState(session?.email ?? '')
   const [zelleEmail, setZelleEmail] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
   const [files, setFiles] = useState<Partial<Record<BrandingKind, File>>>({})
   const [previews, setPreviews] = useState<Partial<Record<BrandingKind, string>>>(
     {},
@@ -88,6 +89,7 @@ export function OnboardingPage() {
         fromName: fromName || ownerName || companyName,
         fromEmail,
         zelleEmail,
+        inviteCode,
         wordmark: files['site-wordmark'],
         icon: files['site-icon'],
         invoiceLogo: files['invoice-logo'],
@@ -110,11 +112,11 @@ export function OnboardingPage() {
       <header className="onboard__top">
         <div>
           <p className="onboard__kicker">New company</p>
-          <h1>Set up your workspace</h1>
+          <h1>Set up the company</h1>
           <p>
             Signed in as <strong>{session?.email}</strong>. This email is not
-            on a company yet, so you can create one. Branding images are
-            optional — you can add them later in Settings.
+            on a company yet. Logos are optional and can be added later in
+            Settings.
           </p>
         </div>
         <ThemeToggle />
@@ -170,6 +172,16 @@ export function OnboardingPage() {
               type="email"
               value={zelleEmail}
               onChange={(event) => setZelleEmail(event.target.value)}
+            />
+          </Field>
+          <Field label="Invite code" htmlFor="onboard-invite">
+            <input
+              id="onboard-invite"
+              className="field__input"
+              value={inviteCode}
+              autoComplete="off"
+              placeholder="Required outside local development"
+              onChange={(event) => setInviteCode(event.target.value)}
             />
           </Field>
         </div>

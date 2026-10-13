@@ -214,7 +214,7 @@ export async function sendInvoice(
     if (idempotencyKey.length > 80) {
       return errorJson('Idempotency key is too long.', 400)
     }
-    const existing = await deps.store.getEmailLogByIdempotency(idempotencyKey)
+    const existing = await deps.store.getEmailLogByIdempotency(id, idempotencyKey)
     if (existing) {
       const latest = await deps.store.get(id)
       return json(
@@ -246,7 +246,7 @@ export async function sendInvoice(
     idempotencyKey: idempotencyKey || null,
   })
   if (insert === 'duplicate' && idempotencyKey) {
-    const existing = await deps.store.getEmailLogByIdempotency(idempotencyKey)
+    const existing = await deps.store.getEmailLogByIdempotency(id, idempotencyKey)
     const latest = await deps.store.get(id)
     return json(
       {

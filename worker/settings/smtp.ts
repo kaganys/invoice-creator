@@ -65,7 +65,13 @@ export function serializeSmtp(config: SmtpConfig): string {
   return JSON.stringify(config)
 }
 
-export function publicSmtp(config: SmtpConfig, passwordConfigured: boolean) {
+export function publicSmtp(
+  config: SmtpConfig,
+  passwordConfigured: boolean,
+  passwordSource: 'company' | 'platform' | 'none' = passwordConfigured
+    ? 'platform'
+    : 'none',
+) {
   return {
     host: config.host,
     port: config.port,
@@ -77,6 +83,7 @@ export function publicSmtp(config: SmtpConfig, passwordConfigured: boolean) {
     subjectTemplate: config.subjectTemplate,
     bodyTemplate: config.bodyTemplate,
     passwordConfigured,
+    passwordSource,
   }
 }
 

@@ -13,7 +13,8 @@ export const INVOICE_DOCUMENT_CSS = `
   font-family: var(--inv-font-primary, Inter, system-ui, sans-serif);
   font-size: var(--inv-base-size, 14px);
   line-height: 1.45;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.14);
+  box-shadow: 0 1px 0 rgba(28, 25, 23, 0.08), 0 18px 40px rgba(28, 25, 23, 0.08);
+  font-variant-numeric: tabular-nums;
 }
 .invoice-sheet__header {
   display: flex;

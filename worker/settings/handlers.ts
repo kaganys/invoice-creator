@@ -61,6 +61,12 @@ import {
   validatePaymentsWrite,
 } from './payments.ts'
 import type { ObjectStore, SequenceStore, SettingsKvStore, SmtpConfig } from './types.ts'
+import {
+  readCompanySecret,
+  writeCompanySecret,
+  type CompanySecretStore,
+  type SecretKey,
+} from '../secrets/d1Store.ts'
 
 
 export type SettingsDeps = {
@@ -75,6 +81,9 @@ export type SettingsDeps = {
   idFactory?: () => string
   mailFactory?: (config: SmtpConfig, password: string) => MailTransport
   stripeSecret?: string
+  stripeWebhookSecret?: string
+  tenantSecretsKey?: string
+  secrets?: CompanySecretStore
   companyId?: string
 }
 
@@ -371,7 +380,7 @@ export async function serveBrandingFile(
   keyParam: string,
   deps: SettingsDeps,
 ): Promise<Response> {
-  let key = keyParam
+  let key: string
   try {
     key = decodeURIComponent(keyParam)
   } catch {
@@ -398,8 +407,13 @@ export async function serveBrandingFile(
 
 export async function getSmtpSettings(deps: SettingsDeps): Promise<Response> {
   const smtp = await loadSmtp(deps)
+  const password = await effectiveNamedSecret(deps, 'smtp_password', deps.smtpPassword)
   return json({
-    smtp: publicSmtp(smtp, smtpPasswordConfigured(deps.smtpPassword)),
+    smtp: publicSmtp(
+      smtp,
+      smtpPasswordConfigured(password.value),
+      password.source,
+    ),
   })
 }
 
@@ -411,14 +425,31 @@ export async function updateSmtpSettings(
   if (!body.ok) {
     return body.response
   }
-  const parsed = validateSmtpWrite(body.value)
+  const password = isRecord(body.value) ? asTrimmedString(body.value.password) : ''
+  const clearPassword =
+    isRecord(body.value) && body.value.clearPassword === true
+  const settingsBody = isRecord(body.value) ? { ...body.value } : body.value
+  if (isRecord(settingsBody)) {
+    delete settingsBody.password
+    delete settingsBody.clearPassword
+  }
+  const parsed = validateSmtpWrite(settingsBody)
   if (!parsed.ok) {
     return errorJson(parsed.message, 400)
   }
+  const stored = await storeOptionalSecret(deps, 'smtp_password', password, clearPassword)
+  if (!stored.ok) {
+    return stored.response
+  }
   const clock = deps.clock ?? nowIso
   await deps.settings.set(SETTINGS_KEYS.smtp, serializeSmtp(parsed.value), clock())
+  const effective = await effectiveNamedSecret(deps, 'smtp_password', deps.smtpPassword)
   return json({
-    smtp: publicSmtp(parsed.value, smtpPasswordConfigured(deps.smtpPassword)),
+    smtp: publicSmtp(
+      parsed.value,
+      smtpPasswordConfigured(effective.value),
+      effective.source,
+    ),
   })
 }
 
@@ -446,11 +477,17 @@ export async function updateFormatSettings(
 
 export async function getPaymentsSettings(deps: SettingsDeps): Promise<Response> {
   const payments = await loadPayments(deps)
+  const stripe = await effectiveNamedSecret(deps, 'stripe_secret', deps.stripeSecret)
+  const webhook = await effectiveNamedSecret(
+    deps,
+    'stripe_webhook_secret',
+    deps.stripeWebhookSecret,
+  )
   return json({
-    payments: publicPayments(
-      payments,
-      typeof deps.stripeSecret === 'string' && deps.stripeSecret.length > 0,
-    ),
+    payments: publicPayments(payments, Boolean(stripe.value), {
+      webhookSecretConfigured: Boolean(webhook.value),
+      secretSource: stripe.source,
+    }),
   })
 }
 
@@ -462,9 +499,46 @@ export async function updatePaymentsSettings(
   if (!body.ok) {
     return body.response
   }
-  const parsed = validatePaymentsWrite(body.value)
+  const secretKey = isRecord(body.value) ? asTrimmedString(body.value.secretKey) : ''
+  const webhookSecret = isRecord(body.value)
+    ? asTrimmedString(body.value.webhookSecret)
+    : ''
+  const clearSecret = isRecord(body.value) && body.value.clearSecret === true
+  const clearWebhook = isRecord(body.value) && body.value.clearWebhookSecret === true
+  if (secretKey && !secretKey.startsWith('sk_')) {
+    return errorJson('Stripe secret key must start with sk_.', 400)
+  }
+  if (webhookSecret && !webhookSecret.startsWith('whsec_')) {
+    return errorJson('Stripe webhook secret must start with whsec_.', 400)
+  }
+  const settingsBody = isRecord(body.value) ? { ...body.value } : body.value
+  if (isRecord(settingsBody)) {
+    delete settingsBody.secretKey
+    delete settingsBody.webhookSecret
+    delete settingsBody.clearSecret
+    delete settingsBody.clearWebhookSecret
+  }
+  const parsed = validatePaymentsWrite(settingsBody)
   if (!parsed.ok) {
     return errorJson(parsed.message, 400)
+  }
+  const storedSecret = await storeOptionalSecret(
+    deps,
+    'stripe_secret',
+    secretKey,
+    clearSecret,
+  )
+  if (!storedSecret.ok) {
+    return storedSecret.response
+  }
+  const storedWebhook = await storeOptionalSecret(
+    deps,
+    'stripe_webhook_secret',
+    webhookSecret,
+    clearWebhook,
+  )
+  if (!storedWebhook.ok) {
+    return storedWebhook.response
   }
   const clock = deps.clock ?? nowIso
   await deps.settings.set(
@@ -472,12 +546,77 @@ export async function updatePaymentsSettings(
     serializePayments(parsed.value),
     clock(),
   )
+  const stripe = await effectiveNamedSecret(deps, 'stripe_secret', deps.stripeSecret)
+  const webhook = await effectiveNamedSecret(
+    deps,
+    'stripe_webhook_secret',
+    deps.stripeWebhookSecret,
+  )
   return json({
-    payments: publicPayments(
-      parsed.value,
-      typeof deps.stripeSecret === 'string' && deps.stripeSecret.length > 0,
-    ),
+    payments: publicPayments(parsed.value, Boolean(stripe.value), {
+      webhookSecretConfigured: Boolean(webhook.value),
+      secretSource: stripe.source,
+    }),
   })
+}
+
+async function effectiveNamedSecret(
+  deps: SettingsDeps,
+  key: SecretKey,
+  platformValue: string | undefined,
+): Promise<{ value: string | undefined; source: 'company' | 'platform' | 'none' }> {
+  const companyValue = await readCompanySecret(
+    deps.secrets,
+    deps.companyId,
+    key,
+    deps.tenantSecretsKey,
+  )
+  if (companyValue) {
+    return { value: companyValue, source: 'company' }
+  }
+  if (platformValue) {
+    return { value: platformValue, source: 'platform' }
+  }
+  return { value: undefined, source: 'none' }
+}
+
+async function storeOptionalSecret(
+  deps: SettingsDeps,
+  key: SecretKey,
+  plain: string,
+  clear: boolean,
+): Promise<{ ok: true } | { ok: false; response: Response }> {
+  if (!plain && !clear) {
+    return { ok: true }
+  }
+  if (!deps.secrets || !deps.companyId) {
+    return {
+      ok: false,
+      response: errorJson('Company secret storage is not available.', 503),
+    }
+  }
+  if (clear && !plain) {
+    await deps.secrets.delete(deps.companyId, key)
+    return { ok: true }
+  }
+  if (!deps.tenantSecretsKey) {
+    return {
+      ok: false,
+      response: errorJson(
+        'Set the TENANT_SECRETS_KEY Worker secret before saving company credentials.',
+        503,
+      ),
+    }
+  }
+  await writeCompanySecret(
+    deps.secrets,
+    deps.companyId,
+    key,
+    plain,
+    deps.tenantSecretsKey,
+    (deps.clock ?? nowIso)(),
+  )
+  return { ok: true }
 }
 
 const TEST_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -496,9 +635,15 @@ export async function testSmtpSettings(
   if (smtp.port === 25) {
     return errorJson('Outbound SMTP on port 25 is not supported.', 400)
   }
-  if (!smtpPasswordConfigured(deps.smtpPassword)) {
+  const resolvedPassword = await effectiveNamedSecret(
+    deps,
+    'smtp_password',
+    deps.smtpPassword,
+  )
+  const smtpPassword = resolvedPassword.value
+  if (!smtpPasswordConfigured(smtpPassword)) {
     return errorJson(
-      'SMTP password is not configured. Set the SMTP_PASSWORD Worker secret.',
+      'SMTP password is not configured. Save one for this company, or set the SMTP_PASSWORD Worker secret.',
       400,
     )
   }
@@ -538,7 +683,7 @@ export async function testSmtpSettings(
     deps.mailFactory ??
     ((config, password) => createSmtpTransport(config, password))
   try {
-    await mailFactory(smtp, deps.smtpPassword ?? '').send({
+    await mailFactory(smtp, smtpPassword ?? '').send({
       fromName: smtp.fromName || 'Bitz Designs',
       fromEmail: smtp.fromEmail,
       replyTo: smtp.replyTo || undefined,

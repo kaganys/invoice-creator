@@ -22,8 +22,8 @@ export function InvoiceEditor() {
       <div className="editor-toolbar">
         <p className="editor-toolbar__hint">
           {savedId
-            ? 'This browser keeps a working copy. Save writes the invoice to D1.'
-            : 'Unsaved working copy in this browser only. Save to store it in D1.'}
+            ? 'Edits stay in this browser until you save again.'
+            : 'This invoice is only in this browser until you save it.'}
         </p>
         <div className="editor-toolbar__actions">
           <ResetInvoiceButton />
@@ -39,7 +39,7 @@ export function InvoiceEditor() {
               })
             }}
           >
-            {saving ? 'Saving…' : savedId ? 'Save invoice' : 'Save to D1'}
+            {saving ? 'Saving…' : 'Save invoice'}
           </button>
         </div>
       </div>

@@ -113,6 +113,7 @@ export async function onboardCompany(payload: {
   fromName: string
   fromEmail: string
   zelleEmail: string
+  inviteCode?: string
   wordmark?: File
   icon?: File
   invoiceLogo?: File
@@ -123,6 +124,9 @@ export async function onboardCompany(payload: {
   form.set('fromName', payload.fromName)
   form.set('fromEmail', payload.fromEmail)
   form.set('zelleEmail', payload.zelleEmail)
+  if (payload.inviteCode) {
+    form.set('inviteCode', payload.inviteCode)
+  }
   if (payload.wordmark) {
     form.set('site-wordmark', payload.wordmark)
   }

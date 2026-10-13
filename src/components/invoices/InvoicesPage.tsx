@@ -77,8 +77,8 @@ export function InvoicesPage() {
     <div className="app-page">
       <div className="invoices-toolbar">
         <p className="invoices-toolbar__hint">
-          Saved invoices live in D1. The editor working copy is only a local
-          recovery draft until you save.
+          These are the invoices you have saved. A draft you have not saved
+          yet stays in this browser.
         </p>
         <button
           type="button"

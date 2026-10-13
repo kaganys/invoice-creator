@@ -138,7 +138,7 @@ export function InvoiceDraftProvider({ children }: { children: ReactNode }) {
     const person = fromId
       ? people.find((entry) => entry.id === fromId)
       : undefined
-    let number = ''
+    let number: string
     try {
       number = await allocateNumber()
     } catch {
@@ -356,7 +356,7 @@ export function InvoiceDraftProvider({ children }: { children: ReactNode }) {
         keys[`unitPrice:${item.id}`] = true
       }
       setTouched((current) => ({ ...current, ...keys }))
-      setSaveError('Fix the highlighted fields before saving to D1.')
+      setSaveError('Fix the highlighted fields before saving.')
       return null
     }
 
@@ -401,7 +401,7 @@ export function InvoiceDraftProvider({ children }: { children: ReactNode }) {
             ? error.message
             : 'Could not load invoice.'
       setSaveError(message)
-      throw new Error(message)
+      throw new Error(message, { cause: error })
     } finally {
       setSaving(false)
     }

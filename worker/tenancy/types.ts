@@ -65,12 +65,14 @@ export interface TenantStore {
     companyId: string,
     userId: string,
   ): Promise<MembershipView | null>
+  getMembershipById(id: string): Promise<MembershipView | null>
   createMembership(record: MembershipRecord): Promise<MembershipRecord>
   updateMembershipRole(
     id: string,
+    companyId: string,
     roleId: string,
     updatedAt: string,
-  ): Promise<void>
+  ): Promise<boolean>
   deleteMembership(id: string): Promise<boolean>
   listRoles(companyId: string): Promise<RoleRecord[]>
   getRole(id: string): Promise<RoleRecord | null>

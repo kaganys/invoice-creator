@@ -26,7 +26,7 @@ export function isPublicApiPath(pathname: string): boolean {
   if (path.startsWith('/api/public/')) {
     return true
   }
-  if (path === '/api/webhooks/stripe') {
+  if (path === '/api/webhooks/stripe' || path.startsWith('/api/webhooks/stripe/')) {
     return true
   }
   // Read-only uploaded branding bytes used by the payment page logo.

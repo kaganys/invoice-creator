@@ -10,6 +10,7 @@ import {
   type PaymentsConfig,
 } from '../settings/payments.ts'
 import { calculateCardCharge, stripeCurrencyError, toStripeAmount } from './cardAmount.ts'
+import { createStripeGateway } from './stripeClient.ts'
 import {
   classifyStripePaymentMethod,
   paidMethodFor,
@@ -30,6 +31,8 @@ export type PaymentIntentDeps = {
   payments: PaymentsConfig
   loadPaymentsForCompany?: (companyId: string) => Promise<PaymentsConfig>
   stripeSecret?: string
+  resolveStripeSecret?: (companyId: string) => Promise<string | undefined>
+  paymentBaseUrl?: string
   ledger?: PaymentLedger
   clock?: () => string
   idFactory?: () => string
@@ -41,6 +44,71 @@ const BLOCKING_STRIPE_STATUSES = new Set([
   'requires_action',
   'succeeded',
 ])
+
+export const CONFIRMING_TTL_MS = 15 * 60 * 1000
+
+export function sanitizePaymentReturnUrl(
+  raw: string,
+  options: { requestUrl: string; configuredBase?: string },
+): string {
+  const allowed = new Set<string>(['https://pay.vrfnw.com'])
+  const configured = (options.configuredBase ?? '').trim().replace(/\/+$/, '')
+  if (configured.startsWith('https://') || configured.startsWith('http://')) {
+    try {
+      allowed.add(new URL(configured).origin)
+    } catch {
+      // Ignore a bad configured origin and keep the public host.
+    }
+  }
+  try {
+    const request = new URL(options.requestUrl)
+    if (request.hostname === 'localhost' || request.hostname === '127.0.0.1') {
+      allowed.add(request.origin)
+    }
+  } catch {
+    // Request URL is only used to allow local returns.
+  }
+  if (raw) {
+    try {
+      const url = new URL(raw)
+      if (
+        (url.protocol === 'https:' || url.protocol === 'http:') &&
+        allowed.has(url.origin)
+      ) {
+        return url.toString()
+      }
+    } catch {
+      // Fall through to the public payment host.
+    }
+  }
+  if (allowed.has('https://pay.vrfnw.com')) {
+    return 'https://pay.vrfnw.com/'
+  }
+  return 'https://pay.vrfnw.com/'
+}
+
+async function stripeContext(
+  companyId: string | null | undefined,
+  deps: PaymentIntentDeps,
+): Promise<{ secret?: string; stripe?: StripeGateway }> {
+  if (deps.resolveStripeSecret && companyId) {
+    const secret = await deps.resolveStripeSecret(companyId)
+    return {
+      secret,
+      stripe: secret ? createStripeGateway(secret) : undefined,
+    }
+  }
+  return { secret: deps.stripeSecret, stripe: deps.stripe }
+}
+
+function confirmingIsFresh(updatedAt: string, nowIso: string): boolean {
+  const updated = Date.parse(updatedAt)
+  const now = Date.parse(nowIso)
+  if (!Number.isFinite(updated) || !Number.isFinite(now)) {
+    return true
+  }
+  return now - updated < CONFIRMING_TTL_MS
+}
 
 export async function createPublicPaymentIntent(
   rawToken: string,
@@ -60,7 +128,8 @@ export async function createPublicPaymentIntent(
     record.companyId && deps.loadPaymentsForCompany
       ? await deps.loadPaymentsForCompany(record.companyId)
       : deps.payments
-  const secret = deps.stripeSecret
+  const resolvedStripe = await stripeContext(record.companyId, deps)
+  const secret = resolvedStripe.secret
   if (!anyStripePaymentReady(payments, Boolean(secret)) || !secret) {
     return errorJson('Online payment is not available for this invoice.', 409)
   }
@@ -149,14 +218,16 @@ export async function confirmPublicPayment(
       ? await deps.loadPaymentsForCompany(record.companyId)
       : deps.payments
 
-  const secret = deps.stripeSecret
-  if (!anyStripePaymentReady(payments, Boolean(secret)) || !secret || !deps.stripe) {
+  const resolvedStripe = await stripeContext(record.companyId, deps)
+  const secret = resolvedStripe.secret
+  const stripe = resolvedStripe.stripe
+  if (!anyStripePaymentReady(payments, Boolean(secret)) || !secret || !stripe) {
     return errorJson('Online payment is not available for this invoice.', 409)
   }
 
   let preview
   try {
-    preview = await deps.stripe.retrieveConfirmationToken(confirmationTokenId)
+    preview = await stripe.retrieveConfirmationToken(confirmationTokenId)
   } catch (caught) {
     return errorJson(
       caught instanceof Error
@@ -217,6 +288,9 @@ export async function confirmPublicPayment(
     stripeWalletType: preview.walletType,
     stripePaymentStatus: 'confirming',
     updatedAt: timestamp,
+    staleConfirmingBefore: new Date(
+      Date.parse(timestamp) - CONFIRMING_TTL_MS,
+    ).toISOString(),
   })
   if (!claimed) {
     return errorJson('A payment is already processing for this invoice.', 409)
@@ -224,12 +298,15 @@ export async function confirmPublicPayment(
 
   let created
   try {
-    created = await deps.stripe.confirmWithToken({
+    created = await stripe.confirmWithToken({
       amount: stripeAmount,
       currency: charge.currency,
       confirmationTokenId,
       idempotencyKey: `bitz-ct-${token.id}-${confirmationTokenId}`,
-      returnUrl: returnUrl || 'https://pay.vrfnw.com/',
+      returnUrl: sanitizePaymentReturnUrl(returnUrl, {
+        requestUrl: request.url,
+        configuredBase: deps.paymentBaseUrl,
+      }),
       metadata: {
         invoice_id: record.id,
         invoice_number: record.number,
@@ -345,11 +422,17 @@ async function hasBlockingPayment(
   deps: PaymentIntentDeps,
 ): Promise<boolean> {
   const invoice = await deps.invoices.get(invoiceId)
+  const nowIso = (deps.clock ?? (() => new Date().toISOString()))()
   if (
     invoice?.stripePaymentStatus &&
     BLOCKING_STRIPE_STATUSES.has(invoice.stripePaymentStatus)
   ) {
-    return true
+    const staleConfirming =
+      invoice.stripePaymentStatus === 'confirming' &&
+      !confirmingIsFresh(invoice.updatedAt, nowIso)
+    if (!staleConfirming) {
+      return true
+    }
   }
   if (!deps.ledger) {
     return false
