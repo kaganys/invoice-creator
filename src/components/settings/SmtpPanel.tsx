@@ -31,6 +31,7 @@ export function SmtpPanel() {
   const [testTo, setTestTo] = useState('')
   const [tab, setTab] = useState<EmailTab>('connection')
   const [editorOpen, setEditorOpen] = useState(false)
+  const [password, setPassword] = useState('')
 
   useEffect(() => {
     setDraft(smtp)
@@ -55,8 +56,10 @@ export function SmtpPanel() {
         replyTo: draft.replyTo,
         subjectTemplate: draft.subjectTemplate,
         bodyTemplate: draft.bodyTemplate,
+        password: password.trim() || undefined,
       })
-      setSuccess('This company’s SMTP settings saved. The password is never stored in D1.')
+      setPassword('')
+      setSuccess('Email settings saved.')
     } catch {
       // Context error.
     }
@@ -90,7 +93,7 @@ export function SmtpPanel() {
   return (
     <InvoiceSection
       title="Email / SMTP"
-      description="Host, from-address, and email design are stored for this company only. The Worker SMTP password secret is shared infrastructure and is never stored in D1."
+      description="Mail server, from-address, and email design for this company. A password saved here is encrypted and is not shown again. If you leave it blank, the existing password stays."
     >
       {loading ? <p className="settings-status">Loading SMTP settings…</p> : null}
       <nav className="format-subnav" aria-label="Email settings">
@@ -196,27 +199,29 @@ export function SmtpPanel() {
             onChange={(event) => patch({ replyTo: event.target.value })}
           />
         </Field>
-        <div>
-          <p className="field__label">Password</p>
-          <div className="password-state">
-            {smtp.passwordConfigured ? (
-              <>
-                <span className="badge">Configured</span>
-                <code aria-hidden="true">••••••••</code>
-              </>
-            ) : (
-              <span className="settings-help">Not configured</span>
-            )}
-          </div>
-        </div>
+        <Field label="Password" htmlFor="smtp-password">
+          <input
+            id="smtp-password"
+            className="field__input"
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            disabled={saving || loading}
+            placeholder={smtp.passwordConfigured ? 'Leave blank to keep the current password' : 'SMTP password'}
+            onChange={(event) => {
+              setPassword(event.target.value)
+              setSuccess(null)
+            }}
+          />
+        </Field>
       </div>
       <p className="settings-help">
-        This application never returns, logs, or stores the SMTP password in D1.
-        Set or replace it as a Worker secret with Wrangler.
-      </p>
-      <p className="settings-help">
-        For local development, keep the SMTP password only in your gitignored
-        local Worker secret file. Do not commit credentials. Port 25 is rejected.
+        {smtp.passwordConfigured
+          ? smtp.passwordSource === 'platform'
+            ? 'Using the platform SMTP password. Saving a password here replaces it for this company only.'
+            : 'A password is saved for this company. It is not shown after you leave this page.'
+          : 'No password yet. You can save one here, or set SMTP_PASSWORD on the Worker as a fallback.'}
+        {' '}Port 25 is not accepted.
       </p>
       <Field label="Send a real test email to" htmlFor="smtp-test-to">
         <input

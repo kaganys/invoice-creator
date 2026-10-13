@@ -2,9 +2,9 @@
 
 Internal invoice creator for **Bitz Designs**.
 
-The UI is a React + Vite + TypeScript frontend. A Cloudflare Worker serves `/api/*` and uses a remote D1 database.
+The UI is a React + Vite + TypeScript frontend. A Cloudflare Worker serves `/api/*` and stores data in D1.
 
-People, Settings, and **saved invoices** are stored in remote D1. The editor also keeps an unsaved working copy in `localStorage` for crash/reload recovery. That working copy is not the source of truth for saved invoices.
+People, settings, and saved invoices live in D1. The editor also keeps an unsaved working copy in `localStorage` so a reload does not wipe a draft. That working copy is not the saved invoice.
 
 ## Prerequisites
 
@@ -33,9 +33,13 @@ Binding name:
 DB
 ```
 
-The Wrangler config sets `"remote": true` on this binding. Local `npm run dev` still runs the Worker on your machine, but D1 queries go to the **real hosted database**, not a local SQLite file.
+Local `npm run dev` uses a local D1 database under `.wrangler/`. It does not write to the hosted database.
 
-**Warning:** local development writes to the actual remote D1 database. Treat it as shared/live data.
+Apply migrations locally:
+
+```bash
+npx wrangler d1 migrations apply bitz-designs-invoicing --local
+```
 
 If you need to create the database on a new account:
 
@@ -57,19 +61,9 @@ After changing Wrangler bindings, regenerate Worker types:
 npm run cf-typegen
 ```
 
-### Apply schema migrations to REMOTE D1
+### Apply schema migrations to production D1
 
-This writes to the hosted database. Review `migrations/0001_create_people_and_settings.sql` first, then run:
-
-```bash
-npx wrangler d1 migrations apply bitz-designs-invoicing --remote
-```
-
-Do not omit `--remote`. Without it, Wrangler would apply the migration to a local SQLite file instead of the real D1 database.
-
-Invoice tables are in `migrations/0002_create_invoices.sql`. Settings numbering columns are in `migrations/0003_settings_numbering_branding.sql`. Static invoice-logo path plus paid/void metadata are in `migrations/0004_invoice_status_and_static_logo.sql`. After reviewing those files, apply pending migrations with the same command (Wrangler applies them in order).
-
-**Do not apply a remote migration until you have reviewed it.** The command is:
+Read the files in `migrations/` first. `0011_company_scope.sql` makes invoice numbers unique per company, scopes email idempotency to the invoice, and adds `company_secrets` for encrypted Stripe and SMTP credentials.
 
 ```bash
 npx wrangler d1 migrations apply bitz-designs-invoicing --remote
@@ -81,25 +75,36 @@ The sequence lives in `invoice_sequences` and is incremented atomically with `UP
 
 The sequence **does not reset on January 1**. Include-year only changes the formatted string (`BD` + `2026` + `-` + `0051` → `BD2026-0051`). Resetting yearly would risk collisions if include-year is later turned off. Assigned invoice numbers are never rewritten when numbering settings change.
 
-## SMTP password (Worker secret)
+## Secrets
 
-Non-secret SMTP settings (host, port, username, security, From name/email, Reply-To) are stored in D1 via the settings table.
+Company Stripe and SMTP passwords can be saved in Settings. They are encrypted with `TENANT_SECRETS_KEY` and stored in `company_secrets`. The API never returns the secret values.
 
-The SMTP password is **not** stored in D1 and is **never** returned by the API. Set it as a Worker secret:
+If a company has not saved its own credential, the Worker uses the platform secret of the same kind.
 
 ```bash
+npx wrangler secret put TENANT_SECRETS_KEY
 npx wrangler secret put SMTP_PASSWORD
+npx wrangler secret put STRIPE_SECRET_KEY
+npx wrangler secret put STRIPE_WEBHOOK_SECRET
+npx wrangler secret put PAYMENT_LINK_KEY
+npx wrangler secret put ACCESS_TEAM_DOMAIN
+npx wrangler secret put ACCESS_AUD
+npx wrangler secret put ONBOARD_INVITE_CODE
 ```
 
-For local `npm run dev`, put the same name in a gitignored `.dev.vars` file:
+`TENANT_SECRETS_KEY` is a base64-encoded 32-byte key:
 
-```text
-SMTP_PASSWORD=your-local-dev-secret
+```bash
+openssl rand -base64 32
 ```
 
-Use `.dev.vars.example` as the placeholder template for local setup. Do not commit `.dev.vars` or real credentials. The GUI can show `passwordConfigured: true` only. Replacing the secret is done with the same Wrangler command — not through the API.
+`ACCESS_TEAM_DOMAIN` is the Cloudflare Access team host, such as `your-team.cloudflareaccess.com`. `ACCESS_AUD` is the Access application audience tag. Production requests to `invoice.vrfnw.com` require a verified Access JWT. Localhost does not. Set `DEV_ACCESS_EMAIL` in `.dev.vars` (the default is `dev@localhost`).
 
-Port 25 is rejected. Use 465 (SSL / implicit TLS), 587 (STARTTLS), or 2525. The settings are provider-independent (Brevo, SMTP2GO, or any standard SMTP service). `POST /api/settings/smtp/test` sends a real test email, and `POST /api/invoices/:id/send` sends the real invoice email with a PDF attachment.
+`ONBOARD_INVITE_CODE` is required to create a company on a non-local host. Leave it unset for local development, or set it and type the same code on the setup screen.
+
+For local `npm run dev`, put the same names in a gitignored `.dev.vars` file. Start from `.dev.vars.example`. Do not commit `.dev.vars`.
+
+Port 25 is rejected. Use 465, 587, or 2525. `POST /api/settings/smtp/test` sends a real test email.
 
 ## Hostnames
 
@@ -139,7 +144,7 @@ This starts the Cloudflare Vite dev server (typically `http://localhost:5173`). 
 Health checks:
 
 - `GET /api/health` — Worker process is up
-- `GET /api/health/db` — Worker can run `SELECT 1` against remote D1
+- `GET /api/health/db` — Worker can run `SELECT 1` against D1
 - `GET/POST /api/people` and `GET/PUT/DELETE /api/people/:id` — saved people
 - `GET /api/settings` — aggregated settings (defaults, numbering, branding, SMTP)
 - `PUT /api/settings/defaults` — invoice field defaults (including Default From)
@@ -168,23 +173,7 @@ Do not process unsigned JSON. Do not trust Stripe metadata for the charge amount
 
 **Race with admin Mark Paid:** if an admin marks the invoice paid at about the same time Stripe succeeds, `paid_method` / `paid_at` stay as the admin set them. The Stripe payment is still recorded in `invoice_payments`, receipt fields are attached with `COALESCE`, and the token is revoked. Void invoices are never un-voided.
 
-Set Worker secrets (never commit them, never store in D1):
-
-```bash
-npx wrangler secret put STRIPE_SECRET_KEY
-npx wrangler secret put STRIPE_WEBHOOK_SECRET
-npx wrangler secret put PAYMENT_LINK_KEY
-```
-
-Local `.dev.vars` (gitignored):
-
-```text
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-PAYMENT_LINK_KEY=...
-```
-
-You can start from `.dev.vars.example`, then create your own gitignored `.dev.vars` with real local-only values.
+A company can save its own Stripe secret key and webhook signing secret in Settings. Otherwise the Worker uses `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`.
 
 Forward events with the Stripe CLI while `npm run dev` is running:
 
@@ -238,7 +227,7 @@ Preview the production build locally:
 npm run preview
 ```
 
-Do not use `npm run preview` as a substitute for remote D1 verification; the health/db endpoint is the check for database reachability.
+`npm run preview` does not apply migrations. `GET /api/health/db` checks that D1 answers `SELECT 1`.
 
 ## Branding assets
 
@@ -267,7 +256,7 @@ New invoices snapshot the current invoice-logo path. Historical invoices keep th
 public/branding/             Branding images served as static assets
 worker/                      Cloudflare Worker API (`/api/*`)
 migrations/                  Versioned D1 schema migrations
-wrangler.jsonc               Worker, assets, and remote D1 binding
+wrangler.jsonc               Worker, assets, D1, R2, and Browser Rendering
 src/
   types/invoice.ts           Invoice data model
   types/person.ts            Saved people
@@ -288,9 +277,9 @@ src/
 
 - The admin UI supports light and dark themes. The preference is stored in `localStorage` under `bitz-designs-theme`. On first visit, the operating-system color scheme is used.
 - The current invoice draft is stored in `localStorage` under `bitz-designs-invoice-draft` as crash recovery only. A recovered draft is not overwritten with Settings defaults on startup. **New Invoice** / **Reset Invoice** snapshot the current defaults (From person, Zelle, fees, currency, memo, due days, notes, country, invoice logo) and allocate a number from D1.
-- Settings categories: Defaults, Email / SMTP, Branding, Invoice Numbering. Additional categories can be added to `SETTINGS_CATEGORIES`.
+- Settings categories: Defaults, Email / SMTP, Payments, Branding, Invoice Numbering, and Format.
 - If the Default From person is deleted, the setting is cleared. Existing invoices keep the From snapshot they already stored.
 - Selecting a person copies their details into the invoice. Saved D1 invoices store that snapshot and do not change when the People record changes later.
 - Explicit **Save invoice** writes to D1.
 - The invoice preview is always a white document with dark text, regardless of the admin theme.
-- Invoice totals use integer cents. The invoice/Zelle total is never increased by a credit-card fee; the card total is a separate calculation for a later Stripe phase.
+- Invoice totals use integer cents. The printed invoice and the Zelle amount do not include a card fee. The card total is calculated separately when the customer pays.

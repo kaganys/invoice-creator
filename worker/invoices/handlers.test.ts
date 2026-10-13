@@ -298,6 +298,18 @@ describe('invoice API handlers', () => {
     expect(updated?.lineItems[0]?.unitPriceCents).toBe(8000)
   })
 
+  it('rejects a new invoice that is already paid or sent', async () => {
+    const store = createMemoryStore()
+    const response = await createInvoice(
+      jsonRequest(body({ status: 'paid' })),
+      store,
+      () => NOW,
+      () => ID_A,
+    )
+    expect(response.status).toBe(400)
+    expect(await store.get(ID_A)).toBeNull()
+  })
+
   it('rejects a duplicate invoice number', async () => {
     const store = createMemoryStore()
     await createInvoice(
@@ -324,11 +336,15 @@ describe('invoice API handlers', () => {
       () => ID_A,
     )
     await createInvoice(
-      jsonRequest(body({ number: 'SENT-1', status: 'sent' })),
+      jsonRequest(body({ number: 'SENT-1' })),
       store,
       () => NOW,
       () => ID_B,
     )
+    const sent = await store.get(ID_B)
+    if (sent) {
+      await store.replace({ ...sent, status: 'sent' })
+    }
     const deleted = await deleteInvoice(ID_A, store)
     expect(deleted.status).toBe(200)
     const refused = await deleteInvoice(ID_B, store)

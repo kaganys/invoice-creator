@@ -416,8 +416,12 @@ export function createD1InvoiceStore(
 
     async replace(record) {
       const existing = await db
-        .prepare('SELECT id FROM invoices WHERE id = ?')
-        .bind(record.id)
+        .prepare(
+          companyId
+            ? 'SELECT id FROM invoices WHERE id = ? AND company_id = ?'
+            : 'SELECT id FROM invoices WHERE id = ?',
+        )
+        .bind(...(companyId ? [record.id, companyId] : [record.id]))
         .first<{ id: string }>()
       if (!existing) {
         return null
@@ -452,8 +456,12 @@ export function createD1InvoiceStore(
 
     async deleteDraft(id) {
       const row = await db
-        .prepare('SELECT status FROM invoices WHERE id = ?')
-        .bind(id)
+        .prepare(
+          companyId
+            ? 'SELECT status FROM invoices WHERE id = ? AND company_id = ?'
+            : 'SELECT status FROM invoices WHERE id = ?',
+        )
+        .bind(...(companyId ? [id, companyId] : [id]))
         .first<{ status: InvoiceStatus }>()
       if (!row) {
         return 'not_found'
@@ -463,15 +471,25 @@ export function createD1InvoiceStore(
       }
       await db.batch([
         db.prepare('DELETE FROM invoice_line_items WHERE invoice_id = ?').bind(id),
-        db.prepare('DELETE FROM invoices WHERE id = ?').bind(id),
+        db
+          .prepare(
+            companyId
+              ? 'DELETE FROM invoices WHERE id = ? AND company_id = ?'
+              : 'DELETE FROM invoices WHERE id = ?',
+          )
+          .bind(...(companyId ? [id, companyId] : [id])),
       ])
       return 'deleted'
     },
 
     async markPaid(id, fields) {
       const row = await db
-        .prepare('SELECT status FROM invoices WHERE id = ?')
-        .bind(id)
+        .prepare(
+          companyId
+            ? 'SELECT status FROM invoices WHERE id = ? AND company_id = ?'
+            : 'SELECT status FROM invoices WHERE id = ?',
+        )
+        .bind(...(companyId ? [id, companyId] : [id]))
         .first<{ status: InvoiceStatus }>()
       if (!row) {
         return 'not_found'
@@ -492,7 +510,7 @@ export function createD1InvoiceStore(
                  stripe_payment_method = COALESCE(?, stripe_payment_method),
                  stripe_wallet_type = COALESCE(?, stripe_wallet_type),
                  stripe_payment_status = COALESCE(?, stripe_payment_status)
-             WHERE id = ?`,
+             WHERE id = ?${companyId ? ' AND company_id = ?' : ''}`,
           )
           .bind(
             fields.paidAt,
@@ -504,6 +522,7 @@ export function createD1InvoiceStore(
             fields.stripeWalletType ?? null,
             fields.stripePaymentStatus ?? 'succeeded',
             id,
+            ...(companyId ? [companyId] : []),
           ),
         db
           .prepare(REVOKE_ACTIVE_TOKENS_SQL)
@@ -559,6 +578,7 @@ export function createD1InvoiceStore(
     },
 
     async claimStripeAttempt(id, fields) {
+      const stale = fields.staleConfirmingBefore
       const result = await db
         .prepare(
           `UPDATE invoices
@@ -566,11 +586,12 @@ export function createD1InvoiceStore(
                stripe_wallet_type = COALESCE(?, stripe_wallet_type),
                stripe_payment_status = ?,
                updated_at = ?
-           WHERE id = ?
+           WHERE id = ?${companyId ? ' AND company_id = ?' : ''}
              AND status = 'sent'
              AND (
                stripe_payment_status IS NULL
                OR stripe_payment_status IN ('failed', 'canceled', 'requires_payment_method')
+               ${stale ? "OR (stripe_payment_status = 'confirming' AND updated_at < ?)" : ''}
              )`,
         )
         .bind(
@@ -579,6 +600,8 @@ export function createD1InvoiceStore(
           fields.stripePaymentStatus,
           fields.updatedAt,
           id,
+          ...(companyId ? [companyId] : []),
+          ...(stale ? [stale] : []),
         )
         .run()
       return (result.meta.changes ?? 0) > 0
@@ -586,8 +609,12 @@ export function createD1InvoiceStore(
 
     async voidInvoice(id, fields) {
       const row = await db
-        .prepare('SELECT status FROM invoices WHERE id = ?')
-        .bind(id)
+        .prepare(
+          companyId
+            ? 'SELECT status FROM invoices WHERE id = ? AND company_id = ?'
+            : 'SELECT status FROM invoices WHERE id = ?',
+        )
+        .bind(...(companyId ? [id, companyId] : [id]))
         .first<{ status: InvoiceStatus }>()
       if (!row) {
         return 'not_found'
@@ -603,9 +630,15 @@ export function createD1InvoiceStore(
           .prepare(
             `UPDATE invoices
              SET status = 'void', voided_at = ?, void_reason = ?, updated_at = ?
-             WHERE id = ?`,
+             WHERE id = ?${companyId ? ' AND company_id = ?' : ''}`,
           )
-          .bind(fields.voidedAt, fields.voidReason, fields.updatedAt, id),
+          .bind(
+            fields.voidedAt,
+            fields.voidReason,
+            fields.updatedAt,
+            id,
+            ...(companyId ? [companyId] : []),
+          ),
         db
           .prepare(REVOKE_ACTIVE_TOKENS_SQL)
           .bind(fields.updatedAt, 'void', id),
@@ -618,9 +651,9 @@ export function createD1InvoiceStore(
         .prepare(
           `UPDATE invoices
            SET format_json = COALESCE(format_json, ?), updated_at = ?
-           WHERE id = ?`,
+           WHERE id = ?${companyId ? ' AND company_id = ?' : ''}`,
         )
-        .bind(formatJson, updatedAt, id)
+        .bind(formatJson, updatedAt, id, ...(companyId ? [companyId] : []))
         .run()
     },
 
@@ -634,7 +667,7 @@ export function createD1InvoiceStore(
                send_count = ?,
                format_json = COALESCE(format_json, ?),
                updated_at = ?
-           WHERE id = ?`,
+           WHERE id = ?${companyId ? ' AND company_id = ?' : ''}`,
         )
         .bind(
           fields.status,
@@ -644,6 +677,7 @@ export function createD1InvoiceStore(
           fields.formatJson,
           fields.updatedAt,
           id,
+          ...(companyId ? [companyId] : []),
         )
         .run()
     },
@@ -700,12 +734,14 @@ export function createD1InvoiceStore(
         .run()
     },
 
-    async getEmailLogByIdempotency(key) {
+    async getEmailLogByIdempotency(invoiceId, key) {
       const row = await db
         .prepare(
-          `SELECT * FROM invoice_email_log WHERE idempotency_key = ? LIMIT 1`,
+          `SELECT * FROM invoice_email_log
+           WHERE invoice_id = ? AND idempotency_key = ?
+           LIMIT 1`,
         )
-        .bind(key)
+        .bind(invoiceId, key)
         .first<EmailLogRow>()
       return row ? mapEmailLog(row) : null
     },

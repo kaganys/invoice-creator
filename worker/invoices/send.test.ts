@@ -188,8 +188,12 @@ function createStore(seed?: InvoiceRecord): InvoiceStore & {
       existing.errorCategory = fields.errorCategory
       existing.errorMessage = fields.errorMessage
     },
-    async getEmailLogByIdempotency(key) {
-      return logs.find((item) => item.idempotencyKey === key) ?? null
+    async getEmailLogByIdempotency(invoiceId, key) {
+      return (
+        logs.find(
+          (item) => item.invoiceId === invoiceId && item.idempotencyKey === key,
+        ) ?? null
+      )
     },
     async listEmailLogs(invoiceId) {
       return logs.filter((item) => item.invoiceId === invoiceId)

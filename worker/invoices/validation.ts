@@ -1,8 +1,17 @@
+import { CURRENCY_OPTIONS } from '../../src/types/invoice.ts'
 import {
+  lineAmountCents,
   parseMoneyToCents,
   parsePercentScaled,
   parseQuantityScaled,
+  QUANTITY_SCALE,
 } from '../../src/utils/money.ts'
+
+const MAX_QUANTITY = 10_000
+const MAX_QUANTITY_SCALED = MAX_QUANTITY * QUANTITY_SCALE
+const MAX_UNIT_PRICE_CENTS = 10_000_000
+const MAX_FEE_PERCENT_SCALED = 10_000
+const MAX_FIXED_FEE_CENTS = 10_000_000
 import { isAllowedBrandingPath } from '../../src/branding.ts'
 import {
   BUILTIN_INVOICE_LOGO,
@@ -163,7 +172,13 @@ export function validateInvoiceWrite(
     return { ok: false, message: 'Due date cannot be before the issue date.' }
   }
 
-  const currency = asTrimmedString(input.currency) || 'USD'
+  const currency = (asTrimmedString(input.currency) || 'USD').toUpperCase()
+  if (!(CURRENCY_OPTIONS as readonly string[]).includes(currency)) {
+    return {
+      ok: false,
+      message: `Currency must be one of ${CURRENCY_OPTIONS.join(', ')}.`,
+    }
+  }
   const from = parseParty(input.from, 'Sender')
   if (!from.ok) {
     return from
@@ -187,15 +202,23 @@ export function validateInvoiceWrite(
       ? paymentInput.cardFeePercent
       : '',
   )
-  if (cardFeePercentScaled === null || cardFeePercentScaled < 0) {
-    return { ok: false, message: 'Card fee percent is invalid.' }
+  if (
+    cardFeePercentScaled === null ||
+    cardFeePercentScaled < 0 ||
+    cardFeePercentScaled > MAX_FEE_PERCENT_SCALED
+  ) {
+    return { ok: false, message: 'Card fee percent must be between 0 and 100.' }
   }
 
   const fixedRaw = asTrimmedString(paymentInput.cardFeeFixed)
   const cardFeeFixedCents =
     fixedRaw === '' ? 0 : parseMoneyToCents(fixedRaw)
-  if (cardFeeFixedCents === null || cardFeeFixedCents < 0) {
-    return { ok: false, message: 'Fixed card fee is invalid.' }
+  if (
+    cardFeeFixedCents === null ||
+    cardFeeFixedCents < 0 ||
+    cardFeeFixedCents > MAX_FIXED_FEE_CENTS
+  ) {
+    return { ok: false, message: 'Fixed card fee is too large.' }
   }
 
   const invoiceLogo = parseInvoiceLogo(input.invoiceLogo)
@@ -213,17 +236,32 @@ export function validateInvoiceWrite(
       return { ok: false, message: `Line item ${index + 1} is invalid.` }
     }
     const quantityScaled = parseQuantityScaled(asTrimmedString(entry.quantity))
-    if (quantityScaled === null || quantityScaled <= 0) {
+    if (
+      quantityScaled === null ||
+      quantityScaled <= 0 ||
+      quantityScaled > MAX_QUANTITY_SCALED
+    ) {
       return {
         ok: false,
-        message: `Line item ${index + 1} quantity must be greater than zero.`,
+        message: `Line item ${index + 1} quantity must be greater than zero and at most ${MAX_QUANTITY}.`,
       }
     }
     const unitPriceCents = parseMoneyToCents(asTrimmedString(entry.unitPrice))
-    if (unitPriceCents === null || unitPriceCents < 0) {
+    if (
+      unitPriceCents === null ||
+      unitPriceCents < 0 ||
+      unitPriceCents > MAX_UNIT_PRICE_CENTS
+    ) {
       return {
         ok: false,
-        message: `Line item ${index + 1} unit price cannot be negative.`,
+        message: `Line item ${index + 1} unit price must be between 0 and 100000.00.`,
+      }
+    }
+    const amount = lineAmountCents(quantityScaled, unitPriceCents)
+    if (!Number.isSafeInteger(amount)) {
+      return {
+        ok: false,
+        message: `Line item ${index + 1} amount is too large.`,
       }
     }
     const id = asTrimmedString(entry.id) || undefined

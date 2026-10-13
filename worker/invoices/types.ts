@@ -136,6 +136,7 @@ export interface InvoiceStore {
       stripeWalletType?: string | null
       stripePaymentStatus: string
       updatedAt: string
+      staleConfirmingBefore?: string
     },
   ): Promise<boolean>
   voidInvoice(
@@ -155,7 +156,10 @@ export interface InvoiceStore {
       errorMessage: string | null
     },
   ): Promise<void>
-  getEmailLogByIdempotency(key: string): Promise<EmailLogRecord | null>
+  getEmailLogByIdempotency(
+    invoiceId: string,
+    key: string,
+  ): Promise<EmailLogRecord | null>
   listEmailLogs(invoiceId: string, limit?: number): Promise<EmailLogRecord[]>
 }
 

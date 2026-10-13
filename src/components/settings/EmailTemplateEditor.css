@@ -8,10 +8,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  background:
-    radial-gradient(1200px 500px at 20% -10%, rgba(232, 149, 116, 0.16), transparent 55%),
-    radial-gradient(900px 480px at 90% 0%, rgba(26, 169, 156, 0.14), transparent 50%),
-    #101214;
+  background: #161815;
   color: #f4f1ec;
 }
 
@@ -136,7 +133,7 @@
 }
 
 .email-art--hero {
-  background: linear-gradient(135deg, #111 0%, #1f2937 70%, #0f766e 100%);
+  background: #1c2420;
 }
 
 .email-art--heading {
@@ -153,7 +150,7 @@
 }
 
 .email-art--amount {
-  background: linear-gradient(180deg, #99f6e4, #ecfdf5);
+  background: #e7efe9;
 }
 
 .email-art--details {
@@ -166,7 +163,7 @@
 }
 
 .email-art--button {
-  background: radial-gradient(circle at center, #0f766e 0 34%, #ecfdf5 35%);
+  background: #1c2420;
 }
 
 .email-art--divider {
@@ -371,7 +368,7 @@
 .email-drop.is-on {
   height: 18px;
   border-radius: 99px;
-  background: linear-gradient(90deg, transparent, #e89574, transparent);
+  background: #c4a574;
 }
 
 .email-live {

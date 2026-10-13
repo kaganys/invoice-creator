@@ -378,7 +378,7 @@ describe('format handlers', () => {
     const response = await getAllSettings(createDeps())
     const payload = await readJson(response)
     const format = payload.format as { global: { primaryFont: string } }
-    expect(format.global.primaryFont).toBe('inter')
+    expect(format.global.primaryFont).toBe('ibm-plex-sans')
   })
 
   it('rejects invalid format colors', async () => {

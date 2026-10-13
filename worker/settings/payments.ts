@@ -47,6 +47,10 @@ export function serializePayments(config: PaymentsConfig): string {
 export function publicPayments(
   config: PaymentsConfig,
   secretConfigured: boolean,
+  extra: {
+    webhookSecretConfigured?: boolean
+    secretSource?: 'company' | 'platform' | 'none'
+  } = {},
 ) {
   return {
     stripeEnabled: config.stripeEnabled,
@@ -55,6 +59,8 @@ export function publicPayments(
     publishableKey: config.publishableKey,
     statementDescriptor: config.statementDescriptor,
     secretConfigured,
+    webhookSecretConfigured: extra.webhookSecretConfigured ?? false,
+    secretSource: extra.secretSource ?? (secretConfigured ? 'platform' : 'none'),
   }
 }
 

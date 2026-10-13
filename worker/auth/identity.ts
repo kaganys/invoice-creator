@@ -1,4 +1,5 @@
-import { asTrimmedString, isRecord } from '../lib/json.ts'
+import { classifyHostname } from '../hosting/hostRole.ts'
+import { verifyAccessJwt } from './accessJwt.ts'
 
 export type AccessIdentity = {
   email: string
@@ -15,20 +16,33 @@ export function normalizeEmail(value: string): string {
   return value.trim().toLowerCase()
 }
 
-export function parseAccessIdentity(
+export async function parseAccessIdentity(
   request: Request,
   env: Env,
-): AccessIdentity | null {
-  const headerEmail = request.headers.get('cf-access-authenticated-user-email')
-  const jwt = request.headers.get('cf-access-jwt-assertion')
-  const fromHeader = parseEmail(headerEmail)
-  const fromJwt = parseJwtIdentity(jwt)
-  const email = fromHeader ?? fromJwt?.email ?? parseEmail(devAccessEmail(env))
+): Promise<AccessIdentity | null> {
+  const hostname = new URL(request.url).hostname
+  if (classifyHostname(hostname) === 'dev') {
+    return devIdentity(request, env)
+  }
+  const verified = await verifyAccessJwt(
+    request.headers.get('cf-access-jwt-assertion'),
+    env,
+  )
+  if (!verified) {
+    return null
+  }
+  return verified
+}
+
+function devIdentity(request: Request, env: Env): AccessIdentity | null {
+  const headerEmail = parseDevEmail(
+    request.headers.get('cf-access-authenticated-user-email'),
+  )
+  const email = headerEmail ?? parseDevEmail(devAccessEmail(env))
   if (!email) {
     return null
   }
   const name =
-    fromJwt?.name ||
     request.headers.get('cf-access-authenticated-user-name')?.trim() ||
     nameFromEmail(email)
   return { email, name }
@@ -39,7 +53,6 @@ function devAccessEmail(env: Env): string | undefined {
   if (typeof value === 'string' && value.trim()) {
     return value
   }
-  // Local wrangler/vite has no Access gateway. Seed a stable login.
   return 'dev@localhost'
 }
 
@@ -51,31 +64,16 @@ function parseEmail(value: string | null | undefined): string | null {
   return EMAIL_PATTERN.test(email) ? email : null
 }
 
-function parseJwtIdentity(
-  token: string | null,
-): { email: string | null; name: string } | null {
-  if (!token) {
+function parseDevEmail(value: string | null | undefined): string | null {
+  const email = parseEmail(value)
+  if (email) {
+    return email
+  }
+  if (!value) {
     return null
   }
-  const parts = token.split('.')
-  if (parts.length < 2) {
-    return null
-  }
-  try {
-    const json = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'))
-    const payload: unknown = JSON.parse(json)
-    if (!isRecord(payload)) {
-      return null
-    }
-    const email = parseEmail(asTrimmedString(payload.email))
-    const name =
-      asTrimmedString(payload.name) ||
-      asTrimmedString(payload.given_name) ||
-      (email ? nameFromEmail(email) : '')
-    return { email, name }
-  } catch {
-    return null
-  }
+  const local = normalizeEmail(value)
+  return /^[^\s@]+@localhost$/.test(local) ? local : null
 }
 
 function nameFromEmail(email: string): string {

@@ -337,7 +337,7 @@ export function UsersPage() {
       {can('companies.create') ? (
         <InvoiceSection
           title="New company"
-          description="Creates another tenant on this login. People who sign in with a new Cloudflare email and have no company yet can also create their own workspace from the setup screen."
+          description="Adds another company on this login. Someone with a new Cloudflare email and no company yet can also create one from the setup screen."
         >
           <Field label="Company name" htmlFor="company-name">
             <input

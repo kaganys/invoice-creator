@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { ALL_PERMISSIONS } from '../../src/auth/permissions.ts'
 import { DEFAULT_COMPANY_ID } from '../tenancy/types.ts'
 import type { MembershipView } from '../tenancy/types.ts'
-import { canSwitchCompanies, resolveMembership } from './companyAccess.ts'
+import { canAssignRole, canSwitchCompanies, resolveMembership } from './companyAccess.ts'
 
 const OTHER_COMPANY = 'c0a1b1e0-0000-4000-8000-000000000002'
 
@@ -92,5 +92,14 @@ describe('company access', () => {
         lastCompanyId: null,
       })?.company.id,
     ).toBe(DEFAULT_COMPANY_ID)
+  })
+
+  it('refuses a role that grants permissions the actor does not have', () => {
+    expect(canAssignRole(['users.manage', 'invoices.view'], ['invoices.view'])).toBe(
+      true,
+    )
+    expect(
+      canAssignRole(['users.manage'], ['users.manage', 'companies.create']),
+    ).toBe(false)
   })
 })

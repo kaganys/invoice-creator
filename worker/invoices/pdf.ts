@@ -98,7 +98,7 @@ export async function renderInvoicePdfBytes(
     return await deps.pdf.renderHtml(html)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'PDF generation failed.'
-    throw new Error(message)
+    throw new Error(message, { cause: error })
   }
 }
 

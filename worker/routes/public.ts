@@ -12,8 +12,24 @@ import { createStripeGateway } from '../payments/stripeClient.ts'
 import type { Router } from '../router.ts'
 import { createD1SettingsStore } from '../settings/d1Store.ts'
 import { stripeSecretKey } from '../settings/env.ts'
+import {
+  createD1CompanySecretStore,
+  resolveCompanyOrPlatformSecret,
+} from '../secrets/d1Store.ts'
 import { SETTINGS_KEYS } from '../settings/keys.ts'
 import { parsePaymentsJson } from '../settings/payments.ts'
+
+function stripeResolver(env: Env) {
+  const secrets = createD1CompanySecretStore(env.DB)
+  return (companyId: string) =>
+    resolveCompanyOrPlatformSecret(
+      secrets,
+      companyId,
+      'stripe_secret',
+      env,
+      stripeSecretKey(env),
+    ).then((resolved) => resolved.value)
+}
 
 async function loadPayments(env: Env, companyId: string) {
   const raw = await createD1SettingsStore(env.DB, companyId).get(
@@ -31,6 +47,7 @@ export function registerPublicRoutes(router: Router): void {
       invoices: createD1InvoiceStore(db),
       loadPaymentsForCompany: (companyId) => loadPayments(env, companyId),
       stripeSecretConfigured: Boolean(secret),
+      resolveStripeSecret: stripeResolver(env),
     })
   })
 
@@ -47,6 +64,7 @@ export function registerPublicRoutes(router: Router): void {
         payments: parsePaymentsJson(null),
         loadPaymentsForCompany: (companyId) => loadPayments(env, companyId),
         stripeSecret: secret,
+        resolveStripeSecret: stripeResolver(env),
         ledger: createD1PaymentLedger(db),
       })
     },
@@ -65,6 +83,7 @@ export function registerPublicRoutes(router: Router): void {
         payments: parsePaymentsJson(null),
         loadPaymentsForCompany: (companyId) => loadPayments(env, companyId),
         stripeSecret: secret,
+        resolveStripeSecret: stripeResolver(env),
         ledger: createD1PaymentLedger(db),
       })
     },

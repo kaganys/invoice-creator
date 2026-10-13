@@ -127,6 +127,9 @@ export async function createInvoice(
   if (!parsed.ok) {
     return errorJson(parsed.message, 400)
   }
+  if (parsed.value.status !== 'draft') {
+    return errorJson('New invoices start as drafts.', 400)
+  }
 
   const existing = await store.findIdByNumber(parsed.value.number)
   if (existing) {

@@ -232,9 +232,9 @@ export function FormatPanel() {
     >
       {loading ? <p className="settings-status">Loading format…</p> : null}
       {dirty ? (
-        <p className="settings-status">Unsaved formatting changes. Cancel reloads the saved D1 settings.</p>
+        <p className="settings-status">Unsaved formatting changes. Cancel reloads the saved settings.</p>
       ) : (
-        <p className="settings-status">Showing saved D1 formatting.</p>
+        <p className="settings-status">Showing the saved formatting.</p>
       )}
 
       <div className="format-layout">

@@ -6,6 +6,8 @@ import {
   type Permission,
 } from '../../src/auth/permissions.ts'
 import { loadSession, requireAdmin } from '../auth/admin.ts'
+import { canAssignRole } from '../auth/companyAccess.ts'
+import { inviteAllowsOnboard } from '../auth/invite.ts'
 import { bootstrapAccessUser } from './bootstrap.ts'
 import { parseAccessIdentity, isEmail } from '../auth/identity.ts'
 import { createD1TenantStore } from './d1Store.ts'
@@ -88,7 +90,7 @@ export async function createCompany(request: Request, env: Env): Promise<Respons
 }
 
 export async function onboardCompany(request: Request, env: Env): Promise<Response> {
-  const identity = parseAccessIdentity(request, env)
+  const identity = await parseAccessIdentity(request, env)
   if (!identity) {
     return errorJson(
       'Sign in with Cloudflare Access to create a company.',
@@ -115,6 +117,18 @@ export async function onboardCompany(request: Request, env: Env): Promise<Respon
   const name = formText(form, 'companyName') || formText(form, 'name')
   if (name.length < 2) {
     return errorJson('Company name is required.', 400)
+  }
+  if (
+    !inviteAllowsOnboard(
+      new URL(request.url).hostname,
+      env,
+      formText(form, 'inviteCode'),
+    )
+  ) {
+    return errorJson(
+      'An invite code is required before you can create a company.',
+      403,
+    )
   }
   const ownerName = formText(form, 'ownerName')
   const fromName = formText(form, 'fromName')
@@ -266,7 +280,25 @@ export async function updateCompanyUser(
   if (!role || role.companyId !== auth.ctx.company.id) {
     return errorJson('Role not found.', 404)
   }
-  await store.updateMembershipRole(membershipId, roleId, nowIso())
+  if (!canAssignRole(auth.ctx.permissions, role.permissions)) {
+    return errorJson(
+      'You cannot assign a role with permissions you do not have.',
+      403,
+    )
+  }
+  const membership = await store.getMembershipById(membershipId)
+  if (!membership || membership.company.id !== auth.ctx.company.id) {
+    return errorJson('User not found.', 404)
+  }
+  const updated = await store.updateMembershipRole(
+    membershipId,
+    auth.ctx.company.id,
+    roleId,
+    nowIso(),
+  )
+  if (!updated) {
+    return errorJson('User not found.', 404)
+  }
   return json({ ok: true })
 }
 

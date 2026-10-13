@@ -37,6 +37,7 @@ export async function getPublicInvoiceByToken(
     invoices: InvoiceStore
     payments?: PaymentsConfig
     stripeSecretConfigured?: boolean
+    resolveStripeSecret?: (companyId: string) => Promise<string | undefined>
     loadPaymentsForCompany?: (companyId: string) => Promise<PaymentsConfig>
   },
 ): Promise<Response> {
@@ -59,7 +60,10 @@ export async function getPublicInvoiceByToken(
     record.companyId && deps.loadPaymentsForCompany
       ? await deps.loadPaymentsForCompany(record.companyId)
       : deps.payments
-  const invoice = toPublicPayload(record, payments, deps.stripeSecretConfigured)
+  const stripeReady = deps.resolveStripeSecret && record.companyId
+    ? Boolean(await deps.resolveStripeSecret(record.companyId))
+    : Boolean(deps.stripeSecretConfigured)
+  const invoice = toPublicPayload(record, payments, stripeReady)
 
   if (record.status === 'paid' || token.revokedReason === 'paid') {
     return json({

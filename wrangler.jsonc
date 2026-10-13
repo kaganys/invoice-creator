@@ -23,24 +23,25 @@
 	"observability": {
 		"enabled": true
 	},
+	"routes": [
+		{ "pattern": "invoice.vrfnw.com", "custom_domain": true },
+		{ "pattern": "pay.vrfnw.com", "custom_domain": true }
+	],
 	"d1_databases": [
 		{
 			"binding": "DB",
 			"database_name": "bitz-designs-invoicing",
 			"database_id": "474f90b6-1196-4f66-b8d6-ef3ae5f85877",
-			"remote": true,
 			"migrations_dir": "./migrations"
 		}
 	],
 	"r2_buckets": [
 		{
 			"binding": "BRANDING",
-			"bucket_name": "bitz-designs-branding",
-			"remote": true
+			"bucket_name": "bitz-designs-branding"
 		}
 	],
 	"browser": {
-		"binding": "BROWSER",
-		"remote": true
+		"binding": "BROWSER"
 	},
 }

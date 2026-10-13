@@ -104,7 +104,7 @@ export function NumberingPanel() {
     <>
       <InvoiceSection
         title="Invoice numbering"
-        description="The Worker allocates numbers from D1. Assigned invoice numbers never change when you edit this format."
+        description="Numbers are assigned when an invoice is created. Changing this format does not rewrite numbers that already exist."
       >
         {loading ? <p className="settings-status">Loading numbering…</p> : null}
         <div className="form-grid form-grid--2">

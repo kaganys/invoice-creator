@@ -80,7 +80,7 @@ export function InvoicePreviewModal({ open, onClose }: InvoicePreviewModalProps)
             </h2>
             <p id="invoice-preview-description" className="preview-modal__description">
               {isDraftPreview
-                ? 'Live preview of the unsaved working copy. This is not saved to D1.'
+                ? 'Preview of the invoice in the editor. It is not saved yet.'
                 : 'Live preview of the invoice currently in the editor.'}
             </p>
           </div>

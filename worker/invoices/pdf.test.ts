@@ -5,7 +5,6 @@ import { serializeFormat } from '../settings/format.ts'
 import { SETTINGS_KEYS } from '../settings/keys.ts'
 import type { InvoiceRecord, InvoiceStore } from './types.ts'
 import type { SettingsKvStore } from '../settings/types.ts'
-import type { PdfRenderer } from '../pdf/types.ts'
 import type { PaymentTokenRecord, PaymentTokenStore } from '../payments/types.ts'
 import { ensureActivePaymentToken } from '../payments/ensureToken.ts'
 

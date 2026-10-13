@@ -116,7 +116,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
     } catch (caught) {
       const message = errorMessage(caught)
       setError(message)
-      throw new Error(message)
+      throw new Error(message, { cause: caught })
     } finally {
       setSaving(false)
     }

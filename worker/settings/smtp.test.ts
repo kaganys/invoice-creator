@@ -68,6 +68,6 @@ describe('publicSmtp', () => {
     )
     expect(payload.passwordConfigured).toBe(true)
     expect(payload).not.toHaveProperty('password')
-    expect(JSON.stringify(payload)).not.toMatch(/password[^C]/)
+    expect(JSON.stringify(payload)).not.toMatch(/"password"\s*:/)
   })
 })

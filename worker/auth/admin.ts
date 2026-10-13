@@ -23,7 +23,7 @@ export async function requireAdmin(
   env: Env,
   permission?: Permission,
 ): Promise<{ ok: true; ctx: AdminContext } | { ok: false; response: Response }> {
-  const identity = parseAccessIdentity(request, env)
+  const identity = await parseAccessIdentity(request, env)
   if (!identity) {
     return {
       ok: false,
@@ -86,7 +86,7 @@ export async function requireAdmin(
 }
 
 export async function loadSession(request: Request, env: Env) {
-  const identity = parseAccessIdentity(request, env)
+  const identity = await parseAccessIdentity(request, env)
   if (!identity) {
     return errorJson(
       'Sign in with Cloudflare Access to use the admin application.',

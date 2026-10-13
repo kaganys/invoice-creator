@@ -8,29 +8,32 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "lint": "eslint .",
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
     "@stripe/react-stripe-js": "^6.8.2",
     "@stripe/stripe-js": "^9.14.0",
-    "html2canvas": "^1.4.1",
-    "jspdf": "^4.2.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "worker-mailer": "^1.2.1"
   },
   "devDependencies": {
     "@cloudflare/puppeteer": "^1.4.0",
-    "@cloudflare/vite-plugin": "^1.53.1",
+    "@cloudflare/vite-plugin": "^1.63.2",
     "@cloudflare/workers-types": "^5.20260825.1",
+    "@eslint/js": "^10.0.1",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.1.0",
+    "eslint": "^10.12.0",
+    "globals": "^17.13.0",
     "typescript": "~6.0.2",
-    "vite": "^8.2.2",
+    "typescript-eslint": "^8.71.2",
+    "vite": "^8.3.4",
     "vitest": "^4.1.11",
-    "wrangler": "^4.125.0"
+    "wrangler": "^4.150.0"
   },
   "allowScripts": {
     "workerd@1.20260820.1": true,

@@ -5,6 +5,15 @@ export function canSwitchCompanies(memberships: MembershipView[]): boolean {
   return memberships.length > 1
 }
 
+export function canAssignRole(
+  actorPermissions: readonly string[],
+  rolePermissions: readonly string[],
+): boolean {
+  return rolePermissions.every((permission) =>
+    actorPermissions.includes(permission),
+  )
+}
+
 export function resolveMembership(
   memberships: MembershipView[],
   options: {
