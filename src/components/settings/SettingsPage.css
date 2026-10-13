@@ -100,6 +100,137 @@
   background: #ffffff;
 }
 
+.settings-workbench--compose {
+  grid-template-columns: minmax(0, 1.05fr) minmax(340px, 560px);
+}
+
+.settings-workbench--compose .settings-workbench__preview {
+  position: static;
+  max-height: none;
+  overflow: visible;
+}
+
+.settings-workbench--compose .settings-preview__email {
+  height: auto;
+  min-height: 32rem;
+  overflow: hidden;
+}
+
+.email-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.email-editor__subject-line,
+.email-editor__body {
+  padding: 0.65rem 0.75rem;
+  background: var(--input-bg);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.email-editor__subject-line {
+  min-height: 2.6rem;
+}
+
+.email-editor__subject-line:focus,
+.email-editor__body:focus {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.email-editor__body {
+  min-height: 16rem;
+  overflow: visible;
+}
+
+.email-editor__body:empty::before {
+  content: "Write the message…";
+  color: var(--text-subtle);
+}
+
+.email-editor__toolbar,
+.email-vars,
+.email-sections {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.email-editor__tool,
+.email-var {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  padding: 0.28rem 0.5rem;
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.email-editor__tool:disabled,
+.email-var:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.email-var {
+  background: var(--badge-bg);
+  color: var(--badge-text);
+}
+
+.email-editor__tool-gap {
+  flex: 1 1 0.5rem;
+}
+
+.email-editor__link {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.email-editor__link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.email-editor__link-row .field__input {
+  flex: 1 1 12rem;
+}
+
+.email-sections {
+  margin: 0.25rem 0 0;
+  padding: 0;
+  border: 0;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.email-sections__title {
+  width: 100%;
+  margin: 0;
+  font-weight: 650;
+}
+
+.email-sections__option {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.email-editor [data-email-var] {
+  display: inline-block;
+  margin: 0 0.1rem;
+  padding: 0 0.35rem;
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+
 .settings-preview__frame {
   width: 100%;
   overflow: hidden;
@@ -382,6 +513,10 @@
     position: static;
     max-height: 32rem;
     order: 2;
+  }
+
+  .settings-workbench--compose .settings-workbench__preview {
+    max-height: none;
   }
 
   .settings-workbench__form {

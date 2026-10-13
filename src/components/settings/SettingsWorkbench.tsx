@@ -11,6 +11,8 @@ export function SettingsWorkbench({
   onSave,
   saveLabel,
   extra,
+  className,
+  previewClassName,
 }: {
   form: ReactNode
   preview: ReactNode
@@ -22,6 +24,8 @@ export function SettingsWorkbench({
   onSave: () => void
   saveLabel: string
   extra?: ReactNode
+  className?: string
+  previewClassName?: string
 }) {
   let status = 'No unsaved changes'
   let statusClass = 'settings-status'
@@ -38,9 +42,15 @@ export function SettingsWorkbench({
   }
 
   return (
-    <div className="settings-workbench">
+    <div className={className ? `settings-workbench ${className}` : 'settings-workbench'}>
       <div className="settings-workbench__form">{form}</div>
-      <aside className="settings-workbench__preview">
+      <aside
+        className={
+          previewClassName
+            ? `settings-workbench__preview ${previewClassName}`
+            : 'settings-workbench__preview'
+        }
+      >
         <p className="settings-preview__label">{previewTitle}</p>
         {preview}
       </aside>

@@ -10,7 +10,7 @@ import { applyEmailTemplate, defaultEmailTemplates } from '../../invoice/emailTe
 import { useSettings } from '../../settings/SettingsContext.tsx'
 import type { SmtpSecurity, SmtpSettingsPayload } from '../../types/settings.ts'
 import { Field } from '../Field.tsx'
-import { EmailTemplateEditor } from './EmailTemplateEditor.tsx'
+import { EmailMessageEditor } from './EmailMessageEditor.tsx'
 import { SettingsWorkbench } from './SettingsWorkbench.tsx'
 import { smtpFieldsChanged } from './settingsDraft.ts'
 
@@ -28,7 +28,6 @@ export function SmtpPanel() {
   const [testOk, setTestOk] = useState(false)
   const [testBusy, setTestBusy] = useState(false)
   const [testTo, setTestTo] = useState('')
-  const [editorOpen, setEditorOpen] = useState(false)
   const [password, setPassword] = useState('')
 
   useEffect(() => {
@@ -112,17 +111,7 @@ export function SmtpPanel() {
 
   return (
     <>
-      <SettingsWorkbench
-        previewTitle="Email preview"
-        saving={saving}
-        dirty={dirty}
-        success={success}
-        error={error}
-        onSave={() => void onSave()}
-        saveLabel="Save email"
-        form={
-          <>
-            <fieldset className="settings-group" disabled={saving || loading}>
+      <fieldset className="settings-group" disabled={saving || loading}>
               <legend>Mail server</legend>
               <p className="settings-help">
                 Port 587 with STARTTLS is the usual choice. Port 25 is not accepted.
@@ -227,32 +216,34 @@ export function SmtpPanel() {
                   />
                 </Field>
               </div>
-            </fieldset>
+      </fieldset>
 
+      <SettingsWorkbench
+        className="settings-workbench--compose"
+        previewTitle="Email preview"
+        saving={saving}
+        dirty={dirty}
+        success={success}
+        error={error}
+        onSave={() => void onSave()}
+        saveLabel="Save email"
+        form={
+          <>
             <fieldset className="settings-group" disabled={saving || loading}>
               <legend>Message</legend>
               <p className="settings-help">
-                The preview uses a sample invoice. Save to keep the subject and layout.
+                Edit the message here. The preview uses a sample invoice and
+                shows the real names, amount, and dates.
               </p>
-              <Field label="Subject" htmlFor="smtp-subject">
-                <input
-                  id="smtp-subject"
-                  className="field__input"
-                  value={draft.subjectTemplate}
-                  onChange={(event) =>
-                    patch({ subjectTemplate: event.target.value })
-                  }
-                />
-              </Field>
-              <div className="settings-actions">
-                <button
-                  type="button"
-                  className="btn btn--ghost"
-                  onClick={() => setEditorOpen(true)}
-                >
-                  Edit message layout
-                </button>
-              </div>
+              <EmailMessageEditor
+                subject={draft.subjectTemplate}
+                html={draft.bodyTemplate || defaultEmailTemplates().body}
+                subjectPreview={subjectPreview}
+                disabled={saving || loading}
+                onChange={({ subject, html }) =>
+                  patch({ subjectTemplate: subject, bodyTemplate: html })
+                }
+              />
             </fieldset>
 
             <fieldset className="settings-group" disabled={saving || loading || testBusy}>
@@ -301,19 +292,16 @@ export function SmtpPanel() {
               title="Invoice email preview"
               className="settings-preview__email"
               srcDoc={preview.html}
+              onLoad={(event) => {
+                const frame = event.currentTarget
+                const height = frame.contentDocument?.documentElement.scrollHeight
+                if (height) {
+                  frame.style.height = `${height}px`
+                }
+              }}
             />
           </>
         }
-      />
-      <EmailTemplateEditor
-        open={editorOpen}
-        subject={draft.subjectTemplate}
-        html={draft.bodyTemplate || defaultEmailTemplates().body}
-        onClose={() => setEditorOpen(false)}
-        onApply={({ subject, html }) => {
-          patch({ subjectTemplate: subject, bodyTemplate: html })
-          setEditorOpen(false)
-        }}
       />
     </>
   )

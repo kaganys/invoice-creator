@@ -169,7 +169,7 @@ describe('HTML invoice email', () => {
 
     expect(prepared.html).toContain(`href="${paymentUrl}"`)
     expect(prepared.html).toContain('Pay Online')
-    expect(prepared.html).toContain('background:#0f766e')
+    expect(prepared.html).toContain('background:#24352c')
     expect(prepared.html).toContain(paymentUrl)
     expect(prepared.html).toContain(
       'src="https://pay.example.com/branding/bitz-designs-icon.png"',
