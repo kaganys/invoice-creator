@@ -325,6 +325,10 @@ textarea {
   padding: 1.25rem 1.5rem 3rem;
 }
 
+.app-page--wide {
+  max-width: 1320px;
+}
+
 .form-grid__full {
   grid-column: 1 / -1;
 }

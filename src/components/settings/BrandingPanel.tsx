@@ -1,146 +1,222 @@
-import { useRef, useState } from 'react'
-import { BRAND, type BrandingKind } from '../../branding.ts'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { BRAND, BUILTIN_BRANDING_PATHS, type BrandingKind } from '../../branding.ts'
 import { useSettings } from '../../settings/SettingsContext.tsx'
-import { InvoiceSection } from '../InvoiceSection.tsx'
+import { InvoiceDocument } from '../InvoiceDocument.tsx'
+import { ScaledSheet } from './ScaledSheet.tsx'
+import { previewInvoice } from './previewInvoice.ts'
+import { SettingsWorkbench } from './SettingsWorkbench.tsx'
+import { brandingPreviewUrl } from './settingsDraft.ts'
 
-const ASSETS: Array<{
+const SLOTS: Array<{
   kind: BrandingKind
   title: string
-  usedFor: string
+  hint: string
   key: 'siteWordmark' | 'siteIcon' | 'invoiceLogo'
 }> = [
   {
     kind: 'site-wordmark',
-    title: 'Site wordmark',
-    usedFor: 'Primary branding in the admin header.',
+    title: 'Header logo',
+    hint: 'Shown in the top bar.',
     key: 'siteWordmark',
   },
   {
     kind: 'site-icon',
-    title: 'Site icon / favicon',
-    usedFor: 'Compact sidebar branding and the browser favicon.',
+    title: 'Icon',
+    hint: 'Sidebar and browser tab.',
     key: 'siteIcon',
   },
   {
     kind: 'invoice-logo',
     title: 'Invoice logo',
-    usedFor:
-      'Logo inside generated invoices. New invoices snapshot the current logo path. Historical invoices keep the path they were saved with.',
+    hint: 'Printed on new invoices. Older invoices keep the logo they were saved with.',
     key: 'invoiceLogo',
   },
 ]
 
+type SlotDraft = {
+  file: File | null
+  objectUrl: string | null
+  restore: boolean
+}
+
+const EMPTY_SLOT: SlotDraft = { file: null, objectUrl: null, restore: false }
+
 export function BrandingPanel() {
-  const { branding, loading, saving, error, uploadAsset, restoreAsset } =
+  const { branding, format, loading, saving, error, uploadAsset, restoreAsset } =
     useSettings()
+  const [slots, setSlots] = useState<Record<BrandingKind, SlotDraft>>({
+    'site-wordmark': EMPTY_SLOT,
+    'site-icon': EMPTY_SLOT,
+    'invoice-logo': EMPTY_SLOT,
+  })
   const [success, setSuccess] = useState<string | null>(null)
-  const [busyKind, setBusyKind] = useState<BrandingKind | null>(null)
-  const wordmarkInput = useRef<HTMLInputElement>(null)
-  const iconInput = useRef<HTMLInputElement>(null)
-  const invoiceInput = useRef<HTMLInputElement>(null)
-  const inputs = {
-    'site-wordmark': wordmarkInput,
-    'site-icon': iconInput,
-    'invoice-logo': invoiceInput,
+  const slotsRef = useRef(slots)
+  slotsRef.current = slots
+
+  useEffect(() => {
+    return () => {
+      for (const slot of Object.values(slotsRef.current)) {
+        if (slot.objectUrl) {
+          URL.revokeObjectURL(slot.objectUrl)
+        }
+      }
+    }
+  }, [])
+
+  function previewFor(kind: BrandingKind, key: (typeof SLOTS)[number]['key']) {
+    const current = branding[key]
+    return brandingPreviewUrl({
+      savedUrl: current.url || current.path || BRAND.icon,
+      builtinUrl: BUILTIN_BRANDING_PATHS[kind],
+      pendingObjectUrl: slots[kind].objectUrl,
+      restore: slots[kind].restore,
+    })
   }
 
-  async function onFile(kind: BrandingKind, file: File | undefined) {
+  const dirty = SLOTS.some(
+    (slot) => slots[slot.kind].file !== null || slots[slot.kind].restore,
+  )
+
+  function chooseFile(kind: BrandingKind, event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
     if (!file) {
       return
     }
     setSuccess(null)
-    setBusyKind(kind)
+    setSlots((current) => {
+      const previous = current[kind].objectUrl
+      if (previous) {
+        URL.revokeObjectURL(previous)
+      }
+      return {
+        ...current,
+        [kind]: {
+          file,
+          objectUrl: URL.createObjectURL(file),
+          restore: false,
+        },
+      }
+    })
+  }
+
+  function useBuiltin(kind: BrandingKind) {
+    setSuccess(null)
+    setSlots((current) => {
+      const previous = current[kind].objectUrl
+      if (previous) {
+        URL.revokeObjectURL(previous)
+      }
+      return {
+        ...current,
+        [kind]: { file: null, objectUrl: null, restore: true },
+      }
+    })
+  }
+
+  async function onSave() {
+    setSuccess(null)
     try {
-      await uploadAsset(kind, file)
-      setSuccess('Branding image replaced.')
+      for (const slot of SLOTS) {
+        const pending = slots[slot.kind]
+        if (pending.file) {
+          await uploadAsset(slot.kind, pending.file)
+        } else if (pending.restore) {
+          await restoreAsset(slot.kind)
+        }
+      }
+      setSlots((current) => {
+        for (const slot of Object.values(current)) {
+          if (slot.objectUrl) {
+            URL.revokeObjectURL(slot.objectUrl)
+          }
+        }
+        return {
+          'site-wordmark': EMPTY_SLOT,
+          'site-icon': EMPTY_SLOT,
+          'invoice-logo': EMPTY_SLOT,
+        }
+      })
+      setSuccess('Branding saved.')
     } catch {
-      // Context stores the API error.
-    } finally {
-      setBusyKind(null)
+      // The settings context stores the error.
     }
   }
 
-  async function onRestore(kind: BrandingKind) {
-    setSuccess(null)
-    setBusyKind(kind)
-    try {
-      await restoreAsset(kind)
-      setSuccess('Restored the default placeholder asset.')
-    } catch {
-      // Context error.
-    } finally {
-      setBusyKind(null)
-    }
-  }
+  const invoiceLogo = previewFor('invoice-logo', 'invoiceLogo')
+  const sample = useMemo(() => previewInvoice(invoiceLogo), [invoiceLogo])
 
   return (
-    <InvoiceSection
-      title="Branding"
-      description="Wordmark, icon, and invoice logo for this company. Restore default puts the built-in images back."
-    >
-      {loading ? <p className="settings-status">Loading branding…</p> : null}
-      <p className="settings-help">
-        PNG, JPEG, or WebP, 2 MB or smaller. SVG is not accepted. Each company
-        has its own files.
-      </p>
-      <div className="branding-assets">
-        {ASSETS.map((asset) => {
-          const current = branding[asset.key]
-          const path = current.url || current.path || BRAND.icon
-          return (
-            <article key={asset.kind} className="branding-card">
-              <div className="branding-card__preview">
-                <img src={path} alt="" />
-              </div>
-              <div className="branding-card__body">
-                <h3>{asset.title}</h3>
-                <p className="settings-help">{asset.usedFor}</p>
-                <p className="settings-help">
-                  {current.isDefault
-                    ? 'Currently using the built-in Bitz Designs file.'
-                    : 'Currently using an uploaded replacement.'}
-                </p>
-                <p className="settings-example">{path}</p>
-                <input
-                  ref={inputs[asset.kind]}
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  className="visually-hidden"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0]
-                    event.target.value = ''
-                    void onFile(asset.kind, file)
-                  }}
-                />
-                <div className="branding-card__actions">
+    <SettingsWorkbench
+      previewTitle="Invoice preview"
+        saving={saving}
+        dirty={dirty}
+        success={success}
+        error={error}
+      onSave={() => void onSave()}
+      saveLabel="Save branding"
+      form={
+        <fieldset className="settings-group" disabled={saving || loading}>
+          <legend>Logos</legend>
+          <p className="settings-help">
+            PNG, JPEG, or WebP, 2 MB or smaller. Choose the files, then save.
+          </p>
+          {SLOTS.map((slot) => {
+            const current = branding[slot.key]
+            const src = previewFor(slot.kind, slot.key)
+            const usingBuiltin =
+              slots[slot.kind].restore ||
+              (current.isDefault && !slots[slot.kind].file)
+            return (
+              <div key={slot.kind} className="logo-slot">
+                <label className="logo-slot__well">
+                  <img src={src} alt="" />
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="visually-hidden"
+                    onChange={(event) => chooseFile(slot.kind, event)}
+                  />
+                </label>
+                <div className="logo-slot__copy">
+                  <h3>{slot.title}</h3>
+                  <p className="settings-help">{slot.hint}</p>
+                  <p className="settings-help">
+                    {slots[slot.kind].file
+                      ? slots[slot.kind].file?.name
+                      : usingBuiltin
+                        ? 'Built-in image'
+                        : 'Uploaded image'}
+                  </p>
                   <button
                     type="button"
-                    className="btn btn--primary"
-                    disabled={saving || loading}
-                    onClick={() => inputs[asset.kind].current?.click()}
+                    className="btn btn--ghost logo-slot__builtin"
+                    disabled={usingBuiltin && !slots[slot.kind].file}
+                    onClick={() => useBuiltin(slot.kind)}
                   >
-                    {busyKind === asset.kind ? 'Working…' : 'Upload / replace'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn--ghost"
-                    disabled={saving || loading || current.isDefault}
-                    onClick={() => void onRestore(asset.kind)}
-                  >
-                    Restore default
+                    Use built-in image
                   </button>
                 </div>
               </div>
-            </article>
-          )
-        })}
-      </div>
-      {success ? (
-        <p className="settings-status settings-status--success">{success}</p>
-      ) : null}
-      {error ? (
-        <p className="settings-status settings-status--error">{error}</p>
-      ) : null}
-    </InvoiceSection>
+            )
+          })}
+        </fieldset>
+      }
+      preview={
+        <div className="settings-preview__stack">
+          <div className="settings-preview__chrome">
+            <img src={previewFor('site-wordmark', 'siteWordmark')} alt="" />
+            <img src={previewFor('site-icon', 'siteIcon')} alt="" />
+          </div>
+          <ScaledSheet>
+            <InvoiceDocument
+              invoice={sample}
+              format={format}
+              logoUrl={invoiceLogo}
+            />
+          </ScaledSheet>
+        </div>
+      }
+    />
   )
 }

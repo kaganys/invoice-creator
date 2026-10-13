@@ -2,12 +2,12 @@ import { formatInvoiceDate } from '../utils/dates.ts'
 import { calculateInvoiceTotals } from '../utils/invoiceCalculations.ts'
 import { formatMoney } from '../utils/money.ts'
 import type { Invoice } from '../types/invoice.ts'
-import { defaultGraphicalEmailBody } from './emailBlocks.ts'
+import { defaultRichEmailBody } from './emailCompose.ts'
 
 export const DEFAULT_EMAIL_SUBJECT =
   'Invoice {{invoice_number}} from {{business_name}}'
 
-export const DEFAULT_EMAIL_BODY = defaultGraphicalEmailBody()
+export const DEFAULT_EMAIL_BODY = defaultRichEmailBody()
 
 export const EMAIL_VARIABLES = [
   { id: 'invoice_number', label: 'Invoice number' },

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import { createDefaultInvoice } from '../../data/defaultInvoice.ts'
 import {
   defaultInvoiceFormat,
   ELEMENT_LABELS,
@@ -21,7 +20,21 @@ import {
 import { useSettings } from '../../settings/SettingsContext.tsx'
 import { InvoiceDocument } from '../InvoiceDocument.tsx'
 import { Field } from '../Field.tsx'
-import { InvoiceSection } from '../InvoiceSection.tsx'
+import { previewInvoice } from './previewInvoice.ts'
+import { ScaledSheet } from './ScaledSheet.tsx'
+import { SettingsWorkbench } from './SettingsWorkbench.tsx'
+
+const PARTS: Array<{ id: FormatSectionId; label: string }> = [
+  { id: 'header', label: 'Heading' },
+  { id: 'metadata', label: 'Number and dates' },
+  { id: 'from', label: 'From' },
+  { id: 'billTo', label: 'Bill to' },
+  { id: 'amountDue', label: 'Amount due' },
+  { id: 'memo', label: 'Payment memo' },
+  { id: 'lineItems', label: 'Line items' },
+  { id: 'totals', label: 'Totals' },
+  { id: 'notes', label: 'Notes and footer' },
+]
 
 function cloneFormat(format: InvoiceFormat): InvoiceFormat {
   return structuredClone(format)
@@ -30,34 +43,62 @@ function cloneFormat(format: InvoiceFormat): InvoiceFormat {
 function ColorField({
   id,
   label,
+  hint,
   value,
   allowEmpty,
   onChange,
 }: {
   id: string
   label: string
+  hint?: string
   value: string
   allowEmpty?: boolean
   onChange: (value: string) => void
 }) {
-  const pickerValue = value && isHexColor(value) ? value : '#111111'
+  const [text, setText] = useState(value)
+  useEffect(() => {
+    setText(value)
+  }, [value])
+  const pickerValue = isHexColor(text)
+    ? text
+    : isHexColor(value)
+      ? value
+      : '#111111'
   return (
     <Field label={label} htmlFor={id}>
       <div className="format-color">
         <input
-          id={id}
           type="color"
           className="format-color__picker"
           value={pickerValue}
-          onChange={(event) => onChange(event.target.value.toLowerCase())}
+          aria-label={`${label} swatch`}
+          onChange={(event) => {
+            const next = event.target.value.toLowerCase()
+            setText(next)
+            onChange(next)
+          }}
         />
         <input
+          id={id}
           className="field__input"
-          value={value}
-          placeholder={allowEmpty ? 'inherit' : '#111111'}
-          onChange={(event) => onChange(event.target.value)}
+          value={text}
+          placeholder={allowEmpty ? 'Default' : '#111111'}
+          onChange={(event) => {
+            const next = event.target.value
+            setText(next)
+            const trimmed = next.trim()
+            if (!trimmed && allowEmpty) {
+              onChange('')
+              return
+            }
+            const normalized = normalizeHex(trimmed)
+            if (normalized) {
+              onChange(normalized)
+            }
+          }}
         />
       </div>
+      {hint ? <p className="settings-help">{hint}</p> : null}
     </Field>
   )
 }
@@ -72,8 +113,8 @@ function ElementEditor({
   onChange: (next: ElementStyle) => void
 }) {
   return (
-    <details className="format-element">
-      <summary>{ELEMENT_LABELS[formatKey]}</summary>
+    <div className="format-element">
+      <h3>{ELEMENT_LABELS[formatKey]}</h3>
       <div className="form-grid form-grid--2">
         <Field label="Font" htmlFor={`${formatKey}-font`}>
           <select
@@ -93,7 +134,7 @@ function ElementEditor({
             ))}
           </select>
         </Field>
-        <Field label="Size (px)" htmlFor={`${formatKey}-size`}>
+        <Field label="Size" htmlFor={`${formatKey}-size`}>
           <input
             id={`${formatKey}-size`}
             className="field__input"
@@ -102,7 +143,10 @@ function ElementEditor({
             max={72}
             value={style.sizePx}
             onChange={(event) =>
-              onChange({ ...style, sizePx: Number(event.target.value) || style.sizePx })
+              onChange({
+                ...style,
+                sizePx: Number(event.target.value) || style.sizePx,
+              })
             }
           />
         </Field>
@@ -112,7 +156,10 @@ function ElementEditor({
             className="field__select"
             value={style.weight}
             onChange={(event) =>
-              onChange({ ...style, weight: Number(event.target.value) as FontWeight })
+              onChange({
+                ...style,
+                weight: Number(event.target.value) as FontWeight,
+              })
             }
           >
             {FONT_WEIGHTS.map((weight) => (
@@ -124,26 +171,26 @@ function ElementEditor({
         </Field>
         <ColorField
           id={`${formatKey}-color`}
-          label="Text color"
+          label="Color"
           value={style.color ?? ''}
           allowEmpty
           onChange={(value) => {
             const trimmed = value.trim()
             onChange({
               ...style,
-              color: trimmed ? normalizeHex(trimmed) : null,
+              color: trimmed ? normalizeHex(trimmed) ?? style.color : null,
             })
           }}
         />
       </div>
-    </details>
+    </div>
   )
 }
 
 export function FormatPanel() {
-  const { format, saving, loading, error, saveFormat } = useSettings()
+  const { format, branding, saving, loading, error, saveFormat } = useSettings()
   const [draft, setDraft] = useState<InvoiceFormat>(() => cloneFormat(format))
-  const [section, setSection] = useState<FormatSectionId>('global')
+  const [part, setPart] = useState<FormatSectionId | ''>('')
   const [success, setSuccess] = useState<string | null>(null)
   const [localError, setLocalError] = useState<string | null>(null)
 
@@ -152,26 +199,19 @@ export function FormatPanel() {
   }, [format])
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(format)
-  const previewInvoice = useMemo(() => {
-    const invoice = createDefaultInvoice()
-    invoice.number = 'BD2026-0051'
-    invoice.from.name = 'Bitz Designs'
-    invoice.customer.name = 'Ada Lovelace'
-    invoice.customer.email = 'ada@example.com'
-    invoice.lineItems = [
-      {
-        id: invoice.lineItems[0]?.id ?? 'preview-line',
-        description: 'Brand design',
-        quantity: '1',
-        unitPrice: '50.00',
-      },
-    ]
-    return invoice
-  }, [])
+  const sample = useMemo(
+    () => previewInvoice(branding.invoiceLogo.url || branding.invoiceLogo.path),
+    [branding.invoiceLogo.url, branding.invoiceLogo.path],
+  )
+  const currentPart = FORMAT_SECTIONS.find((entry) => entry.id === part)
 
   function patchGlobal(partial: Partial<InvoiceFormat['global']>) {
-    setDraft((current) => ({ ...current, global: { ...current.global, ...partial } }))
+    setDraft((current) => ({
+      ...current,
+      global: { ...current.global, ...partial },
+    }))
     setSuccess(null)
+    setLocalError(null)
   }
 
   function patchElement(key: ElementKey, style: ElementStyle) {
@@ -180,6 +220,7 @@ export function FormatPanel() {
       elements: { ...current.elements, [key]: style },
     }))
     setSuccess(null)
+    setLocalError(null)
   }
 
   async function onSave() {
@@ -189,74 +230,75 @@ export function FormatPanel() {
       !isHexColor(draft.global.accentColor) ||
       !isHexColor(draft.global.borderColor)
     ) {
-      setLocalError('Global colors must be 6-digit hex values such as #111111.')
+      setLocalError('Colors need a 6-digit hex value, such as #111111.')
       return
     }
     setLocalError(null)
     try {
       await saveFormat(draft)
-      setSuccess('Format saved. New drafts and previews use these settings.')
+      setSuccess('Format saved. New invoices use it. Older ones keep their own.')
     } catch {
-      // Context error.
+      // The settings context stores the error.
     }
   }
 
-  function onCancel() {
-    setDraft(cloneFormat(format))
-    setLocalError(null)
-    setSuccess(null)
-  }
-
   function onResetAll() {
-    if (!window.confirm('Reset all invoice formatting to Bitz Designs defaults?')) {
+    if (!window.confirm('Reset invoice formatting to the built-in defaults?')) {
       return
     }
     setDraft(defaultInvoiceFormat())
     setSuccess(null)
+    setLocalError(null)
   }
 
-  function onResetSection() {
-    if (!window.confirm(`Reset ${FORMAT_SECTIONS.find((entry) => entry.id === section)?.label ?? 'this section'} to defaults?`)) {
+  function onResetPart() {
+    if (!part) {
       return
     }
-    setDraft((current) => resetSection(current, section))
+    const label = PARTS.find((entry) => entry.id === part)?.label ?? 'this part'
+    if (!window.confirm(`Reset ${label} to the built-in defaults?`)) {
+      return
+    }
+    setDraft((current) => resetSection(current, part))
     setSuccess(null)
+    setLocalError(null)
   }
 
-  const currentSection = FORMAT_SECTIONS.find((entry) => entry.id === section)
-
   return (
-    <InvoiceSection
-      title="Format"
-      description="Fonts and colors for the invoice document only. Admin dashboard appearance is unchanged. Saved/sent invoices keep a snapshot of the format they were issued with."
-    >
-      {loading ? <p className="settings-status">Loading format…</p> : null}
-      {dirty ? (
-        <p className="settings-status">Unsaved formatting changes. Cancel reloads the saved settings.</p>
-      ) : (
-        <p className="settings-status">Showing the saved formatting.</p>
-      )}
-
-      <div className="format-layout">
-        <nav className="format-subnav" aria-label="Invoice parts">
-          {FORMAT_SECTIONS.map((entry) => (
-            <button
-              key={entry.id}
-              type="button"
-              className={
-                section === entry.id
-                  ? 'settings-nav__button is-active'
-                  : 'settings-nav__button'
-              }
-              onClick={() => setSection(entry.id)}
-            >
-              {entry.label}
-            </button>
-          ))}
-        </nav>
-
-        <div className="format-editor">
-          {section === 'global' ? (
+    <SettingsWorkbench
+      previewTitle="Invoice preview"
+      saving={saving}
+      dirty={dirty}
+      success={success}
+      error={localError || error}
+      onSave={() => void onSave()}
+      saveLabel="Save format"
+      extra={
+        <>
+          <button
+            type="button"
+            className="btn btn--ghost"
+            disabled={saving || !dirty}
+            onClick={() => {
+              setDraft(cloneFormat(format))
+              setLocalError(null)
+              setSuccess(null)
+            }}
+          >
+            Discard
+          </button>
+          <button type="button" className="btn btn--ghost" onClick={onResetAll}>
+            Reset all
+          </button>
+        </>
+      }
+      form={
+        <>
+          <fieldset className="settings-group" disabled={saving || loading}>
+            <legend>Type</legend>
+            <p className="settings-help">
+              Primary is the body. Secondary is used for the invoice title.
+            </p>
             <div className="form-grid form-grid--2">
               <Field label="Primary font" htmlFor="format-primary-font">
                 <select
@@ -290,43 +332,7 @@ export function FormatPanel() {
                   ))}
                 </select>
               </Field>
-              <Field label="Primary weight" htmlFor="format-primary-weight">
-                <select
-                  id="format-primary-weight"
-                  className="field__select"
-                  value={draft.global.primaryWeight}
-                  onChange={(event) =>
-                    patchGlobal({
-                      primaryWeight: Number(event.target.value) as FontWeight,
-                    })
-                  }
-                >
-                  {FONT_WEIGHTS.map((weight) => (
-                    <option key={weight} value={weight}>
-                      {weight}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Secondary weight" htmlFor="format-secondary-weight">
-                <select
-                  id="format-secondary-weight"
-                  className="field__select"
-                  value={draft.global.secondaryWeight}
-                  onChange={(event) =>
-                    patchGlobal({
-                      secondaryWeight: Number(event.target.value) as FontWeight,
-                    })
-                  }
-                >
-                  {FONT_WEIGHTS.map((weight) => (
-                    <option key={weight} value={weight}>
-                      {weight}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Base size (px)" htmlFor="format-base-size">
+              <Field label="Body size" htmlFor="format-base-size">
                 <input
                   id="format-base-size"
                   className="field__input"
@@ -336,14 +342,21 @@ export function FormatPanel() {
                   value={draft.global.baseSizePx}
                   onChange={(event) =>
                     patchGlobal({
-                      baseSizePx: Number(event.target.value) || draft.global.baseSizePx,
+                      baseSizePx:
+                        Number(event.target.value) || draft.global.baseSizePx,
                     })
                   }
                 />
               </Field>
+            </div>
+          </fieldset>
+
+          <fieldset className="settings-group" disabled={saving || loading}>
+            <legend>Colors</legend>
+            <div className="form-grid form-grid--2">
               <ColorField
                 id="format-primary-color"
-                label="Primary text"
+                label="Text"
                 value={draft.global.primaryColor}
                 onChange={(value) =>
                   patchGlobal({ primaryColor: normalizeHex(value) ?? value })
@@ -351,7 +364,7 @@ export function FormatPanel() {
               />
               <ColorField
                 id="format-muted-color"
-                label="Secondary / muted text"
+                label="Muted text"
                 value={draft.global.mutedColor}
                 onChange={(value) =>
                   patchGlobal({ mutedColor: normalizeHex(value) ?? value })
@@ -360,6 +373,7 @@ export function FormatPanel() {
               <ColorField
                 id="format-accent-color"
                 label="Accent"
+                hint="Pay link and small highlights."
                 value={draft.global.accentColor}
                 onChange={(value) =>
                   patchGlobal({ accentColor: normalizeHex(value) ?? value })
@@ -367,65 +381,60 @@ export function FormatPanel() {
               />
               <ColorField
                 id="format-border-color"
-                label="Border / table lines"
+                label="Lines"
                 value={draft.global.borderColor}
                 onChange={(value) =>
                   patchGlobal({ borderColor: normalizeHex(value) ?? value })
                 }
               />
             </div>
-          ) : (
-            currentSection?.keys.map((key) => (
+          </fieldset>
+
+          <fieldset className="settings-group" disabled={saving || loading}>
+            <legend>One part</legend>
+            <p className="settings-help">
+              Most invoices only need the fonts and colors above.
+            </p>
+            <Field label="Adjust" htmlFor="format-part">
+              <select
+                id="format-part"
+                className="field__select"
+                value={part}
+                onChange={(event) =>
+                  setPart(event.target.value as FormatSectionId | '')
+                }
+              >
+                <option value="">Nothing else</option>
+                {PARTS.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {currentPart?.keys.map((key) => (
               <ElementEditor
                 key={key}
                 formatKey={key}
                 style={draft.elements[key]}
                 onChange={(style) => patchElement(key, style)}
               />
-            ))
-          )}
-        </div>
-      </div>
-
-      <div className="format-preview" aria-label="Live invoice preview">
-        <p className="settings-help">Live preview uses unsaved changes. The invoice background stays white.</p>
-        <div className="format-preview__sheet">
-          <InvoiceDocument invoice={previewInvoice} format={draft} />
-        </div>
-      </div>
-
-      <div className="settings-actions">
-        <button
-          type="button"
-          className="btn btn--primary"
-          disabled={saving || loading || !dirty}
-          onClick={() => void onSave()}
-        >
-          {saving ? 'Saving…' : 'Save format'}
-        </button>
-        <button
-          type="button"
-          className="btn btn--ghost"
-          disabled={saving || !dirty}
-          onClick={onCancel}
-        >
-          Cancel
-        </button>
-        <button type="button" className="btn btn--ghost" onClick={onResetSection}>
-          Reset section
-        </button>
-        <button type="button" className="btn btn--ghost" onClick={onResetAll}>
-          Reset format defaults
-        </button>
-        {success ? (
-          <p className="settings-status settings-status--success">{success}</p>
-        ) : null}
-        {localError || error ? (
-          <p className="settings-status settings-status--error">
-            {localError || error}
-          </p>
-        ) : null}
-      </div>
-    </InvoiceSection>
+            ))}
+            {part ? (
+              <div className="settings-actions">
+                <button type="button" className="btn btn--ghost" onClick={onResetPart}>
+                  Reset this part
+                </button>
+              </div>
+            ) : null}
+          </fieldset>
+        </>
+      }
+      preview={
+        <ScaledSheet>
+          <InvoiceDocument invoice={sample} format={draft} />
+        </ScaledSheet>
+      }
+    />
   )
 }

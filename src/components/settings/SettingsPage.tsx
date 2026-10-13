@@ -17,7 +17,7 @@ export function SettingsPage() {
   const [category, setCategory] = useState<SettingsCategoryId>('defaults')
 
   return (
-    <div className="app-page">
+    <div className={category === 'email' ? 'app-page app-page--wide' : 'app-page'}>
       {error ? <p className="api-banner api-banner--error">{error}</p> : null}
       {loading ? <p className="api-banner">Loading settings…</p> : null}
       <div className="settings-layout">
@@ -40,7 +40,7 @@ export function SettingsPage() {
         </nav>
         <div
           className={
-            category === 'format' || category === 'email'
+            category === 'format' || category === 'email' || category === 'branding'
               ? 'settings-panel settings-panel--wide'
               : 'settings-panel'
           }

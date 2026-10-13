@@ -106,6 +106,9 @@ describe('HTML invoice email', () => {
     expect(html.indexOf('bitz-designs-wordmark.png')).toBeLessThan(
       html.indexOf('<p>Hello</p>'),
     )
+    expect(html).toContain('bgcolor="#111111"')
+    expect(html).toContain('class="email-logo"')
+    expect(html).toContain('class="email-wordmark"')
   })
 
   it('strips scripts from custom HTML', () => {
@@ -169,7 +172,7 @@ describe('HTML invoice email', () => {
 
     expect(prepared.html).toContain(`href="${paymentUrl}"`)
     expect(prepared.html).toContain('Pay Online')
-    expect(prepared.html).toContain('background:#0f766e')
+    expect(prepared.html).toContain('background:#24352c')
     expect(prepared.html).toContain(paymentUrl)
     expect(prepared.html).toContain(
       'src="https://pay.example.com/branding/bitz-designs-icon.png"',
