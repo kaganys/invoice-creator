@@ -158,6 +158,28 @@ export function IconTrash({ className }: IconProps) {
   )
 }
 
+export function IconCompany({ className }: IconProps) {
+  return (
+    <svg
+      className={className}
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 20h16" />
+      <path d="M6 20V6h8v14" />
+      <path d="M14 20V10h4v10" />
+      <path d="M9 9h2M9 13h2M9 17h2" />
+    </svg>
+  )
+}
+
 export function IconPeople({ className }: IconProps) {
   return (
     <svg

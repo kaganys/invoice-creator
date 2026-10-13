@@ -100,6 +100,35 @@ export async function deleteTeamRole(roleId: string): Promise<{ ok: true }> {
   return apiRequest(`/api/roles/${roleId}`, { method: 'DELETE' })
 }
 
+export type CompanyAdminRow = {
+  id: string
+  name: string
+  role: string
+  memberCount: number
+  invoiceCount: number
+  canRename: boolean
+  canRemove: boolean
+  current: boolean
+}
+
+export async function fetchCompanies(): Promise<{ companies: CompanyAdminRow[] }> {
+  return apiRequest('/api/companies')
+}
+
+export async function renameCompany(
+  companyId: string,
+  name: string,
+): Promise<{ company: { id: string; name: string } }> {
+  return apiRequest(`/api/companies/${companyId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name }),
+  })
+}
+
+export async function removeCompany(companyId: string): Promise<{ ok: true }> {
+  return apiRequest(`/api/companies/${companyId}`, { method: 'DELETE' })
+}
+
 export async function createCompany(name: string): Promise<{ company: { id: string; name: string } }> {
   return apiRequest('/api/companies', {
     method: 'POST',

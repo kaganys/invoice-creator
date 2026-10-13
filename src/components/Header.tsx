@@ -36,7 +36,9 @@ export function Header({ navOpen, onMenuClick, onPreview }: HeaderProps) {
           ? 'Settings'
           : view === 'users'
             ? 'Users'
-            : null
+            : view === 'companies'
+              ? 'Companies'
+              : null
 
   return (
     <header className="header">

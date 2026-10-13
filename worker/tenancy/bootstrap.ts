@@ -46,9 +46,14 @@ export async function ensureCompanyReady(
 export async function allocateCompanySlug(
   store: TenantStore,
   name: string,
+  exceptCompanyId?: string,
 ): Promise<string> {
   const slugBase = slugifyCompanyName(name)
-  const used = new Set((await store.listCompanies()).map((row) => row.slug))
+  const used = new Set(
+    (await store.listCompanies())
+      .filter((row) => row.id !== exceptCompanyId)
+      .map((row) => row.slug),
+  )
   let slug = slugBase
   let attempt = 1
   while (used.has(slug)) {

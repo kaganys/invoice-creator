@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
   addTeamUser,
-  createCompany,
   createTeamRole,
   deleteTeamRole,
   fetchTeam,
@@ -20,14 +19,13 @@ import { InvoiceSection } from '../InvoiceSection.tsx'
 import './UsersPage.css'
 
 export function UsersPage() {
-  const { session, can, refresh } = useSession()
+  const { session, can } = useSession()
   const [users, setUsers] = useState<TeamUser[]>([])
   const [roles, setRoles] = useState<TeamRole[]>([])
   const [email, setEmail] = useState('')
   const [roleId, setRoleId] = useState('')
   const [roleName, setRoleName] = useState('')
   const [rolePermissions, setRolePermissions] = useState<Permission[]>([])
-  const [companyName, setCompanyName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -331,45 +329,6 @@ export function UsersPage() {
               </li>
             ))}
           </ul>
-        </InvoiceSection>
-      ) : null}
-
-      {can('companies.create') ? (
-        <InvoiceSection
-          title="New company"
-          description="Adds another company on this login. Someone with a new Cloudflare email and no company yet can also create one from the setup screen."
-        >
-          <Field label="Company name" htmlFor="company-name">
-            <input
-              id="company-name"
-              className="field__input"
-              value={companyName}
-              onChange={(event) => setCompanyName(event.target.value)}
-            />
-          </Field>
-          <button
-            type="button"
-            className="btn btn--primary"
-            disabled={busy}
-            onClick={() => {
-              setBusy(true)
-              void createCompany(companyName)
-                .then(async () => {
-                  setCompanyName('')
-                  await refresh()
-                })
-                .catch((caught: unknown) =>
-                  setError(
-                    caught instanceof Error
-                      ? caught.message
-                      : 'Could not create company.',
-                  ),
-                )
-                .finally(() => setBusy(false))
-            }}
-          >
-            Create company
-          </button>
         </InvoiceSection>
       ) : null}
     </div>

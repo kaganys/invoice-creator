@@ -2,6 +2,9 @@ import type { Router } from '../router.ts'
 import {
   addCompanyUser,
   createCompany,
+  listMyCompanies,
+  renameMyCompany,
+  removeMyCompany,
   createCompanyRole,
   onboardCompany,
   deleteCompanyRole,
@@ -17,6 +20,13 @@ export function registerTenancyRoutes(router: Router): void {
   router.get('/api/session', (request, env) => getSession(request, env))
   router.post('/api/onboard', (request, env) => onboardCompany(request, env))
   router.post('/api/companies', (request, env) => createCompany(request, env))
+  router.get('/api/companies', (request, env) => listMyCompanies(request, env))
+  router.patch('/api/companies/:id', (request, env, _ctx, params) =>
+    renameMyCompany(request, env, params.id ?? ''),
+  )
+  router.delete('/api/companies/:id', (request, env, _ctx, params) =>
+    removeMyCompany(request, env, params.id ?? ''),
+  )
   router.get('/api/users', (request, env) => listCompanyUsers(request, env))
   router.post('/api/users', (request, env) => addCompanyUser(request, env))
   router.put('/api/users/:id', (request, env, _ctx, params) =>

@@ -7,6 +7,7 @@ import type { ReactNode } from 'react'
 import { SettingsPage } from './components/settings/SettingsPage.tsx'
 import { OnboardingPage } from './components/onboarding/OnboardingPage.tsx'
 import { UsersPage } from './components/users/UsersPage.tsx'
+import { CompaniesPage } from './components/companies/CompaniesPage.tsx'
 import { BrandChrome } from './components/BrandChrome.tsx'
 import { DirectoryProvider } from './directory/DirectoryContext.tsx'
 import {
@@ -33,6 +34,9 @@ function AppContent() {
   }
   if (view === 'users') {
     return <UsersPage />
+  }
+  if (view === 'companies') {
+    return <CompaniesPage />
   }
   return <InvoiceEditor />
 }
