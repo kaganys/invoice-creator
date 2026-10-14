@@ -88,24 +88,44 @@ describe('HTML invoice email', () => {
     expect(html).toContain('<p>Hello</p>')
   })
 
-  it('puts the site logo and wordmark at the top of the email', () => {
+  it('does not inject a header, attachment note, or footer around arbitrary html', () => {
     const html = wrapInvoiceEmailHtml('<p>Hello</p>', {
       businessName: 'Bitz Designs',
       logoUrl: 'https://pay.example.com/branding/bitz-designs-icon.png',
       wordmarkUrl: 'https://pay.example.com/branding/bitz-designs-wordmark.png',
     })
+    expect(html).toContain('<p>Hello</p>')
+    expect(html).not.toContain('class="email-logo"')
+    expect(html).not.toContain('A PDF copy of this invoice is attached')
+    expect(html).not.toContain('Sent by')
+  })
+
+  it('puts the site logo and wordmark in the default header block', () => {
+    const html = prepareInvoiceEmail(
+      DEFAULT_EMAIL_BODY,
+      {
+        invoice_number: 'BD2026-0051',
+        customer_name: 'Ada',
+        business_name: 'Bitz Designs',
+        amount: '$50.00 USD',
+        due_date: 'soon',
+        zelle_email: 'a@b.co',
+        payment_memo: 'memo',
+        payment_url: 'https://pay.example.com/i/abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG',
+      },
+      {
+        logoUrl: 'https://pay.example.com/branding/bitz-designs-icon.png',
+        wordmarkUrl: 'https://pay.example.com/branding/bitz-designs-wordmark.png',
+      },
+    ).html
     expect(html).toContain(
       'src="https://pay.example.com/branding/bitz-designs-icon.png"',
     )
     expect(html).toContain(
       'src="https://pay.example.com/branding/bitz-designs-wordmark.png"',
     )
-    expect(html.indexOf('bitz-designs-icon.png')).toBeLessThan(
-      html.indexOf('<p>Hello</p>'),
-    )
-    expect(html.indexOf('bitz-designs-wordmark.png')).toBeLessThan(
-      html.indexOf('<p>Hello</p>'),
-    )
+    expect(html.indexOf('bitz-designs-icon.png')).toBeLessThan(html.indexOf('Hello'))
+    expect(html.indexOf('bitz-designs-wordmark.png')).toBeLessThan(html.indexOf('Hello'))
     expect(html).toContain('bgcolor="#111111"')
     expect(html).toContain('class="email-logo"')
     expect(html).toContain('class="email-wordmark"')

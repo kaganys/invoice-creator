@@ -6,7 +6,7 @@ import {
   SAMPLE_EMAIL_BRAND,
   SAMPLE_EMAIL_VARS,
 } from '../../invoice/emailHtml.ts'
-import { canonicalizeEmailBody } from '../../invoice/emailCompose.ts'
+import { canonicalizeEmailBody } from '../../invoice/emailDocument.ts'
 import { applyEmailTemplate, defaultEmailTemplates } from '../../invoice/emailTemplates.ts'
 import { useSettings } from '../../settings/SettingsContext.tsx'
 import type { SmtpSecurity, SmtpSettingsPayload } from '../../types/settings.ts'
@@ -108,18 +108,19 @@ export function SmtpPanel() {
     }),
     [draft.fromName],
   )
-  const preview = prepareInvoiceEmail(
-    draft.bodyTemplate || defaultEmailTemplates().body,
-    previewVars,
-    {
-      ...SAMPLE_EMAIL_BRAND,
-      logoUrl: previewAsset(branding.invoiceLogo.url || SAMPLE_EMAIL_BRAND.logoUrl),
-      wordmarkUrl: previewAsset(branding.siteWordmark.url || SAMPLE_EMAIL_BRAND.wordmarkUrl),
-    },
-  )
+  const previewBrand = {
+    logoUrl: previewAsset(branding.siteIcon.url || SAMPLE_EMAIL_BRAND.logoUrl),
+    wordmarkUrl: previewAsset(branding.siteWordmark.url || SAMPLE_EMAIL_BRAND.wordmarkUrl),
+  }
   const subjectPreview = applyEmailTemplate(
     draft.subjectTemplate || defaultEmailTemplates().subject,
     previewVars,
+  )
+  const preview = prepareInvoiceEmail(
+    draft.bodyTemplate || defaultEmailTemplates().body,
+    previewVars,
+    previewBrand,
+    { preheader: subjectPreview },
   )
   const passwordHint = smtp.passwordConfigured
     ? smtp.passwordSource === 'platform'
@@ -250,14 +251,21 @@ export function SmtpPanel() {
             <fieldset className="settings-group" disabled={saving || loading}>
               <legend>Message</legend>
               <p className="settings-help">
-                Edit the message here. The preview uses a sample invoice and
-                shows the real names, amount, and dates.
+                Every part of the email is a block. Show, hide, edit, or reorder
+                it. The preview is the message that will be sent.
               </p>
               <EmailMessageEditor
                 subject={draft.subjectTemplate}
                 html={draft.bodyTemplate || defaultEmailTemplates().body}
                 subjectPreview={subjectPreview}
                 disabled={saving || loading}
+                brand={{
+                  logoUrl: previewAsset(branding.siteIcon.url || SAMPLE_EMAIL_BRAND.logoUrl),
+                  wordmarkUrl: previewAsset(
+                    branding.siteWordmark.url || SAMPLE_EMAIL_BRAND.wordmarkUrl,
+                  ),
+                  senderName: draft.fromName.trim() || previewVars.business_name,
+                }}
                 onChange={({ subject, html }) =>
                   patch({ subjectTemplate: subject, bodyTemplate: html })
                 }

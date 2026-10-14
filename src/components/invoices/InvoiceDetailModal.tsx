@@ -13,6 +13,7 @@ import {
 } from '../../api/invoices.ts'
 import { prepareInvoiceEmail } from '../../invoice/emailHtml.ts'
 import {
+  applyEmailTemplate,
   invoiceTemplateVars,
 } from '../../invoice/emailTemplates.ts'
 import { EmailTemplateEditor } from '../settings/EmailTemplateEditor.tsx'
@@ -714,6 +715,14 @@ export function InvoiceDetailModal({
                       branding.siteWordmark.url ||
                       '/branding/bitz-designs-wordmark.png',
                   },
+                  {
+                    preheader: applyEmailTemplate(
+                      subject,
+                      invoiceTemplateVars(invoice, {
+                        paymentUrl: paymentLink?.url ?? '',
+                      }),
+                    ),
+                  },
                 ).html
               }
             />
@@ -739,6 +748,17 @@ export function InvoiceDetailModal({
               open={emailEditorOpen}
               subject={subject}
               html={emailBody}
+              previewVars={invoiceTemplateVars(invoice, {
+                paymentUrl: paymentLink?.url ?? '',
+              })}
+              brand={{
+                logoUrl:
+                  branding.siteIcon.url || '/branding/bitz-designs-icon.png',
+                wordmarkUrl:
+                  branding.siteWordmark.url ||
+                  '/branding/bitz-designs-wordmark.png',
+                senderName: smtp.fromName || invoice.from.name,
+              }}
               onClose={() => setEmailEditorOpen(false)}
               onApply={({ subject: nextSubject, html }) => {
                 setSubject(nextSubject)

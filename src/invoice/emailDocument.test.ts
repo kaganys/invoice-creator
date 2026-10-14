@@ -1,0 +1,110 @@
+import { describe, expect, it } from 'vitest'
+import { defaultGraphicalEmailBody } from './emailBlocks.ts'
+import { defaultRichEmailBody } from './emailCompose.ts'
+import {
+  canonicalizeEmailBody,
+  defaultEmailBlocks,
+  defaultEmailDocumentHtml,
+  readEmailBlocks,
+  renderEmailBlocks,
+  writeEmailBlocks,
+} from './emailDocument.ts'
+import {
+  prepareInvoiceEmail,
+  SAMPLE_EMAIL_BRAND,
+  SAMPLE_EMAIL_VARS,
+} from './emailHtml.ts'
+import { applyEmailTemplate, DEFAULT_EMAIL_SUBJECT } from './emailTemplates.ts'
+
+const BRAND = {
+  logoUrl: 'https://pay.example.com/branding/bitz-designs-icon.png',
+  wordmarkUrl: 'https://pay.example.com/branding/bitz-designs-wordmark.png',
+}
+
+function prepared(body: string) {
+  return prepareInvoiceEmail(body, SAMPLE_EMAIL_VARS, BRAND, {
+    preheader: applyEmailTemplate(DEFAULT_EMAIL_SUBJECT, SAMPLE_EMAIL_VARS),
+  })
+}
+
+describe('email block document', () => {
+  it('migrates the previous default message into the same blocks as the new default', () => {
+    const migrated = writeEmailBlocks(readEmailBlocks(defaultRichEmailBody()))
+    expect(migrated).toBe(defaultEmailDocumentHtml())
+    expect(writeEmailBlocks(readEmailBlocks(migrated))).toBe(migrated)
+  })
+
+  it('stabilizes a legacy graphical template', () => {
+    const once = canonicalizeEmailBody(defaultGraphicalEmailBody())
+    expect(canonicalizeEmailBody(once)).toBe(once)
+    expect(once).toContain('<!--email-doc:v2-->')
+    expect(once).toContain('Hello {{customer_name}},')
+    expect(once).not.toContain('{{zelle_email}}')
+  })
+
+  it('renders the settings preview and the sent email as the same html', () => {
+    const legacy = defaultGraphicalEmailBody()
+    const saved = canonicalizeEmailBody(legacy)
+    const preview = prepared(legacy)
+    const sent = prepared(saved)
+    expect(sent.html).toBe(preview.html)
+    expect(sent.text).toBe(preview.text)
+    expect(sent.html).not.toContain('email-doc:v2')
+    expect(sent.html).not.toContain('email-block')
+    expect(sent.html).not.toContain('border-radius:999px')
+    expect(sent.html).not.toContain('data-email-var')
+    expect(preview.html).toContain('Hello Ada Lovelace,')
+    expect(preview.html).toContain('A PDF copy of this invoice is attached to this email.')
+    expect(preview.html).toContain('Sent by Bitz Designs')
+    expect(preview.html).toContain('class="email-logo"')
+  })
+
+  it('omits a block from the sent html when it is hidden', () => {
+    const hidden = (type: string) =>
+      prepared(
+        writeEmailBlocks(
+          defaultEmailBlocks().map((block) =>
+            block.type === type ? { ...block, enabled: false } : block,
+          ),
+        ),
+      ).html
+
+    expect(hidden('header')).not.toContain('class="email-logo"')
+    expect(hidden('header')).not.toContain('bitz-designs-icon')
+    expect(hidden('amount')).not.toContain('Amount due')
+    expect(hidden('amount')).not.toContain('$50.00')
+    expect(hidden('button')).not.toContain('Pay Online')
+    expect(hidden('link')).not.toContain('If the button does not work')
+    expect(hidden('attachment')).not.toContain('A PDF copy of this invoice is attached')
+    expect(hidden('footer')).not.toContain('Sent by')
+    const withoutZelle = prepared(defaultEmailDocumentHtml()).html
+    expect(withoutZelle).not.toContain('billing@bitzdesigns.co')
+    expect(withoutZelle).toContain('Please pay by Zelle using your invoice number as the memo.')
+  })
+
+  it('keeps a custom note from gaining a pay button, and still migrates the old chrome', () => {
+    const html = prepared('<p>Custom intro only.</p>').html
+    expect(html).toContain('Custom intro only.')
+    expect(html).not.toContain('Pay Online')
+    expect(html).toContain('A PDF copy of this invoice is attached to this email.')
+    expect(html).toContain('Sent by Bitz Designs')
+    expect(html).toContain('class="email-logo"')
+  })
+
+  it('follows block order and drops pasted chip styling', () => {
+    const blocks = defaultEmailBlocks()
+    const footer = blocks.find((block) => block.type === 'footer')
+    const rest = blocks.filter((block) => block.type !== 'footer')
+    const html = renderEmailBlocks(footer ? [footer, ...rest] : rest, SAMPLE_EMAIL_BRAND)
+    expect(html.indexOf('Sent by')).toBeLessThan(html.indexOf('email-logo'))
+    const pasted = writeEmailBlocks(
+      readEmailBlocks(
+        `<p style="color:#111111"><span style="color:#000;background:#ecfdf5;border-radius:999px">Hello</span> {{customer_name}}</p>`,
+      ),
+    )
+    const sent = prepared(pasted).html
+    expect(sent).toContain('Hello')
+    expect(sent).not.toContain('border-radius:999px')
+    expect(sent).not.toContain('#ecfdf5')
+  })
+})

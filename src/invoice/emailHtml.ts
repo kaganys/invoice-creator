@@ -1,6 +1,11 @@
-import { canonicalizeEmailBody } from './emailCompose.ts'
 import {
-  applyEmailTemplate,
+  defaultEmailDocumentHtml,
+  readEmailBlocks,
+  renderEmailBlocks,
+  type EmailBrandAssets,
+} from './emailDocument.ts'
+
+import {
   applyEmailTemplateHtml,
   looksLikeHtml,
   type TemplateVars,
@@ -78,10 +83,7 @@ export type EmailWrapOptions = {
   wordmarkUrl?: string
 }
 
-export type EmailBrandAssets = {
-  logoUrl?: string
-  wordmarkUrl?: string
-}
+export type { EmailBrandAssets }
 
 /** Build an absolute URL for email images (email clients need https://…). */
 export function absolutePublicAssetUrl(baseOrigin: string, path: string): string {
@@ -102,45 +104,6 @@ export function absolutePublicAssetUrl(baseOrigin: string, path: string): string
   } catch {
     return trimmed
   }
-}
-
-function brandHeaderHtml(options: EmailWrapOptions): string {
-  const logo = options.logoUrl?.trim() ?? ''
-  const wordmark = options.wordmarkUrl?.trim() ?? ''
-  const business = escapeHtml(options.businessName ?? 'Bitz Designs')
-  const nameCell = `<td valign="middle" style="padding:0;background:#111111;font-family:Georgia,'Times New Roman',serif;font-size:22px;line-height:1.2;font-weight:700;color:#f7f3ec;">${business}</td>`
-  if (!logo && !wordmark) {
-    return `<tr>
-            <td class="email-pad" align="center" bgcolor="#111111" style="background:#111111;padding:22px 28px;">
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
-                <tr>${nameCell}</tr>
-              </table>
-            </td>
-          </tr>`
-  }
-  const logoCell = logo
-    ? `<td valign="middle" bgcolor="#111111" style="padding:0 16px 0 0;background:#111111;font-size:0;line-height:0;">
-<img class="email-logo" src="${escapeHtml(logo)}" width="56" height="56" alt="" style="display:block;border:0;outline:none;text-decoration:none;width:56px;height:56px;background:#111111;" />
-</td>`
-    : ''
-  const wordmarkCell = wordmark
-    ? `<td valign="middle" bgcolor="#111111" style="padding:0;background:#111111;font-size:0;line-height:0;">
-<img class="email-wordmark" src="${escapeHtml(wordmark)}" alt="${business}" height="42" style="display:block;border:0;outline:none;text-decoration:none;height:42px;width:auto;max-width:280px;background:#111111;" />
-</td>`
-    : ''
-  return `<tr>
-            <td class="email-pad" align="center" bgcolor="#111111" style="background:#111111;padding:26px 28px 22px;">
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0" bgcolor="#111111" style="margin:0 auto;background:#111111;">
-                <tr>
-                  ${logoCell}
-                  ${wordmarkCell}
-                </tr>
-                <tr>
-                  <td colspan="2" align="center" bgcolor="#111111" style="padding:12px 0 0;background:#111111;font-family:Georgia,'Times New Roman',serif;font-size:15px;line-height:1.3;letter-spacing:0.04em;color:#f7f3ec;">${business}</td>
-                </tr>
-              </table>
-            </td>
-          </tr>`
 }
 
 export function wrapInvoiceEmailHtml(
@@ -190,28 +153,7 @@ export function wrapInvoiceEmailHtml(
     <tr>
       <td align="center" style="padding:16px 8px;">
         <table class="email-shell" role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="width:100%;max-width:600px;">
-          ${brandHeaderHtml(options)}
-          <tr>
-            <td class="email-card" style="background:#fffcf8;border:1px solid #e4ddd2;overflow:hidden;">
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-                <tr>
-                  <td class="email-pad email-content" style="padding:28px 28px 8px;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.55;color:#111111;">
-                    ${inner}
-                  </td>
-                </tr>
-                <tr>
-                  <td class="email-pad" style="padding:8px 28px 28px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#4b5563;">
-                    A PDF copy of this invoice is attached to this email.
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          <tr>
-            <td class="email-pad" style="padding:18px 12px 8px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.4;color:#6b7280;text-align:center;">
-              Sent by ${business}
-            </td>
-          </tr>
+          ${inner}
         </table>
       </td>
     </tr>
@@ -220,31 +162,28 @@ export function wrapInvoiceEmailHtml(
 </html>`
 }
 
+export type PrepareEmailOptions = {
+  /** Inbox snippet. Pass the subject the sender wrote. Nothing is invented. */
+  preheader?: string
+}
+
 export function prepareInvoiceEmail(
   bodyTemplate: string,
   vars: TemplateVars,
   brand: EmailBrandAssets = {},
+  options: PrepareEmailOptions = {},
 ): { html: string; text: string } {
-  const source = bodyTemplate.trim()
-    ? bodyTemplate
-    : '<p></p>'
-  const fragment = looksLikeHtml(source)
-    ? canonicalizeEmailBody(source)
-    : plainTextToHtml(source)
-  const applied = applyEmailTemplateHtml(fragment, vars)
+  const source = bodyTemplate.trim() ? bodyTemplate : defaultEmailDocumentHtml()
+  const rendered = renderEmailBlocks(readEmailBlocks(source), brand)
+  const applied = applyEmailTemplateHtml(rendered, vars)
   const normalized = normalizePaymentUrlBlocks(applied, vars.payment_url)
   const clean = sanitizeEmailHtml(normalized)
-  const textSource = looksLikeHtml(source)
-    ? htmlToPlainText(normalized)
-    : applyEmailTemplate(source, vars)
   return {
     html: wrapInvoiceEmailHtml(clean, {
-      preheader: `Invoice ${vars.invoice_number} from ${vars.business_name}`,
+      preheader: options.preheader ?? '',
       businessName: vars.business_name,
-      logoUrl: brand.logoUrl,
-      wordmarkUrl: brand.wordmarkUrl,
     }),
-    text: textSource.trim() || htmlToPlainText(clean),
+    text: htmlToPlainText(normalized).trim() || htmlToPlainText(clean),
   }
 }
 
