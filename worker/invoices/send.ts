@@ -171,13 +171,18 @@ export async function sendInvoice(
   const assetOrigin = customerBase.ok ? customerBase.value : ''
   const recipient = asTrimmedString(body.value.recipient) || invoice.customer.email
   const subject = applyEmailTemplate(subjectTemplate, vars)
-  const prepared = prepareInvoiceEmail(bodyTemplate, vars, {
-    logoUrl: absolutePublicAssetUrl(assetOrigin, branding.siteIcon.path),
-    wordmarkUrl: absolutePublicAssetUrl(
-      assetOrigin,
-      branding.siteWordmark.path,
-    ),
-  })
+  const prepared = prepareInvoiceEmail(
+    bodyTemplate,
+    vars,
+    {
+      logoUrl: absolutePublicAssetUrl(assetOrigin, branding.siteIcon.path),
+      wordmarkUrl: absolutePublicAssetUrl(
+        assetOrigin,
+        branding.siteWordmark.path,
+      ),
+    },
+    { preheader: subject },
+  )
   const text = prepared.text
   const html = prepared.html
   const idempotencyKey = asTrimmedString(body.value.idempotencyKey)

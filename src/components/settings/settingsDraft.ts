@@ -1,4 +1,4 @@
-import { canonicalizeEmailBody } from '../../invoice/emailCompose.ts'
+import { canonicalizeEmailBody } from '../../invoice/emailDocument.ts'
 import type { SmtpSettingsPayload } from '../../types/settings.ts'
 
 export type SmtpComparable = Pick<

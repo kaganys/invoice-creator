@@ -125,7 +125,8 @@
   height: min(720px, calc(100vh - 11rem));
   min-height: 28rem;
   border: 1px solid var(--border);
-  background: #fffcf8;
+  background: #f3efe6;
+  color-scheme: light;
 }
 
 .email-editor {
@@ -337,11 +338,329 @@
   margin: 0;
   padding: 0.02rem 0.42rem;
   border-radius: 999px;
-  background: var(--badge-bg);
-  color: var(--badge-text);
+  background: #e7efe9 !important;
+  color: #24352c !important;
   font-size: 0.84em;
   font-weight: 600;
   line-height: 1.45;
+}
+
+.email-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.email-block {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.7rem 0.75rem 0.8rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.email-block.is-hidden {
+  background: var(--bg);
+}
+
+.email-block__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.email-block__title {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.email-block__badge {
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.email-block__actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-left: auto;
+}
+
+.email-block__text-btn {
+  padding: 0.28rem 0.55rem;
+  border: 1px solid var(--border-strong);
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.email-block__text-btn:hover:not(:disabled) {
+  background: var(--nav-hover);
+}
+
+.email-block__text-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.email-block__note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.email-block__stack {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.email-block__fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+  align-items: end;
+}
+
+.email-block__field {
+  display: grid;
+  gap: 0.2rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.email-block__color {
+  width: 2.4rem;
+  height: 2rem;
+  padding: 0.15rem;
+  border: 1px solid var(--border-strong);
+  background: var(--input-bg);
+  cursor: pointer;
+}
+
+.email-block__checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.9rem;
+  margin: 0;
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
+.email-block__checks label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.email-rich {
+  color: inherit;
+  outline: none;
+}
+
+.email-rich--paper {
+  background: #fffcf8;
+  color: #1c1917;
+  color-scheme: light;
+  border: 1px solid #cfc6b8;
+  padding: 0.75rem 0.9rem;
+  line-height: 1.6;
+}
+
+.email-rich--paper:focus {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.email-rich--line {
+  min-height: 2.6rem;
+}
+
+.email-rich--paper:not(.email-rich--line) {
+  min-height: 4.75rem;
+}
+
+.email-rich--paper :where(p, div, li, h1, h2, h3, span, strong, em, b, i, font) {
+  color: #1c1917 !important;
+  background-color: transparent !important;
+}
+
+.email-rich--paper a {
+  color: #24352c !important;
+  background: transparent !important;
+}
+
+.email-rich--plain :where(span, strong, em, b, i, font, a) {
+  color: inherit !important;
+  background-color: transparent !important;
+}
+
+.email-rich--center {
+  text-align: center;
+}
+
+.email-rich p {
+  margin: 0 0 0.75rem;
+}
+
+.email-rich:empty::before {
+  content: "Write…";
+  color: #8a8176;
+}
+
+.email-header-preview {
+  padding: 1.15rem 1rem 0.95rem;
+  text-align: center;
+  color-scheme: light;
+}
+
+.email-header-preview__lockup {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.85rem;
+}
+
+.email-header-preview img {
+  display: block;
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+}
+
+.email-header-preview__wordmark {
+  width: auto !important;
+  height: 42px !important;
+  max-width: 220px;
+}
+
+.email-header-preview p {
+  margin: 0.65rem 0 0;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+}
+
+.email-amount {
+  padding: 1rem 1.05rem;
+  border: 1px solid #e4ddd2;
+  color-scheme: light;
+}
+
+.email-amount__label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.email-amount__value {
+  margin: 0.25rem 0;
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.email-pay-preview {
+  display: flex;
+  justify-content: center;
+  padding: 0.35rem;
+}
+
+.email-rich--button {
+  min-width: 7.5rem;
+  padding: 0.15rem 0.4rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.email-link-preview {
+  display: grid;
+  gap: 0.35rem;
+  text-align: center;
+}
+
+.email-add {
+  position: relative;
+  align-self: start;
+}
+
+.email-add__menu {
+  left: 0;
+  right: auto;
+}
+
+.email-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  background: var(--overlay);
+}
+
+.email-modal__dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1180px, 100%);
+  max-height: calc(100vh - 2.5rem);
+  overflow: auto;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.email-modal__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--header-bg);
+}
+
+.email-modal__bar h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 560;
+}
+
+.email-modal__actions {
+  display: flex;
+  gap: 0.45rem;
+}
+
+.email-modal__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.email-modal__preview {
+  height: min(720px, calc(100vh - 8rem));
+  min-height: 24rem;
+}
+
+@media (max-width: 800px) {
+  .email-modal__body {
+    grid-template-columns: 1fr;
+  }
 }
 
 .settings-preview__frame {

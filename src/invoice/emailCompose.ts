@@ -617,16 +617,15 @@ export function emailSectionEnabled(html: string, id: EmailSectionId): boolean {
   return readEmailDocument(html).sections[id]
 }
 
-function looksLikeMarkup(value: string): boolean {
-  return /<\/?[a-z][\s\S]*>/i.test(value)
+/** Email-safe HTML for a free-text block. Does not absorb payment sections. */
+export function sanitizeProseHtml(html: string): string {
+  const rendered: Rendered = { prose: [], sections: [] }
+  renderBlocks(parseNodes(html), rendered, null)
+  return repairStrayComma(rendered.prose.map(separateMergeFields)).join('\n')
 }
 
-/** The message the editor, the preview, and the sent email all share. */
-export function canonicalizeEmailBody(html: string): string {
-  if (!looksLikeMarkup(html)) {
-    return html
-  }
-  return writeEmailDocument(readEmailDocument(html))
+export function proseToEditorHtml(html: string): string {
+  return tokensToChips(html)
 }
 
 export function variableChipHtml(id: EmailVariableId): string {

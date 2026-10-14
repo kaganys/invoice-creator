@@ -130,7 +130,8 @@ describe('email compose document', () => {
     expect(body).toContain('Hello {{customer_name}},')
     expect(body).not.toContain('>Invoice<')
     const text = prepared.text
-    expect(text.startsWith('Hello Ada Lovelace,')).toBe(true)
+    expect(text).toContain('Hello Ada Lovelace,')
+    expect(text.indexOf('Hello Ada Lovelace,')).toBeLessThan(text.indexOf('$50.00'))
     expect(text).not.toMatch(/Due soon\.,/)
     expect(prepared.html).toContain('Due September 24, 2026')
     expect(prepared.html).not.toContain('Due September 24, 2026,')
