@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { stripeSecretKeyError } from '../../payments/stripeKey.ts'
 import { useSettings } from '../../settings/SettingsContext.tsx'
 import type { PaymentsSettingsPayload } from '../../types/settings.ts'
 import { Field } from '../Field.tsx'
@@ -10,6 +11,7 @@ export function PaymentsPanel() {
   const [success, setSuccess] = useState<string | null>(null)
   const [secretKey, setSecretKey] = useState('')
   const [webhookSecret, setWebhookSecret] = useState('')
+  const [formError, setFormError] = useState<string | null>(null)
 
   useEffect(() => {
     setDraft(payments)
@@ -22,6 +24,12 @@ export function PaymentsPanel() {
 
   async function onSave() {
     setSuccess(null)
+    const secretError = stripeSecretKeyError(secretKey)
+    if (secretError) {
+      setFormError(secretError)
+      return
+    }
+    setFormError(null)
     try {
       await savePayments({
         stripeEnabled: draft.stripeEnabled,
@@ -147,11 +155,12 @@ export function PaymentsPanel() {
             placeholder={
               payments.secretConfigured
                 ? 'Leave blank to keep the current secret key'
-                : 'sk_test_... or sk_live_...'
+                : 'sk_test_..., sk_live_..., rk_test_..., or rk_live_...'
             }
             onChange={(event) => {
               setSecretKey(event.target.value)
               setSuccess(null)
+              setFormError(null)
             }}
           />
         </Field>
@@ -225,8 +234,8 @@ export function PaymentsPanel() {
         {success ? (
           <p className="settings-status settings-status--success">{success}</p>
         ) : null}
-        {error ? (
-          <p className="settings-status settings-status--error">{error}</p>
+        {formError || error ? (
+          <p className="settings-status settings-status--error">{formError || error}</p>
         ) : null}
       </div>
     </InvoiceSection>

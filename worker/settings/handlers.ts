@@ -54,6 +54,7 @@ import {
 } from '../../src/invoice/emailTemplates.ts'
 import type { MailTransport } from '../mail/types.ts'
 import { createSmtpTransport } from '../mail/smtpTransport.ts'
+import { stripeSecretKeyError } from '../../src/payments/stripeKey.ts'
 import {
   parsePaymentsJson,
   publicPayments,
@@ -505,8 +506,9 @@ export async function updatePaymentsSettings(
     : ''
   const clearSecret = isRecord(body.value) && body.value.clearSecret === true
   const clearWebhook = isRecord(body.value) && body.value.clearWebhookSecret === true
-  if (secretKey && !secretKey.startsWith('sk_')) {
-    return errorJson('Stripe secret key must start with sk_.', 400)
+  const secretKeyError = stripeSecretKeyError(secretKey)
+  if (secretKeyError) {
+    return errorJson(secretKeyError, 400)
   }
   if (webhookSecret && !webhookSecret.startsWith('whsec_')) {
     return errorJson('Stripe webhook secret must start with whsec_.', 400)

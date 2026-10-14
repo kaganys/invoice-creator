@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { InvoiceStore } from '../invoices/types.ts'
 import type { DirectoryStore, PersonRecord } from '../people/types.ts'
+import { STRIPE_SECRET_KEY_MESSAGE } from '../../src/payments/stripeKey.ts'
+import {
+  readCompanySecret,
+  type CompanySecretStore,
+  type SecretKey,
+} from '../secrets/d1Store.ts'
 import {
   allocateInvoiceNumber,
   changeNextSequence,
@@ -11,6 +17,7 @@ import {
   testSmtpSettings,
   updateDefaults,
   updateFormatSettings,
+  updatePaymentsSettings,
   updateSmtpSettings,
   uploadBrandingAsset,
   type SettingsDeps,
@@ -370,6 +377,91 @@ describe('SMTP handlers', () => {
       deps,
     )
     expect(tested.status).toBe(400)
+  })
+})
+
+function memorySecrets(): CompanySecretStore {
+  const rows = new Map<string, string>()
+  const id = (companyId: string, key: SecretKey) => `${companyId}:${key}`
+  return {
+    async getCiphertext(companyId, key) {
+      return rows.get(id(companyId, key)) ?? null
+    },
+    async setCiphertext(companyId, key, ciphertext) {
+      rows.set(id(companyId, key), ciphertext)
+    },
+    async delete(companyId, key) {
+      rows.delete(id(companyId, key))
+    },
+  }
+}
+
+describe('payment settings handlers', () => {
+  function paymentsDeps() {
+    const secrets = memorySecrets()
+    return {
+      secrets,
+      deps: createDeps({
+        secrets,
+        tenantSecretsKey: 'tenant-key',
+        companyId: DEFAULT_COMPANY_ID,
+      }),
+    }
+  }
+
+  it('stores standard and restricted secret keys without echoing them', async () => {
+    for (const secretKey of [
+      'sk_test_51standard',
+      'sk_live_51standard',
+      'rk_test_51restricted',
+      'rk_live_51restricted',
+    ]) {
+      const { secrets, deps } = paymentsDeps()
+      const response = await updatePaymentsSettings(
+        jsonRequest({
+          stripeEnabled: true,
+          cardPaymentsEnabled: true,
+          publishableKey: 'pk_test_51ABC',
+          secretKey,
+        }),
+        deps,
+      )
+      expect(response.status).toBe(200)
+      const payload = await readJson(response)
+      expect(JSON.stringify(payload)).not.toContain(secretKey)
+      expect(JSON.stringify(payload)).not.toContain('secretKey')
+      const payments = payload.payments as { secretConfigured: boolean }
+      expect(payments.secretConfigured).toBe(true)
+      expect(
+        await readCompanySecret(
+          secrets,
+          DEFAULT_COMPANY_ID,
+          'stripe_secret',
+          'tenant-key',
+        ),
+      ).toBe(secretKey)
+    }
+  })
+
+  it('rejects a secret key that is not sk_ or rk_ and does not store it', async () => {
+    for (const secretKey of ['pk_live_51abc', 'whsec_abc', 'rk_live_', 'sk_notakey']) {
+      const { secrets, deps } = paymentsDeps()
+      const response = await updatePaymentsSettings(
+        jsonRequest({
+          stripeEnabled: true,
+          publishableKey: 'pk_test_51ABC',
+          secretKey,
+        }),
+        deps,
+      )
+      expect(response.status).toBe(400)
+      const payload = await readJson(response)
+      expect(payload.error).toBe(STRIPE_SECRET_KEY_MESSAGE)
+      expect(JSON.stringify(payload)).not.toContain(secretKey)
+      expect(
+        await secrets.getCiphertext(DEFAULT_COMPANY_ID, 'stripe_secret'),
+      ).toBeNull()
+    }
   })
 })
 
