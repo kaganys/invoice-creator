@@ -1,3 +1,4 @@
+import { successRedirectTarget } from '../../src/payments/successRedirect.ts'
 import { asTrimmedString, isRecord } from '../lib/json.ts'
 import type { ValidationResult } from '../invoices/validation.ts'
 
@@ -7,6 +8,7 @@ export type PaymentsConfig = {
   achPaymentsEnabled: boolean
   publishableKey: string
   statementDescriptor: string
+  successRedirectUrl: string
 }
 
 export const DEFAULT_PAYMENTS: PaymentsConfig = {
@@ -15,6 +17,15 @@ export const DEFAULT_PAYMENTS: PaymentsConfig = {
   achPaymentsEnabled: false,
   publishableKey: '',
   statementDescriptor: 'BITZ DESIGNS',
+  successRedirectUrl: '',
+}
+
+function storedSuccessRedirect(raw: unknown): string {
+  const value = asTrimmedString(raw)
+  if (!value) {
+    return ''
+  }
+  return successRedirectTarget(value) ?? ''
 }
 
 export function parsePaymentsJson(raw: string | null): PaymentsConfig {
@@ -34,6 +45,7 @@ export function parsePaymentsJson(raw: string | null): PaymentsConfig {
       statementDescriptor:
         asTrimmedString(parsed.statementDescriptor) ||
         DEFAULT_PAYMENTS.statementDescriptor,
+      successRedirectUrl: storedSuccessRedirect(parsed.successRedirectUrl),
     }
   } catch {
     return { ...DEFAULT_PAYMENTS }
@@ -58,6 +70,7 @@ export function publicPayments(
     achPaymentsEnabled: config.achPaymentsEnabled,
     publishableKey: config.publishableKey,
     statementDescriptor: config.statementDescriptor,
+    successRedirectUrl: config.successRedirectUrl,
     secretConfigured,
     webhookSecretConfigured: extra.webhookSecretConfigured ?? false,
     secretSource: extra.secretSource ?? (secretConfigured ? 'platform' : 'none'),
@@ -148,6 +161,13 @@ export function validatePaymentsWrite(
       message: 'Statement descriptor must be 22 characters or fewer.',
     }
   }
+  const successRedirectRaw = asTrimmedString(input.successRedirectUrl)
+  if (successRedirectRaw && !successRedirectTarget(successRedirectRaw)) {
+    return {
+      ok: false,
+      message: 'Redirect after successful payment must be an https URL.',
+    }
+  }
   return {
     ok: true,
     value: {
@@ -156,6 +176,9 @@ export function validatePaymentsWrite(
       achPaymentsEnabled: input.achPaymentsEnabled === true,
       publishableKey,
       statementDescriptor: statementDescriptor || DEFAULT_PAYMENTS.statementDescriptor,
+      successRedirectUrl: successRedirectRaw
+        ? (successRedirectTarget(successRedirectRaw) ?? '')
+        : '',
     },
   }
 }

@@ -51,6 +51,7 @@ export type PublicInvoicePayload = {
   achPaymentAvailable: boolean
   paymentMethodTypes: string[]
   stripePublishableKey: string | null
+  successRedirectUrl: string
   logoPath: string
   pendingKind: 'ach' | 'card' | null
 }

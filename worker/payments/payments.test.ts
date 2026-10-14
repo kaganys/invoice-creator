@@ -299,12 +299,14 @@ describe('public payment tokens', () => {
         achPaymentsEnabled: true,
         publishableKey: 'pk_test_51ABC',
         statementDescriptor: 'BITZ',
+        successRedirectUrl: 'https://shop.example/thanks',
       },
       stripeSecretConfigured: true,
     })
     const payload = await readJson(response)
     const invoice = payload.invoice as {
       amountDueCents: number
+      successRedirectUrl: string
       cardFeeCents: number
       cardTotalCents: number
       cardPaymentAvailable: boolean
@@ -320,6 +322,7 @@ describe('public payment tokens', () => {
     expect(invoice.cardPaymentAvailable).toBe(true)
     expect(invoice.achPaymentAvailable).toBe(true)
     expect(invoice.paymentMethodTypes).toEqual(['card', 'us_bank_account'])
+    expect(invoice.successRedirectUrl).toBe('https://shop.example/thanks')
     expect(invoice.zelleEmail).toBeUndefined()
     expect(invoice.paymentMemo).toBeUndefined()
     expect(JSON.stringify(payload)).not.toMatch(/zelle/i)
@@ -408,6 +411,7 @@ describe('public payment tokens', () => {
         achPaymentsEnabled: true,
         publishableKey: 'pk_test_51ABC',
         statementDescriptor: 'BITZ',
+        successRedirectUrl: 'javascript:alert(1)',
       },
       stripeSecretConfigured: true,
     })
@@ -417,8 +421,10 @@ describe('public payment tokens', () => {
       stripePublishableKey: string | null
       pendingKind: string | null
       cardPaymentAvailable: boolean
+      successRedirectUrl: string
     }
     expect(invoice.pendingKind).toBe('ach')
+    expect(invoice.successRedirectUrl).toBe('')
     expect(invoice.stripePublishableKey).toBeNull()
     expect(invoice.cardPaymentAvailable).toBe(false)
     expect(await tokens.getActiveByInvoiceId(INVOICE_ID)).not.toBeNull()

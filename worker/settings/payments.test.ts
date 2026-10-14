@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  parsePaymentsJson,
   publicPayments,
   validatePaymentsWrite,
 } from './payments.ts'
@@ -21,6 +22,7 @@ describe('payments settings', () => {
         achPaymentsEnabled: true,
         publishableKey: 'pk_test_51ABC',
         statementDescriptor: 'BITZ DESIGNS',
+        successRedirectUrl: '',
       },
       true,
     )
@@ -47,5 +49,28 @@ describe('payments settings', () => {
     if (!result.ok) {
       expect(result.message).not.toContain('sk_live_hidden')
     }
+  })
+
+  it('stores a blank redirect for older settings and accepts only https', () => {
+    expect(parsePaymentsJson(JSON.stringify({ stripeEnabled: true })).successRedirectUrl).toBe(
+      '',
+    )
+    const saved = validatePaymentsWrite({
+      stripeEnabled: true,
+      successRedirectUrl: 'https://shop.example/thanks',
+    })
+    expect(saved.ok).toBe(true)
+    if (saved.ok) {
+      expect(saved.value.successRedirectUrl).toBe('https://shop.example/thanks')
+    }
+    expect(
+      validatePaymentsWrite({
+        stripeEnabled: true,
+        successRedirectUrl: 'http://shop.example/thanks',
+      }).ok,
+    ).toBe(false)
+    expect(validatePaymentsWrite({ stripeEnabled: true, successRedirectUrl: '' }).ok).toBe(
+      true,
+    )
   })
 })

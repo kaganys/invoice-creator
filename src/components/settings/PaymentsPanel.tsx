@@ -29,6 +29,7 @@ export function PaymentsPanel() {
         achPaymentsEnabled: draft.achPaymentsEnabled,
         publishableKey: draft.publishableKey,
         statementDescriptor: draft.statementDescriptor,
+        successRedirectUrl: draft.successRedirectUrl,
         secretKey: secretKey.trim() || undefined,
         webhookSecret: webhookSecret.trim() || undefined,
       })
@@ -100,6 +101,29 @@ export function PaymentsPanel() {
             onChange={(event) => patch({ publishableKey: event.target.value })}
           />
         </Field>
+        <Field
+          label="Redirect after successful payment"
+          htmlFor="payments-success-redirect"
+          className="form-grid__full"
+        >
+          <input
+            id="payments-success-redirect"
+            className="field__input"
+            type="url"
+            inputMode="url"
+            value={draft.successRedirectUrl}
+            disabled={saving || loading}
+            placeholder="https://example.com/payment-complete"
+            onChange={(event) => patch({ successRedirectUrl: event.target.value })}
+          />
+        </Field>
+        <p className="settings-help form-grid__full">
+          Optional. After a card, Apple Pay, Google Pay, or 3-D Secure payment
+          succeeds, the customer leaves the pay page for this https address.
+          Bank payments redirect when the transfer is submitted. Failures stay
+          on the pay page. Leave this blank to keep the pay page as it is.
+          The invoice number is added as ?invoice=.
+        </p>
         <Field label="Statement descriptor" htmlFor="payments-descriptor">
           <input
             id="payments-descriptor"
