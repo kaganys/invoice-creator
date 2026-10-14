@@ -1,4 +1,5 @@
 import { successRedirectTarget } from '../../src/payments/successRedirect.ts'
+import { isStripeSecretKey } from '../../src/payments/stripeKey.ts'
 import { asTrimmedString, isRecord } from '../lib/json.ts'
 import type { ValidationResult } from '../invoices/validation.ts'
 
@@ -144,15 +145,15 @@ export function validatePaymentsWrite(
     }
   }
   const publishableKey = asTrimmedString(input.publishableKey)
+  if (isStripeSecretKey(publishableKey)) {
+    return { ok: false, message: 'A Stripe secret key cannot be used as the publishable key.' }
+  }
   if (publishableKey && !isPublishableKey(publishableKey)) {
     return {
       ok: false,
       message:
         'Publishable key must start with pk_test_ or pk_live_. Never paste a secret key here.',
     }
-  }
-  if (publishableKey.startsWith('sk_')) {
-    return { ok: false, message: 'A Stripe secret key cannot be used as the publishable key.' }
   }
   const statementDescriptor = asTrimmedString(input.statementDescriptor)
   if (statementDescriptor.length > 22) {
