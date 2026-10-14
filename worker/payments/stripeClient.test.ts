@@ -69,6 +69,18 @@ describe('Stripe PaymentIntent requests', () => {
         company_id: 'company-1',
         company_name: 'Northwind Studio',
         customer_name: 'Ada',
+        billing_address_line1: '1 Main St',
+      },
+      shipping: {
+        name: 'Ada',
+        phone: '555-0100',
+        address: {
+          line1: '1 Main St',
+          city: 'New York',
+          state: 'NY',
+          postalCode: '10001',
+          country: 'US',
+        },
       },
     }
 
@@ -102,6 +114,15 @@ describe('Stripe PaymentIntent requests', () => {
       expect(params.get('metadata[company_id]')).toBe('company-1')
       expect(params.get('metadata[company_name]')).toBe('Northwind Studio')
       expect(params.get('metadata[customer_name]')).toBe('Ada')
+      expect(params.get('metadata[billing_address_line1]')).toBe('1 Main St')
+      expect(params.get('shipping[name]')).toBe('Ada')
+      expect(params.get('shipping[phone]')).toBe('555-0100')
+      expect(params.get('shipping[address][line1]')).toBe('1 Main St')
+      expect(params.get('shipping[address][city]')).toBe('New York')
+      expect(params.get('shipping[address][state]')).toBe('NY')
+      expect(params.get('shipping[address][postal_code]')).toBe('10001')
+      expect(params.get('shipping[address][country]')).toBe('US')
+      expect(params.has('billing_details[address][line1]')).toBe(false)
       expect(call.body).not.toContain('/v1/customers')
       expect(call.body).not.toContain('/v1/charges')
     }
