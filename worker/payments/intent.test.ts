@@ -415,6 +415,17 @@ describe('public confirm', () => {
     expect(payload.surchargeCents).toBe(180)
     expect(payload.category).toBe('card')
     expect(stripe.confirms[0]?.amount).toBe(5180)
+    expect(stripe.confirms[0]?.description).toBe(
+      'Invoice BD2026-0051 · Bitz Designs',
+    )
+    expect(stripe.confirms[0]?.receiptEmail).toBe('ada@example.com')
+    expect(stripe.confirms[0]?.metadata).toMatchObject({
+      invoice_id: INVOICE_ID,
+      invoice_number: 'BD2026-0051',
+      company_name: 'Bitz Designs',
+      customer_name: 'Ada',
+    })
+    expect(stripe.confirms[0]?.metadata.company_id).toBeUndefined()
     expect(stripe.confirms[0]?.paymentMethodTypes).toEqual([
       'card',
       'us_bank_account',
@@ -423,6 +434,51 @@ describe('public confirm', () => {
     expect(stripe.confirms[0]?.returnUrl).toBe('https://pay.vrfnw.com/')
     expect(stripe.confirms[0]?.returnUrl).not.toContain('pay.example.com')
     expect(JSON.stringify(payload)).not.toContain('sk_test_secret')
+  })
+
+  it('labels the PaymentIntent with the company record and skips a blank receipt', async () => {
+    const { raw, row, invoice } = await setup({
+      companyId: 'company-1',
+      customer: {
+        name: 'Ada',
+        email: '   ',
+        address: {
+          line1: '',
+          line2: '',
+          city: '',
+          region: '',
+          postalCode: '',
+          country: '',
+        },
+      },
+    })
+    const stripe = stripeMock({ paymentMethodType: 'card', walletType: null })
+    const response = await confirmPublicPayment(
+      raw,
+      jsonRequest({ confirmationTokenId: 'ctoken_card' }),
+      {
+        tokens: tokenStore(row),
+        invoices: invoiceStore(invoice),
+        intents: intentStore(),
+        stripe,
+        payments: paymentsOn,
+        stripeSecret: 'sk_test_secret',
+        loadCompanyName: async () => 'Northwind Studio',
+        clock: () => NOW,
+        idFactory: () => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      },
+    )
+    expect(response.status).toBe(200)
+    expect(stripe.confirms[0]?.description).toBe(
+      'Invoice BD2026-0051 · Bitz Designs',
+    )
+    expect(stripe.confirms[0]?.receiptEmail).toBeUndefined()
+    expect(stripe.confirms[0]?.metadata).toMatchObject({
+      company_id: 'company-1',
+      company_name: 'Northwind Studio',
+      customer_name: 'Ada',
+      invoice_number: 'BD2026-0051',
+    })
   })
 
   it('does not send a merchant success URL to Stripe as return_url', async () => {

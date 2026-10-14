@@ -17,6 +17,8 @@ export type CreatePaymentIntentInput = {
   currency: string
   idempotencyKey: string
   metadata: Record<string, string>
+  description?: string
+  receiptEmail?: string
   statementDescriptor?: string
   paymentMethodTypes?: string[]
 }
@@ -28,6 +30,8 @@ export type ConfirmWithTokenInput = {
   idempotencyKey: string
   returnUrl: string
   metadata: Record<string, string>
+  description?: string
+  receiptEmail?: string
   statementDescriptor?: string
   paymentMethodTypes?: string[]
 }
@@ -53,15 +57,7 @@ export function createStripeGateway(secretKey: string): StripeGateway {
       } else {
         body.set('automatic_payment_methods[enabled]', 'true')
       }
-      for (const [key, value] of Object.entries(input.metadata)) {
-        body.set(`metadata[${key}]`, value)
-      }
-      if (input.statementDescriptor) {
-        body.set(
-          'statement_descriptor_suffix',
-          input.statementDescriptor.slice(0, 22),
-        )
-      }
+      writePaymentIntentIdentity(body, input)
       return stripePaymentIntent(
         await stripeRequest(secretKey, '/v1/payment_intents', body, input.idempotencyKey),
         input.amount,
@@ -118,15 +114,7 @@ export function createStripeGateway(secretKey: string): StripeGateway {
           'payment_method',
         )
       }
-      for (const [key, value] of Object.entries(input.metadata)) {
-        body.set(`metadata[${key}]`, value)
-      }
-      if (input.statementDescriptor) {
-        body.set(
-          'statement_descriptor_suffix',
-          input.statementDescriptor.slice(0, 22),
-        )
-      }
+      writePaymentIntentIdentity(body, input)
       return stripePaymentIntent(
         await stripeRequest(
           secretKey,
@@ -138,6 +126,43 @@ export function createStripeGateway(secretKey: string): StripeGateway {
         input.currency,
       )
     },
+  }
+}
+
+/**
+ * Description, metadata, and receipt_email are parameters of
+ * POST /v1/payment_intents. Stripe's restricted-key permission for that
+ * request is PaymentIntents write. They do not call Customers, Charges,
+ * or any other resource.
+ */
+function writePaymentIntentIdentity(
+  body: URLSearchParams,
+  input: {
+    metadata: Record<string, string>
+    description?: string
+    receiptEmail?: string
+    statementDescriptor?: string
+  },
+): void {
+  const description = input.description?.trim()
+  if (description) {
+    body.set('description', description)
+  }
+  const receiptEmail = input.receiptEmail?.trim()
+  if (receiptEmail) {
+    body.set('receipt_email', receiptEmail)
+  }
+  for (const [key, value] of Object.entries(input.metadata)) {
+    const trimmed = value.trim()
+    if (trimmed) {
+      body.set(`metadata[${key}]`, trimmed)
+    }
+  }
+  if (input.statementDescriptor) {
+    body.set(
+      'statement_descriptor_suffix',
+      input.statementDescriptor.slice(0, 22),
+    )
   }
 }
 

@@ -10,6 +10,11 @@ import {
   type PaymentsConfig,
 } from '../settings/payments.ts'
 import { calculateCardCharge, stripeCurrencyError, toStripeAmount } from './cardAmount.ts'
+import {
+  paymentIntentDescription,
+  paymentIntentMetadata,
+  paymentIntentReceiptEmail,
+} from './paymentIntentFields.ts'
 import { createStripeGateway } from './stripeClient.ts'
 import {
   classifyStripePaymentMethod,
@@ -30,6 +35,7 @@ export type PaymentIntentDeps = {
   stripe?: StripeGateway
   payments: PaymentsConfig
   loadPaymentsForCompany?: (companyId: string) => Promise<PaymentsConfig>
+  loadCompanyName?: (companyId: string) => Promise<string | null>
   stripeSecret?: string
   resolveStripeSecret?: (companyId: string) => Promise<string | undefined>
   paymentBaseUrl?: string
@@ -307,12 +313,7 @@ export async function confirmPublicPayment(
         requestUrl: request.url,
         configuredBase: deps.paymentBaseUrl,
       }),
-      metadata: {
-        invoice_id: record.id,
-        invoice_number: record.number,
-        payment_token_id: token.id,
-        payment_category: category,
-      },
+      ...(await paymentIntentIdentity(record, token.id, category, deps)),
       statementDescriptor: payments.statementDescriptor || undefined,
       paymentMethodTypes: publicPaymentMethodTypes(payments, Boolean(secret)),
     })
@@ -364,6 +365,39 @@ export async function confirmPublicPayment(
     category,
     paidMethod: paidMethodFor(category, preview.walletType),
   })
+}
+
+async function paymentIntentIdentity(
+  record: NonNullable<Awaited<ReturnType<InvoiceStore['get']>>>,
+  tokenId: string,
+  category: PaymentCategory,
+  deps: PaymentIntentDeps,
+): Promise<{
+  description: string
+  metadata: Record<string, string>
+  receiptEmail?: string
+}> {
+  let companyName = ''
+  if (record.companyId && deps.loadCompanyName) {
+    companyName = (await deps.loadCompanyName(record.companyId))?.trim() ?? ''
+  }
+  const letterhead = record.from.name.trim()
+  return {
+    description: paymentIntentDescription(
+      record.number,
+      letterhead || companyName,
+    ),
+    metadata: paymentIntentMetadata({
+      invoiceId: record.id,
+      invoiceNumber: record.number,
+      companyId: record.companyId,
+      companyName: companyName || letterhead,
+      customerName: record.customer.name,
+      paymentTokenId: tokenId,
+      paymentCategory: category,
+    }),
+    receiptEmail: paymentIntentReceiptEmail(record.customer.email),
+  }
 }
 
 async function loadPayableInvoice(
