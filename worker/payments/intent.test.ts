@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { checkoutPaymentMethodTypes } from '../../src/payments/paymentMethodTypes.ts'
 import { lineAmountCents } from '../../src/utils/money.ts'
 import type { InvoiceRecord, InvoiceStore } from '../invoices/types.ts'
 import { DEFAULT_PAYMENTS } from '../settings/payments.ts'
@@ -373,7 +374,11 @@ describe('public payment session', () => {
     expect(payload.invoiceAmountCents).toBe(5000)
     expect(payload.cardFeeCents).toBe(180)
     expect(payload.chargeAmountCents).toBe(5180)
-    expect(payload.paymentMethodTypes).toEqual(['card', 'us_bank_account'])
+    expect(payload.paymentMethodTypes).toEqual([
+      'card',
+      'us_bank_account',
+      'link',
+    ])
     expect(payload.clientSecret).toBeUndefined()
     expect(JSON.stringify(payload)).not.toContain('sk_test_secret')
     expect(stripe.confirms).toHaveLength(0)
@@ -410,6 +415,11 @@ describe('public confirm', () => {
     expect(payload.surchargeCents).toBe(180)
     expect(payload.category).toBe('card')
     expect(stripe.confirms[0]?.amount).toBe(5180)
+    expect(stripe.confirms[0]?.paymentMethodTypes).toEqual([
+      'card',
+      'us_bank_account',
+      'link',
+    ])
     expect(stripe.confirms[0]?.returnUrl).toBe('https://pay.vrfnw.com/')
     expect(stripe.confirms[0]?.returnUrl).not.toContain('pay.example.com')
     expect(JSON.stringify(payload)).not.toContain('sk_test_secret')
@@ -476,7 +486,11 @@ describe('public confirm', () => {
     expect(payload.surchargeCents).toBe(0)
     expect(payload.status).toBe('processing')
     expect(stripe.confirms[0]?.amount).toBe(5000)
-    expect(stripe.confirms[0]?.paymentMethodTypes).toEqual(['us_bank_account'])
+    expect(stripe.confirms[0]?.paymentMethodTypes).toEqual([
+      'card',
+      'us_bank_account',
+      'link',
+    ])
     expect((await invoices.get(INVOICE_ID))?.status).toBe('sent')
     expect((await invoices.get(INVOICE_ID))?.stripePaymentStatus).toBe(
       'processing',
@@ -507,7 +521,101 @@ describe('public confirm', () => {
     expect(response.status).toBe(200)
     expect(payload.chargeAmountCents).toBe(5180)
     expect(payload.category).toBe('card')
-    expect(stripe.confirms[0]?.paymentMethodTypes).toEqual(['link', 'card'])
+    expect(stripe.confirms[0]?.paymentMethodTypes).toEqual([
+      'card',
+      'us_bank_account',
+      'link',
+    ])
+  })
+
+  it('confirms every method with the checkout list Elements was given', async () => {
+    const combined = checkoutPaymentMethodTypes({ card: true, ach: true })
+    expect(combined).toEqual(['card', 'us_bank_account', 'link'])
+    const cardOnly = checkoutPaymentMethodTypes({ card: true, ach: false })
+    expect(cardOnly).toEqual(['card', 'link'])
+    const achOnly = checkoutPaymentMethodTypes({ card: false, ach: true })
+    expect(achOnly).toEqual(['us_bank_account'])
+
+    const methods = [
+      { paymentMethodType: 'link', walletType: null },
+      { paymentMethodType: 'card', walletType: null },
+      { paymentMethodType: 'card', walletType: 'apple_pay' },
+      { paymentMethodType: 'card', walletType: 'google_pay' },
+      { paymentMethodType: 'us_bank_account', walletType: null },
+    ]
+    for (const preview of methods) {
+      const { raw, row, invoice } = await setup()
+      const stripe = stripeMock(preview)
+      const session = await createPublicPaymentIntent(raw, jsonRequest(), {
+        tokens: tokenStore(row),
+        invoices: invoiceStore(invoice),
+        intents: intentStore(),
+        stripe,
+        payments: paymentsOn,
+        stripeSecret: 'sk_test_secret',
+      })
+      const opened = (await session.json()) as { paymentMethodTypes: string[] }
+      const response = await confirmPublicPayment(
+        raw,
+        jsonRequest({ confirmationTokenId: `ctoken_${preview.paymentMethodType}` }),
+        {
+          tokens: tokenStore(row),
+          invoices: invoiceStore(invoice),
+          intents: intentStore(),
+          stripe,
+          payments: paymentsOn,
+          stripeSecret: 'sk_test_secret',
+          clock: () => NOW,
+          idFactory: () => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        },
+      )
+      expect(response.status).toBe(200)
+      expect(opened.paymentMethodTypes).toEqual(combined)
+      expect(stripe.confirms[0]?.paymentMethodTypes).toEqual(combined)
+      expect(stripe.confirms[0]?.paymentMethodTypes).toEqual(
+        opened.paymentMethodTypes,
+      )
+    }
+
+    const cardCheckout = { ...paymentsOn, achPaymentsEnabled: false }
+    const achCheckout = { ...paymentsOn, cardPaymentsEnabled: false }
+    const narrowed = [
+      {
+        payments: cardCheckout,
+        preview: { paymentMethodType: 'link', walletType: null },
+        expected: cardOnly,
+      },
+      {
+        payments: cardCheckout,
+        preview: { paymentMethodType: 'card', walletType: 'apple_pay' },
+        expected: cardOnly,
+      },
+      {
+        payments: achCheckout,
+        preview: { paymentMethodType: 'us_bank_account', walletType: null },
+        expected: achOnly,
+      },
+    ]
+    for (const [index, spec] of narrowed.entries()) {
+      const { raw, row, invoice } = await setup()
+      const stripe = stripeMock(spec.preview)
+      const response = await confirmPublicPayment(
+        raw,
+        jsonRequest({ confirmationTokenId: `ctoken_narrow_${index}` }),
+        {
+          tokens: tokenStore(row),
+          invoices: invoiceStore(invoice),
+          intents: intentStore(),
+          stripe,
+          payments: spec.payments,
+          stripeSecret: 'sk_test_secret',
+          clock: () => NOW,
+          idFactory: () => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        },
+      )
+      expect(response.status).toBe(200)
+      expect(stripe.confirms[0]?.paymentMethodTypes).toEqual(spec.expected)
+    }
   })
 
   it('treats Apple Pay as card-like for surcharge', async () => {

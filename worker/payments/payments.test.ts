@@ -321,7 +321,11 @@ describe('public payment tokens', () => {
     expect(invoice.cardTotalCents).toBe(5150)
     expect(invoice.cardPaymentAvailable).toBe(true)
     expect(invoice.achPaymentAvailable).toBe(true)
-    expect(invoice.paymentMethodTypes).toEqual(['card', 'us_bank_account'])
+    expect(invoice.paymentMethodTypes).toEqual([
+      'card',
+      'us_bank_account',
+      'link',
+    ])
     expect(invoice.successRedirectUrl).toBe('https://shop.example/thanks')
     expect(invoice.zelleEmail).toBeUndefined()
     expect(invoice.paymentMemo).toBeUndefined()
