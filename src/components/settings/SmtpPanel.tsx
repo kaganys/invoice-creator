@@ -252,8 +252,9 @@ export function SmtpPanel() {
               <legend>Message</legend>
               <p className="settings-help">
                 Write the email as one letter. Change or delete any part of it.
-                Insert a field or a pay button from the toolbar. The preview is
-                the message that will be sent.
+                Insert a field or a pay button from the toolbar. Line height and
+                paragraph spacing are there too. The preview is the message that
+                will be sent.
               </p>
               <EmailMessageEditor
                 subject={draft.subjectTemplate}
