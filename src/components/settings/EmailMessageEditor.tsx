@@ -17,6 +17,20 @@ import {
   type EmailInsertKind,
 } from '../../invoice/emailDocument.ts'
 import {
+  emailSpacingFromHtml,
+  EMPTY_METRICS,
+  LINE_HEIGHTS,
+  metricsActive,
+  parseLineHeight,
+  parseSpaceStep,
+  SPACE_STEPS,
+  spaceCss,
+  type EmailSpacing,
+  type LineHeightChoice,
+  type ParagraphMetrics,
+  type SpaceStep,
+} from '../../invoice/emailSpacing.ts'
+import {
   EMAIL_VARIABLES,
   defaultEmailTemplates,
   type EmailVariableId,
@@ -61,6 +75,58 @@ function ToolIcon({ children }: { children: ReactNode }) {
   )
 }
 
+function lineHeightLabel(choice: LineHeightChoice): string {
+  if (choice === '1') {
+    return '1.0'
+  }
+  if (choice === '2') {
+    return '2.0'
+  }
+  return choice
+}
+
+function spaceLabel(choice: SpaceStep): string {
+  return choice[0].toUpperCase() + choice.slice(1)
+}
+
+function SpacingSelect({
+  name,
+  label,
+  value,
+  disabled,
+  options,
+  onChange,
+  onPointerDown,
+}: {
+  name: string
+  label: string
+  value: string
+  disabled?: boolean
+  options: Array<{ value: string; label: string }>
+  onChange: (value: string) => void
+  onPointerDown?: () => void
+}) {
+  return (
+    <label className="email-editor__metric">
+      <span>{label}</span>
+      <select
+        aria-label={`${name} ${label.toLowerCase()}`}
+        value={value}
+        disabled={disabled}
+        onPointerDown={onPointerDown}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">Default</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
 function ToolButton({
   label,
   disabled,
@@ -92,6 +158,76 @@ function partElement(node: Node | null): HTMLElement | null {
   return element?.closest('[data-email-part]') ?? null
 }
 
+const SPACING_LOCK =
+  '[data-email-part="header"], [data-email-part="amount"], [data-email-part="button"], [data-email-part="link"], [data-email-part="attachment"], [data-email-part="footer"], [data-email-part="spacing"]'
+
+function spacingLocked(node: HTMLElement): boolean {
+  return Boolean(node.closest(SPACING_LOCK))
+}
+
+function blockFromRange(sheet: HTMLElement, range: Range | null): HTMLElement | null {
+  const node = range?.startContainer ?? null
+  if (!node || !sheet.contains(node)) {
+    return null
+  }
+  const element = node instanceof Element ? node : node.parentElement
+  const block = element?.closest('li, p, h2, ul, ol')
+  if (!(block instanceof HTMLElement) || !sheet.contains(block) || spacingLocked(block)) {
+    return null
+  }
+  return block
+}
+
+function metricsFromElement(block: HTMLElement): ParagraphMetrics {
+  return {
+    lineHeight: parseLineHeight(block.getAttribute('data-line-height')),
+    before: parseSpaceStep(block.getAttribute('data-space-before')),
+    after: parseSpaceStep(block.getAttribute('data-space-after')),
+  }
+}
+
+function setMetricAttr(node: HTMLElement, name: string, value: string | null) {
+  if (!value) {
+    node.removeAttribute(name)
+    return
+  }
+  node.setAttribute(name, value)
+}
+
+function syncSheetSpacing(sheet: HTMLElement) {
+  const email = emailSpacingFromHtml(sheet.innerHTML)
+  sheet.style.setProperty('--email-line', email.lineHeight ?? '1.55')
+  sheet.style.setProperty('--email-before', email.before ? spaceCss(email.before) : '0px')
+  sheet.style.setProperty('--email-after', email.after ? spaceCss(email.after) : '16px')
+  for (const block of sheet.querySelectorAll('p, h2, ul, ol, li')) {
+    if (!(block instanceof HTMLElement) || spacingLocked(block)) {
+      continue
+    }
+    const metrics = metricsFromElement(block)
+    block.style.margin = ''
+    block.style.lineHeight = metrics.lineHeight ?? ''
+    block.style.marginTop = metrics.before ? spaceCss(metrics.before) : ''
+    block.style.marginBottom = metrics.after ? spaceCss(metrics.after) : ''
+  }
+}
+
+function writeEmailSpacing(sheet: HTMLElement, spacing: EmailSpacing) {
+  const current = sheet.querySelector('[data-email-part="spacing"]')
+  if (!metricsActive(spacing)) {
+    current?.remove()
+    return
+  }
+  const node = current instanceof HTMLElement ? current : document.createElement('div')
+  node.setAttribute('data-email-part', 'spacing')
+  node.setAttribute('contenteditable', 'false')
+  setMetricAttr(node, 'data-line-height', spacing.lineHeight)
+  setMetricAttr(node, 'data-space-before', spacing.before)
+  setMetricAttr(node, 'data-space-after', spacing.after)
+  if (!current) {
+    sheet.prepend(node)
+  }
+}
+
 export function EmailMessageEditor({
   subject,
   html,
@@ -118,6 +254,10 @@ export function EmailMessageEditor({
   const [fieldsOpen, setFieldsOpen] = useState(false)
   const [insertOpen, setInsertOpen] = useState(false)
   const [linkOpen, setLinkOpen] = useState(false)
+  const [spacingOpen, setSpacingOpen] = useState(false)
+  const [paragraphMetrics, setParagraphMetrics] = useState<ParagraphMetrics>(EMPTY_METRICS)
+  const [emailMetrics, setEmailMetrics] = useState<EmailSpacing>(EMPTY_METRICS)
+  const [hasParagraph, setHasParagraph] = useState(false)
   const [linkUrl, setLinkUrl] = useState('https://')
   const [linkError, setLinkError] = useState<string | null>(null)
   const subjectRef = useRef<HTMLDivElement>(null)
@@ -131,6 +271,8 @@ export function EmailMessageEditor({
   const skipHistory = useRef(false)
   const fieldsRef = useRef<HTMLDivElement>(null)
   const insertRef = useRef<HTMLDivElement>(null)
+  const savedRange = useRef<Range | null>(null)
+  const emailSpacingRef = useRef<EmailSpacing>(emailSpacingFromHtml(html))
   const active = useRef<'subject' | 'letter' | null>(null)
   brandRef.current = brandAssets
 
@@ -168,6 +310,8 @@ export function EmailMessageEditor({
     }
     subjectValue.current = subject
     bodyValue.current = canonical
+    emailSpacingRef.current = emailSpacingFromHtml(canonical)
+    setEmailMetrics(emailSpacingRef.current)
     setSeed(documentToEditorHtml(canonical, brandRef.current))
     setRevision((current) => current + 1)
     history.current = [{ subject, html: canonical }]
@@ -194,6 +338,7 @@ export function EmailMessageEditor({
       return
     }
     node.innerHTML = seed
+    syncSheetSpacing(node)
   }, [revision, seed])
 
   useEffect(() => {
@@ -204,8 +349,33 @@ export function EmailMessageEditor({
     const next = documentToEditorHtml(bodyValue.current, brandAssets)
     if (node.innerHTML !== next) {
       node.innerHTML = next
+      syncSheetSpacing(node)
     }
   }, [brandAssets.logoUrl, brandAssets.wordmarkUrl])
+
+  useEffect(() => {
+    if (!spacingOpen) {
+      return
+    }
+    function remember() {
+      const sheet = sheetRef.current
+      const selection = window.getSelection()
+      if (!sheet || !selection || selection.rangeCount === 0) {
+        return
+      }
+      const range = selection.getRangeAt(0)
+      if (!sheet.contains(range.startContainer)) {
+        return
+      }
+      savedRange.current = range.cloneRange()
+      const block = blockFromRange(sheet, range)
+      setHasParagraph(Boolean(block))
+      setParagraphMetrics(block ? metricsFromElement(block) : { ...EMPTY_METRICS })
+    }
+    remember()
+    document.addEventListener('selectionchange', remember)
+    return () => document.removeEventListener('selectionchange', remember)
+  }, [spacingOpen])
 
   useEffect(() => {
     if (!fieldsOpen && !insertOpen) {
@@ -241,7 +411,11 @@ export function EmailMessageEditor({
   }
 
   function commitSheet(record = true) {
-    const nextHtml = editorHtmlToDocument(sheetRef.current?.innerHTML ?? '')
+    const sheet = sheetRef.current
+    if (sheet) {
+      writeEmailSpacing(sheet, emailSpacingRef.current)
+    }
+    const nextHtml = editorHtmlToDocument(sheet?.innerHTML ?? '')
     publish(subjectValue.current, nextHtml, record)
   }
 
@@ -384,7 +558,62 @@ export function EmailMessageEditor({
     const healed = documentToEditorHtml(canonical, brandRef.current)
     if (node.innerHTML !== healed) {
       node.innerHTML = healed
+      syncSheetSpacing(node)
     }
+  }
+
+  function rememberSheetSelection() {
+    const sheet = sheetRef.current
+    const selection = window.getSelection()
+    if (!sheet || !selection || selection.rangeCount === 0) {
+      return
+    }
+    const range = selection.getRangeAt(0)
+    if (sheet.contains(range.startContainer)) {
+      savedRange.current = range.cloneRange()
+    }
+  }
+
+  function applyParagraphMetric(
+    key: 'lineHeight' | 'before' | 'after',
+    value: string,
+  ) {
+    const sheet = sheetRef.current
+    if (!sheet) {
+      return
+    }
+    const block = blockFromRange(sheet, savedRange.current)
+    if (!block) {
+      return
+    }
+    const attr =
+      key === 'lineHeight'
+        ? 'data-line-height'
+        : key === 'before'
+          ? 'data-space-before'
+          : 'data-space-after'
+    const parsed =
+      key === 'lineHeight' ? parseLineHeight(value) : parseSpaceStep(value)
+    setMetricAttr(block, attr, value ? parsed : null)
+    syncSheetSpacing(sheet)
+    setParagraphMetrics(metricsFromElement(block))
+    commitSheet()
+  }
+
+  function applyEmailMetric(key: 'lineHeight' | 'before' | 'after', value: string) {
+    const sheet = sheetRef.current
+    if (!sheet) {
+      return
+    }
+    const next: EmailSpacing = {
+      ...emailSpacingRef.current,
+      [key]: key === 'lineHeight' ? parseLineHeight(value) : parseSpaceStep(value),
+    }
+    emailSpacingRef.current = next
+    writeEmailSpacing(sheet, next)
+    syncSheetSpacing(sheet)
+    setEmailMetrics(next)
+    commitSheet()
   }
 
   return (
@@ -491,6 +720,37 @@ export function EmailMessageEditor({
                 <path d="M4 6h16" />
                 <path d="M10 12h10" />
                 <path d="M6 18h14" />
+              </ToolIcon>
+            </ToolButton>
+          </div>
+          <span className="email-editor__divider" aria-hidden="true" />
+          <div className="email-editor__group">
+            <ToolButton
+              label="Line and paragraph spacing"
+              disabled={disabled}
+              onClick={() => {
+                const sheet = sheetRef.current
+                const selection = window.getSelection()
+                const live =
+                  selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null
+                if (sheet && live && sheet.contains(live.startContainer)) {
+                  savedRange.current = live.cloneRange()
+                }
+                setSpacingOpen((open) => !open)
+                setFieldsOpen(false)
+                setInsertOpen(false)
+                if (sheet) {
+                  setEmailMetrics(emailSpacingFromHtml(sheet.innerHTML))
+                  const block = blockFromRange(sheet, savedRange.current)
+                  setHasParagraph(Boolean(block))
+                  setParagraphMetrics(block ? metricsFromElement(block) : { ...EMPTY_METRICS })
+                }
+              }}
+            >
+              <ToolIcon>
+                <path d="M4 6h16" />
+                <path d="M4 12h16" />
+                <path d="M4 18h10" />
               </ToolIcon>
             </ToolButton>
           </div>
@@ -609,6 +869,88 @@ export function EmailMessageEditor({
             </button>
           </div>
           {linkError ? <p className="settings-status settings-status--error">{linkError}</p> : null}
+        </div>
+      ) : null}
+      {spacingOpen ? (
+        <div className="email-editor__spacing" role="group" aria-label="Line and paragraph spacing">
+          <div className="email-editor__spacing-set">
+            <p className="email-editor__spacing-title">This paragraph</p>
+            <SpacingSelect
+              name="This paragraph"
+              label="Line"
+              value={paragraphMetrics.lineHeight ?? ''}
+              disabled={disabled || !hasParagraph}
+              options={LINE_HEIGHTS.map((choice) => ({
+                value: choice,
+                label: lineHeightLabel(choice),
+              }))}
+              onPointerDown={rememberSheetSelection}
+              onChange={(value) => applyParagraphMetric('lineHeight', value)}
+            />
+            <SpacingSelect
+              name="This paragraph"
+              label="Before"
+              value={paragraphMetrics.before ?? ''}
+              disabled={disabled || !hasParagraph}
+              options={SPACE_STEPS.map((choice) => ({
+                value: choice,
+                label: spaceLabel(choice),
+              }))}
+              onPointerDown={rememberSheetSelection}
+              onChange={(value) => applyParagraphMetric('before', value)}
+            />
+            <SpacingSelect
+              name="This paragraph"
+              label="After"
+              value={paragraphMetrics.after ?? ''}
+              disabled={disabled || !hasParagraph}
+              options={SPACE_STEPS.map((choice) => ({
+                value: choice,
+                label: spaceLabel(choice),
+              }))}
+              onPointerDown={rememberSheetSelection}
+              onChange={(value) => applyParagraphMetric('after', value)}
+            />
+            {hasParagraph ? null : (
+              <p className="email-editor__spacing-note">Click a paragraph in the letter.</p>
+            )}
+          </div>
+          <div className="email-editor__spacing-set">
+            <p className="email-editor__spacing-title">Whole email</p>
+            <SpacingSelect
+              name="Whole email"
+              label="Line"
+              value={emailMetrics.lineHeight ?? ''}
+              disabled={disabled}
+              options={LINE_HEIGHTS.map((choice) => ({
+                value: choice,
+                label: lineHeightLabel(choice),
+              }))}
+              onChange={(value) => applyEmailMetric('lineHeight', value)}
+            />
+            <SpacingSelect
+              name="Whole email"
+              label="Before"
+              value={emailMetrics.before ?? ''}
+              disabled={disabled}
+              options={SPACE_STEPS.map((choice) => ({
+                value: choice,
+                label: spaceLabel(choice),
+              }))}
+              onChange={(value) => applyEmailMetric('before', value)}
+            />
+            <SpacingSelect
+              name="Whole email"
+              label="After"
+              value={emailMetrics.after ?? ''}
+              disabled={disabled}
+              options={SPACE_STEPS.map((choice) => ({
+                value: choice,
+                label: spaceLabel(choice),
+              }))}
+              onChange={(value) => applyEmailMetric('after', value)}
+            />
+          </div>
         </div>
       ) : null}
 

@@ -360,7 +360,68 @@
   color-scheme: light;
 }
 
+.email-editor__spacing {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem 1.75rem;
+  padding: 0.15rem 0.1rem 0.35rem;
+}
+
+.email-editor__spacing-set {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.45rem 0.65rem;
+}
+
+.email-editor__spacing-title,
+.email-editor__spacing-note {
+  margin: 0;
+}
+
+.email-editor__spacing-title {
+  flex: 1 0 100%;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.email-editor__spacing-note {
+  align-self: center;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.email-editor__metric {
+  display: grid;
+  gap: 0.15rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.email-editor__metric select {
+  min-width: 6.4rem;
+  height: 2rem;
+  padding: 0 0.4rem;
+  border: 1px solid var(--border-strong);
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.email-editor__metric select:disabled {
+  opacity: 0.5;
+}
+
 .email-sheet {
+  --email-line: 1.55;
+  --email-before: 0px;
+  --email-after: 16px;
   min-height: 28rem;
   background: #fffcf8;
   color: #1c1917;
@@ -368,7 +429,7 @@
   border: 1px solid #e4ddd2;
   font-family: Arial, Helvetica, sans-serif;
   font-size: 16px;
-  line-height: 1.55;
+  line-height: var(--email-line);
   outline: none;
 }
 
@@ -384,14 +445,25 @@
   color: #8a8176;
 }
 
-.email-sheet > p,
-.email-sheet > ul,
-.email-sheet > ol,
+.email-sheet > p:not([data-email-part]),
 .email-sheet > h2,
-.email-sheet [data-email-part="payment"] p {
-  margin: 0;
-  padding: 8px 22px;
+.email-sheet [data-email-part="payment"] > p {
+  margin: var(--email-before) 0 var(--email-after);
+  padding: 0 22px;
+  line-height: var(--email-line);
   color: #1c1917;
+}
+
+.email-sheet > ul,
+.email-sheet > ol {
+  margin: var(--email-before) 0 var(--email-after);
+  padding: 0 22px 0 44px;
+  line-height: var(--email-line);
+  color: #1c1917;
+}
+
+.email-sheet [data-email-part="spacing"] {
+  display: none;
 }
 
 .email-sheet > p :where(span, strong, em, b, i, font),
