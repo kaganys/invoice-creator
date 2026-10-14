@@ -1,3 +1,4 @@
+import { checkoutPaymentMethodTypes } from '../../src/payments/paymentMethodTypes.ts'
 import { successRedirectTarget } from '../../src/payments/successRedirect.ts'
 import { isStripeSecretKey } from '../../src/payments/stripeKey.ts'
 import { asTrimmedString, isRecord } from '../lib/json.ts'
@@ -117,14 +118,10 @@ export function publicPaymentMethodTypes(
   config: PaymentsConfig,
   secretConfigured: boolean,
 ): string[] {
-  const types: string[] = []
-  if (cardPaymentsReady(config, secretConfigured)) {
-    types.push('card')
-  }
-  if (achPaymentsReady(config, secretConfigured)) {
-    types.push('us_bank_account')
-  }
-  return types
+  return checkoutPaymentMethodTypes({
+    card: cardPaymentsReady(config, secretConfigured),
+    ach: achPaymentsReady(config, secretConfigured),
+  })
 }
 
 export function isPublishableKey(value: string): boolean {

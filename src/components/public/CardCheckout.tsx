@@ -19,6 +19,7 @@ import {
   useState,
   type FormEvent,
 } from 'react'
+import { checkoutPaymentMethodTypes } from '../../payments/paymentMethodTypes.ts'
 import { payPageExitUrl } from '../../payments/successRedirect.ts'
 import {
   confirmPublicPayment,
@@ -453,6 +454,10 @@ export function CardCheckout({
   )
 
   const types = session?.paymentMethodTypes ?? invoice.paymentMethodTypes
+  const allowedPaymentMethodTypes = checkoutPaymentMethodTypes({
+    card: session?.cardPaymentAvailable ?? invoice.cardPaymentAvailable,
+    ach: session?.achPaymentAvailable ?? invoice.achPaymentAvailable,
+  })
   const paymentAvailable =
     Boolean(publishableKey) &&
     types.length > 0 &&
@@ -584,8 +589,12 @@ export function CardCheckout({
           currency: session.currency.toLowerCase(),
           appearance: { theme: 'stripe' },
           // Do not pass paymentMethodTypes — that freezes Stripe to a static
-          // list and hides Dashboard bank / wallet options.
-          allowedPaymentMethodTypes: allowedStripeTypes(types),
+          // list and hides Dashboard bank / wallet options. This list must be
+          // the same one the server sends on PaymentIntent confirm.
+          allowedPaymentMethodTypes:
+            allowedPaymentMethodTypes.length > 0
+              ? allowedPaymentMethodTypes
+              : undefined,
           paymentMethodOptions: {
             us_bank_account: {
               verification_method: 'automatic',
@@ -610,17 +619,6 @@ export function CardCheckout({
       </Elements>
     </div>
   )
-}
-
-function allowedStripeTypes(types: string[]): string[] | undefined {
-  if (types.length === 0) {
-    return undefined
-  }
-  const allowed = [...types]
-  if (types.includes('card') && !allowed.includes('link')) {
-    allowed.push('link')
-  }
-  return allowed
 }
 
 function ChargeSummary({
