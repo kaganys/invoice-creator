@@ -251,8 +251,9 @@ export function SmtpPanel() {
             <fieldset className="settings-group" disabled={saving || loading}>
               <legend>Message</legend>
               <p className="settings-help">
-                Every part of the email is a block. Show, hide, edit, or reorder
-                it. The preview is the message that will be sent.
+                Write the email as one letter. Change or delete any part of it.
+                Insert a field or a pay button from the toolbar. The preview is
+                the message that will be sent.
               </p>
               <EmailMessageEditor
                 subject={draft.subjectTemplate}
