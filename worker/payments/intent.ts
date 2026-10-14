@@ -10,6 +10,10 @@ import {
   type PaymentsConfig,
 } from '../settings/payments.ts'
 import { calculateCardCharge, stripeCurrencyError, toStripeAmount } from './cardAmount.ts'
+import {
+  buildPaymentIntentDetails,
+  type PaymentIntentContact,
+} from './paymentIntentFields.ts'
 import { createStripeGateway } from './stripeClient.ts'
 import {
   classifyStripePaymentMethod,
@@ -30,6 +34,11 @@ export type PaymentIntentDeps = {
   stripe?: StripeGateway
   payments: PaymentsConfig
   loadPaymentsForCompany?: (companyId: string) => Promise<PaymentsConfig>
+  loadCompanyName?: (companyId: string) => Promise<string | null>
+  loadCustomerPerson?: (
+    companyId: string,
+    email: string,
+  ) => Promise<PaymentIntentContact | null>
   stripeSecret?: string
   resolveStripeSecret?: (companyId: string) => Promise<string | undefined>
   paymentBaseUrl?: string
@@ -307,12 +316,11 @@ export async function confirmPublicPayment(
         requestUrl: request.url,
         configuredBase: deps.paymentBaseUrl,
       }),
-      metadata: {
-        invoice_id: record.id,
-        invoice_number: record.number,
-        payment_token_id: token.id,
-        payment_category: category,
-      },
+      ...(await paymentIntentIdentity(record, category, deps, {
+        invoiceAmountCents: charge.baseCents,
+        totalCents: quote.totalCents,
+        currency: charge.currency,
+      })),
       statementDescriptor: payments.statementDescriptor || undefined,
       paymentMethodTypes: publicPaymentMethodTypes(payments, Boolean(secret)),
     })
@@ -363,6 +371,49 @@ export async function confirmPublicPayment(
     chargeAmountCents: quote.totalCents,
     category,
     paidMethod: paidMethodFor(category, preview.walletType),
+  })
+}
+
+async function paymentIntentIdentity(
+  record: NonNullable<Awaited<ReturnType<InvoiceStore['get']>>>,
+  category: PaymentCategory,
+  deps: PaymentIntentDeps,
+  amounts: { invoiceAmountCents: number; totalCents: number; currency: string },
+) {
+  let companyName = ''
+  if (record.companyId && deps.loadCompanyName) {
+    companyName = (await deps.loadCompanyName(record.companyId))?.trim() ?? ''
+  }
+  const email = record.customer.email.trim()
+  const person =
+    record.companyId && email && deps.loadCustomerPerson
+      ? await deps.loadCustomerPerson(record.companyId, email)
+      : null
+  return buildPaymentIntentDetails({
+    invoiceId: record.id,
+    invoiceNumber: record.number,
+    issueDate: record.issueDate,
+    dueDate: record.dueDate,
+    currency: amounts.currency,
+    invoiceAmountCents: amounts.invoiceAmountCents,
+    totalCents: amounts.totalCents,
+    companyId: record.companyId,
+    companyName,
+    paymentCategory: category,
+    notes: record.notes,
+    paymentMemo: record.payment.memo,
+    customer: {
+      name: record.customer.name,
+      email: record.customer.email,
+      address: record.customer.address,
+    },
+    person,
+    from: {
+      name: record.from.name,
+      email: record.from.email,
+      address: record.from.address,
+    },
+    lineItems: record.lineItems,
   })
 }
 

@@ -13,12 +13,22 @@
   display: flex;
   flex-direction: column;
   width: min(1200px, calc(100vw - 2.5rem));
-  height: calc(100vh - 2.5rem);
+  height: calc(100dvh - 2.5rem);
+  max-height: calc(100dvh - 2.5rem);
   overflow: hidden;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
+}
+
+.invoice-detail-modal__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overscroll-behavior: contain;
 }
 
 .invoice-detail-modal__header {
@@ -86,11 +96,32 @@
 }
 
 .invoice-detail-modal__canvas {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
+  flex: 1 0 auto;
+  min-height: 12rem;
+  overflow: visible;
   padding: 1.5rem 1.25rem 2rem;
   background: var(--canvas);
+}
+
+.invoice-detail-modal__footer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.75rem 1.15rem calc(0.75rem + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.invoice-detail-modal__footer .api-banner {
+  margin: 0;
+}
+
+.invoice-detail-modal__footer-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.45rem;
 }
 
 .invoice-detail-modal .api-banner {
@@ -163,6 +194,7 @@
   .invoice-detail-modal__dialog {
     width: 100%;
     height: 100dvh;
+    max-height: 100dvh;
     max-width: none;
     border: 0;
     border-radius: 0;
@@ -184,6 +216,15 @@
   }
 
   .invoice-detail-modal__actions .btn {
+    width: 100%;
+  }
+
+  .invoice-detail-modal__footer-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .invoice-detail-modal__footer-actions .btn {
     width: 100%;
   }
 }

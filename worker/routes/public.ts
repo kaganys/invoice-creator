@@ -11,6 +11,8 @@ import { getPublicInvoiceByToken } from '../payments/public.ts'
 import { createStripeGateway } from '../payments/stripeClient.ts'
 import type { Router } from '../router.ts'
 import { createD1SettingsStore } from '../settings/d1Store.ts'
+import type { PaymentIntentContact } from '../payments/paymentIntentFields.ts'
+import { createD1TenantStore } from '../tenancy/d1Store.ts'
 import { stripeSecretKey } from '../settings/env.ts'
 import {
   createD1CompanySecretStore,
@@ -38,6 +40,55 @@ async function loadPayments(env: Env, companyId: string) {
   return parsePaymentsJson(raw)
 }
 
+function customerPersonLoader(db: D1Database) {
+  return async (
+    companyId: string,
+    email: string,
+  ): Promise<PaymentIntentContact | null> => {
+    const row = await db
+      .prepare(
+        `SELECT name, email, address_line1, address_line2, city, state_region, postal_code, country
+         FROM people
+         WHERE company_id = ? AND lower(email) = lower(?)
+         LIMIT 1`,
+      )
+      .bind(companyId, email)
+      .first<{
+        name: string
+        email: string
+        address_line1: string
+        address_line2: string
+        city: string
+        state_region: string
+        postal_code: string
+        country: string
+      }>()
+    if (!row) {
+      return null
+    }
+    return {
+      name: row.name,
+      email: row.email,
+      address: {
+        line1: row.address_line1,
+        line2: row.address_line2,
+        city: row.city,
+        region: row.state_region,
+        postalCode: row.postal_code,
+        country: row.country,
+      },
+    }
+  }
+}
+
+function companyNameLoader(db: D1Database) {
+  const tenants = createD1TenantStore(db)
+  return async (companyId: string) => {
+    const company = await tenants.getCompany(companyId)
+    return company?.name ?? null
+  }
+}
+
 export function registerPublicRoutes(router: Router): void {
   router.get('/api/public/invoices/:token', async (_request, env, _ctx, params) => {
     const db = consistentDb(env.DB)
@@ -63,6 +114,8 @@ export function registerPublicRoutes(router: Router): void {
         stripe: secret ? createStripeGateway(secret) : undefined,
         payments: parsePaymentsJson(null),
         loadPaymentsForCompany: (companyId) => loadPayments(env, companyId),
+        loadCompanyName: companyNameLoader(db),
+        loadCustomerPerson: customerPersonLoader(db),
         stripeSecret: secret,
         resolveStripeSecret: stripeResolver(env),
         ledger: createD1PaymentLedger(db),
@@ -82,6 +135,8 @@ export function registerPublicRoutes(router: Router): void {
         stripe: secret ? createStripeGateway(secret) : undefined,
         payments: parsePaymentsJson(null),
         loadPaymentsForCompany: (companyId) => loadPayments(env, companyId),
+        loadCompanyName: companyNameLoader(db),
+        loadCustomerPerson: customerPersonLoader(db),
         stripeSecret: secret,
         resolveStripeSecret: stripeResolver(env),
         ledger: createD1PaymentLedger(db),

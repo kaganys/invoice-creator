@@ -415,6 +415,22 @@ describe('public confirm', () => {
     expect(payload.surchargeCents).toBe(180)
     expect(payload.category).toBe('card')
     expect(stripe.confirms[0]?.amount).toBe(5180)
+    expect(stripe.confirms[0]?.description).toBe(
+      'Invoice BD2026-0051 · Bitz Designs',
+    )
+    expect(stripe.confirms[0]?.receiptEmail).toBe('ada@example.com')
+    expect(stripe.confirms[0]?.metadata).toMatchObject({
+      invoice_id: INVOICE_ID,
+      invoice_number: 'BD2026-0051',
+      company_name: 'Bitz Designs',
+      customer_name: 'Ada',
+    })
+    expect(stripe.confirms[0]?.metadata.company_id).toBeUndefined()
+    expect(stripe.confirms[0]?.metadata.payment_token_id).toBeUndefined()
+    expect(stripe.confirms[0]?.metadata.customer_email).toBe('ada@example.com')
+    expect(stripe.confirms[0]?.metadata.line_items).toBe('Design × 1 @ 50.00 = 50.00')
+    expect(stripe.confirms[0]?.shipping).toEqual({ name: 'Ada' })
+    expect(JSON.stringify(stripe.confirms[0])).not.toContain(raw)
     expect(stripe.confirms[0]?.paymentMethodTypes).toEqual([
       'card',
       'us_bank_account',
@@ -423,6 +439,124 @@ describe('public confirm', () => {
     expect(stripe.confirms[0]?.returnUrl).toBe('https://pay.vrfnw.com/')
     expect(stripe.confirms[0]?.returnUrl).not.toContain('pay.example.com')
     expect(JSON.stringify(payload)).not.toContain('sk_test_secret')
+  })
+
+  it('labels the PaymentIntent with the company record and skips a blank receipt', async () => {
+    const { raw, row, invoice } = await setup({
+      companyId: 'company-1',
+      customer: {
+        name: 'Ada',
+        email: '   ',
+        address: {
+          line1: '',
+          line2: '',
+          city: '',
+          region: '',
+          postalCode: '',
+          country: '',
+        },
+      },
+    })
+    const stripe = stripeMock({ paymentMethodType: 'card', walletType: null })
+    const response = await confirmPublicPayment(
+      raw,
+      jsonRequest({ confirmationTokenId: 'ctoken_card' }),
+      {
+        tokens: tokenStore(row),
+        invoices: invoiceStore(invoice),
+        intents: intentStore(),
+        stripe,
+        payments: paymentsOn,
+        stripeSecret: 'sk_test_secret',
+        loadCompanyName: async () => 'Northwind Studio',
+        clock: () => NOW,
+        idFactory: () => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      },
+    )
+    expect(response.status).toBe(200)
+    expect(stripe.confirms[0]?.description).toBe(
+      'Invoice BD2026-0051 · Bitz Designs',
+    )
+    expect(stripe.confirms[0]?.receiptEmail).toBeUndefined()
+    expect(stripe.confirms[0]?.metadata).toMatchObject({
+      company_id: 'company-1',
+      company_name: 'Northwind Studio',
+      customer_name: 'Ada',
+      invoice_number: 'BD2026-0051',
+    })
+    expect(stripe.confirms[0]?.metadata.customer_email).toBeUndefined()
+    expect(stripe.confirms[0]?.metadata.payment_token_id).toBeUndefined()
+  })
+
+  it('merges the People record into metadata and shipping', async () => {
+    const { raw, row, invoice } = await setup({
+      companyId: 'company-1',
+      notes: `Pay at https://pay.vrfnw.com/i/${'TOKEN'}`,
+      customer: {
+        name: 'Ada',
+        email: 'ada@example.com',
+        address: {
+          line1: '1 Main St',
+          line2: '',
+          city: 'New York',
+          region: 'NY',
+          postalCode: '10001',
+          country: 'US',
+        },
+      },
+    })
+    invoice.notes = `Pay at https://pay.vrfnw.com/i/${raw}`
+    const stripe = stripeMock({ paymentMethodType: 'card', walletType: null })
+    const response = await confirmPublicPayment(
+      raw,
+      jsonRequest({ confirmationTokenId: 'ctoken_card' }),
+      {
+        tokens: tokenStore(row),
+        invoices: invoiceStore(invoice),
+        intents: intentStore(),
+        stripe,
+        payments: paymentsOn,
+        stripeSecret: 'sk_test_secret',
+        loadCompanyName: async () => 'Northwind Studio',
+        loadCustomerPerson: async () => ({
+          name: 'Directory Name',
+          company: 'Ada LLC',
+          phone: '555-0100',
+          taxId: '12-3456789',
+          address: { line2: 'Suite 4', line1: 'Person street' },
+          customFields: { 'Account number': 'A-9', payment_token: raw },
+        }),
+        clock: () => NOW,
+        idFactory: () => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      },
+    )
+    expect(response.status).toBe(200)
+    expect(stripe.confirms[0]?.metadata).toMatchObject({
+      customer_name: 'Ada',
+      customer_company: 'Ada LLC',
+      customer_phone: '555-0100',
+      customer_tax_id: '12-3456789',
+      billing_address_line1: '1 Main St',
+      billing_address_line2: 'Suite 4',
+      customer_account_number: 'A-9',
+      company_name: 'Northwind Studio',
+    })
+    expect(stripe.confirms[0]?.metadata.customer_payment_token).toBeUndefined()
+    expect(stripe.confirms[0]?.metadata.invoice_notes).toBe('Pay at [redacted]')
+    expect(stripe.confirms[0]?.shipping).toEqual({
+      name: 'Ada',
+      phone: '555-0100',
+      address: {
+        line1: '1 Main St',
+        line2: 'Suite 4',
+        city: 'New York',
+        state: 'NY',
+        postalCode: '10001',
+        country: 'US',
+      },
+    })
+    expect(JSON.stringify(stripe.confirms[0])).not.toContain(raw)
+    expect(JSON.stringify(stripe.confirms[0])).not.toContain('Person street')
   })
 
   it('does not send a merchant success URL to Stripe as return_url', async () => {

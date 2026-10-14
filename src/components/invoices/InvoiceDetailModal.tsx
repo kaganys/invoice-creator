@@ -386,6 +386,7 @@ export function InvoiceDetailModal({
           </button>
         </header>
 
+        <div className="invoice-detail-modal__scroll">
         <div className="invoice-detail-modal__actions">
           <button
             type="button"
@@ -726,24 +727,6 @@ export function InvoiceDetailModal({
                 ).html
               }
             />
-            <div className="invoice-detail-modal__confirm">
-              <button
-                type="button"
-                className="btn btn--ghost"
-                disabled={sending}
-                onClick={() => setSendOpen(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn--primary"
-                disabled={sending}
-                onClick={() => void onSend()}
-              >
-                {sending ? 'Sending…' : isResend ? 'Send again' : 'Send invoice'}
-              </button>
-            </div>
             <EmailTemplateEditor
               open={emailEditorOpen}
               subject={subject}
@@ -783,7 +766,9 @@ export function InvoiceDetailModal({
           </details>
         ) : null}
 
-        {error ? <p className="api-banner api-banner--error">{error}</p> : null}
+        {!sendOpen && error ? (
+          <p className="api-banner api-banner--error">{error}</p>
+        ) : null}
         {loading ? <p className="api-banner">Loading invoice…</p> : null}
 
         <div className="invoice-detail-modal__canvas">
@@ -796,6 +781,30 @@ export function InvoiceDetailModal({
             />
           ) : null}
         </div>
+        </div>
+        {sendOpen && invoice ? (
+          <footer className="invoice-detail-modal__footer">
+            {error ? <p className="api-banner api-banner--error">{error}</p> : null}
+            <div className="invoice-detail-modal__footer-actions">
+              <button
+                type="button"
+                className="btn btn--ghost"
+                disabled={sending}
+                onClick={() => setSendOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={sending}
+                onClick={() => void onSend()}
+              >
+                {sending ? 'Sending…' : isResend ? 'Send again' : 'Send invoice'}
+              </button>
+            </div>
+          </footer>
+        ) : null}
       </div>
     </div>
   )

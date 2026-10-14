@@ -17,8 +17,24 @@ export type CreatePaymentIntentInput = {
   currency: string
   idempotencyKey: string
   metadata: Record<string, string>
+  description?: string
+  receiptEmail?: string
+  shipping?: PaymentIntentShipping
   statementDescriptor?: string
   paymentMethodTypes?: string[]
+}
+
+export type PaymentIntentShipping = {
+  name?: string
+  phone?: string
+  address?: {
+    line1?: string
+    line2?: string
+    city?: string
+    state?: string
+    postalCode?: string
+    country?: string
+  }
 }
 
 export type ConfirmWithTokenInput = {
@@ -28,6 +44,9 @@ export type ConfirmWithTokenInput = {
   idempotencyKey: string
   returnUrl: string
   metadata: Record<string, string>
+  description?: string
+  receiptEmail?: string
+  shipping?: PaymentIntentShipping
   statementDescriptor?: string
   paymentMethodTypes?: string[]
 }
@@ -53,15 +72,7 @@ export function createStripeGateway(secretKey: string): StripeGateway {
       } else {
         body.set('automatic_payment_methods[enabled]', 'true')
       }
-      for (const [key, value] of Object.entries(input.metadata)) {
-        body.set(`metadata[${key}]`, value)
-      }
-      if (input.statementDescriptor) {
-        body.set(
-          'statement_descriptor_suffix',
-          input.statementDescriptor.slice(0, 22),
-        )
-      }
+      writePaymentIntentIdentity(body, input)
       return stripePaymentIntent(
         await stripeRequest(secretKey, '/v1/payment_intents', body, input.idempotencyKey),
         input.amount,
@@ -118,15 +129,7 @@ export function createStripeGateway(secretKey: string): StripeGateway {
           'payment_method',
         )
       }
-      for (const [key, value] of Object.entries(input.metadata)) {
-        body.set(`metadata[${key}]`, value)
-      }
-      if (input.statementDescriptor) {
-        body.set(
-          'statement_descriptor_suffix',
-          input.statementDescriptor.slice(0, 22),
-        )
-      }
+      writePaymentIntentIdentity(body, input)
       return stripePaymentIntent(
         await stripeRequest(
           secretKey,
@@ -138,6 +141,81 @@ export function createStripeGateway(secretKey: string): StripeGateway {
         input.currency,
       )
     },
+  }
+}
+
+/**
+ * Description, metadata, receipt_email, and shipping are parameters of
+ * POST /v1/payment_intents. Stripe's restricted-key permission for that
+ * request is PaymentIntents write. The PaymentIntent has no billing object;
+ * billing address stays in metadata. This does not call Customers, Charges,
+ * or any other resource.
+ */
+function writePaymentIntentIdentity(
+  body: URLSearchParams,
+  input: {
+    metadata: Record<string, string>
+    description?: string
+    receiptEmail?: string
+    shipping?: PaymentIntentShipping
+    statementDescriptor?: string
+  },
+): void {
+  const description = input.description?.trim()
+  if (description) {
+    body.set('description', description)
+  }
+  const receiptEmail = input.receiptEmail?.trim()
+  if (receiptEmail) {
+    body.set('receipt_email', receiptEmail)
+  }
+  writeShipping(body, input.shipping)
+  for (const [key, value] of Object.entries(input.metadata)) {
+    const trimmed = value.trim()
+    if (trimmed) {
+      body.set(`metadata[${key}]`, trimmed)
+    }
+  }
+  if (input.statementDescriptor) {
+    body.set(
+      'statement_descriptor_suffix',
+      input.statementDescriptor.slice(0, 22),
+    )
+  }
+}
+
+function writeShipping(
+  body: URLSearchParams,
+  shipping: PaymentIntentShipping | undefined,
+): void {
+  if (!shipping) {
+    return
+  }
+  const name = shipping.name?.trim()
+  if (name) {
+    body.set('shipping[name]', name)
+  }
+  const phone = shipping.phone?.trim()
+  if (phone) {
+    body.set('shipping[phone]', phone)
+  }
+  const address = shipping.address
+  if (!address) {
+    return
+  }
+  const parts: Array<[keyof NonNullable<PaymentIntentShipping['address']>, string]> = [
+    ['line1', 'line1'],
+    ['line2', 'line2'],
+    ['city', 'city'],
+    ['state', 'state'],
+    ['postalCode', 'postal_code'],
+    ['country', 'country'],
+  ]
+  for (const [key, param] of parts) {
+    const value = address[key]?.trim()
+    if (value) {
+      body.set(`shipping[address][${param}]`, value)
+    }
   }
 }
 
