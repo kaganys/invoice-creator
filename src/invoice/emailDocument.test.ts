@@ -5,6 +5,8 @@ import {
   canonicalizeEmailBody,
   defaultEmailBlocks,
   defaultEmailDocumentHtml,
+  documentToEditorHtml,
+  editorHtmlToDocument,
   readEmailBlocks,
   renderEmailBlocks,
   writeEmailBlocks,
@@ -37,7 +39,7 @@ describe('email block document', () => {
   it('stabilizes a legacy graphical template', () => {
     const once = canonicalizeEmailBody(defaultGraphicalEmailBody())
     expect(canonicalizeEmailBody(once)).toBe(once)
-    expect(once).toContain('<!--email-doc:v2-->')
+    expect(once).toContain('<!--email-doc:v3-->')
     expect(once).toContain('Hello {{customer_name}},')
     expect(once).not.toContain('{{zelle_email}}')
   })
@@ -50,6 +52,7 @@ describe('email block document', () => {
     expect(sent.html).toBe(preview.html)
     expect(sent.text).toBe(preview.text)
     expect(sent.html).not.toContain('email-doc:v2')
+    expect(sent.html).not.toContain('email-doc:v3')
     expect(sent.html).not.toContain('email-block')
     expect(sent.html).not.toContain('border-radius:999px')
     expect(sent.html).not.toContain('data-email-var')
@@ -106,5 +109,24 @@ describe('email block document', () => {
     expect(sent).toContain('Hello')
     expect(sent).not.toContain('border-radius:999px')
     expect(sent).not.toContain('#ecfdf5')
+  })
+
+  it('edits the whole letter as one document and round-trips it', () => {
+    const editor = documentToEditorHtml(defaultEmailDocumentHtml(), BRAND)
+    expect(editor).toContain('Hello')
+    expect(editor).toContain('Pay Online')
+    expect(editor).toContain('Amount due')
+    expect(editor).toContain('If the button does not work')
+    expect(editor).toContain('A PDF copy of this invoice is attached to this email.')
+    expect(editor).toContain('Sent by')
+    expect(editor).toContain('class="email-logo"')
+    expect(editor).not.toContain('email-block')
+    expect(editorHtmlToDocument(editor)).toBe(defaultEmailDocumentHtml())
+
+    const withoutButton = editor.replace(/<p data-email-part="button"[\s\S]*?<\/p>/, '')
+    const sent = prepared(editorHtmlToDocument(withoutButton)).html
+    expect(sent).not.toContain('Pay Online')
+    expect(sent).toContain('Hello Ada Lovelace,')
+    expect(sent).toContain('Sent by Bitz Designs')
   })
 })

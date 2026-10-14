@@ -1,6 +1,9 @@
 import {
+  editorHtmlToSubject,
   readEmailDocument,
   sanitizeProseHtml,
+  tokensToChips,
+  variableChipHtml,
 } from './emailCompose.ts'
 
 export type EmailBrandAssets = {
@@ -21,6 +24,8 @@ export type HeaderBlock = {
   showLogo: boolean
   showWordmark: boolean
   showName: boolean
+  /** Visible header line. Tokens such as {{business_name}} are allowed. */
+  name: string
 }
 
 export type TextBlock = {
@@ -115,7 +120,8 @@ const BLOCK_LABEL: Record<EmailBlockType, string> = {
   footer: 'Footer',
 }
 
-const MARKER = '<!--email-doc:v2-->'
+const MARKER_V2 = '<!--email-doc:v2-->'
+const MARKER_V3 = '<!--email-doc:v3-->'
 const PARAGRAPH =
   'margin:0 0 16px;font-size:16px;line-height:1.55;color:#111111;'
 
@@ -181,6 +187,7 @@ function headerBlock(id: string, enabled = true): HeaderBlock {
     showLogo: true,
     showWordmark: true,
     showName: true,
+    name: '{{business_name}}',
   }
 }
 
@@ -390,15 +397,18 @@ function parseBlock(attrs: Record<string, string>, inner: string, index: number)
   const enabled = readFlag(attrs.enabled, true)
   const body = inner.trim()
   switch (type) {
-    case 'header':
+    case 'header': {
+      const showName = readFlag(attrs['show-name'], true)
       return {
         ...headerBlock(id, enabled),
         background: safeEmailColor(attrs.background ?? '', '#111111'),
         color: safeEmailColor(attrs.color ?? '', '#f7f3ec'),
         showLogo: readFlag(attrs['show-logo'], true),
         showWordmark: readFlag(attrs['show-wordmark'], true),
-        showName: readFlag(attrs['show-name'], true),
+        showName,
+        name: showName ? '{{business_name}}' : '',
       }
+    }
     case 'text':
       return textBlock(id, body, enabled)
     case 'amount':
@@ -464,29 +474,28 @@ function parseV2(source: string): EmailBlock[] {
 }
 
 export function readEmailBlocks(source: string): EmailBlock[] {
-  if (source.includes(MARKER)) {
+  if (source.includes(MARKER_V3)) {
+    return parseV3(source)
+  }
+  if (source.includes(MARKER_V2)) {
     return parseV2(source)
   }
   const html = looksLikeHtml(source) ? source : plainTextToHtml(source)
   return migrateLegacy(html)
 }
 
-function attrs(entries: Array<[string, string]>): string {
-  return entries.map(([key, value]) => `${key}="${encodeAttr(value)}"`).join(' ')
-}
-
-function paymentToken(enabled: boolean): string {
-  return enabled ? '<!--{{payment_url}}-->' : ''
-}
-
 function normalizeBlock(block: EmailBlock): EmailBlock {
   switch (block.type) {
-    case 'header':
+    case 'header': {
+      const name = block.name.trim()
       return {
         ...block,
         background: safeEmailColor(block.background, '#111111'),
         color: safeEmailColor(block.color, '#f7f3ec'),
+        name,
+        showName: name.length > 0,
       }
+    }
     case 'text':
       return { ...block, html: sanitizeProseHtml(block.html).trim() }
     case 'amount':
@@ -521,77 +530,437 @@ function normalizeBlock(block: EmailBlock): EmailBlock {
   }
 }
 
-function openTag(block: EmailBlock): string {
-  const base: Array<[string, string]> = [
-    ['id', block.id],
-    ['type', block.type],
-    ['enabled', flag(block.enabled)],
-  ]
-  switch (block.type) {
-    case 'header':
-      base.push(
-        ['background', block.background],
-        ['color', block.color],
-        ['show-logo', flag(block.showLogo)],
-        ['show-wordmark', flag(block.showWordmark)],
-        ['show-name', flag(block.showName)],
-      )
-      break
-    case 'amount':
-      base.push(
-        ['label', block.label],
-        ['due-label', block.dueLabel],
-        ['background', block.background],
-        ['border', block.border],
-        ['label-color', block.labelColor],
-        ['amount-color', block.amountColor],
-      )
-      break
-    case 'payment':
-      base.push(['show-zelle', flag(block.showZelle)], ['zelle-label', block.zelleLabel])
-      break
-    case 'button':
-      base.push(['label', block.label], ['background', block.background], ['color', block.color])
-      break
-    case 'link':
-      base.push(['lead', block.lead])
-      break
-    case 'attachment':
-      base.push(['text', block.text])
-      break
-    case 'footer':
-      base.push(['text', block.text])
-      break
-    case 'text':
-      break
-  }
-  return `<!--email-block ${attrs(base)}-->`
+function dataAttrs(entries: Array<[string, string]>): string {
+  return entries.map(([key, value]) => `${key}="${encodeAttr(value)}"`).join(' ')
 }
 
-function innerHtml(block: EmailBlock): string {
-  if (block.type === 'text' || block.type === 'payment') {
-    return block.html
+function zelleParagraph(label: string): string {
+  return paragraph(
+    `${escapeHtml(label)}: <strong style="color:#111111;">{{zelle_email}}</strong>`,
+  )
+}
+
+function isZelleParagraph(html: string): boolean {
+  const text = html
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+  return text.includes('zelle') && text.includes('{{zelle_email}}') && text.length < 180
+}
+
+function splitZelle(html: string): { html: string; zelle: boolean } {
+  const parts = sanitizeProseHtml(html)
+    .split('\n')
+    .map((part) => part.trim())
+    .filter(Boolean)
+  return {
+    zelle: parts.some(isZelleParagraph),
+    html: parts.filter((part) => !isZelleParagraph(part)).join('\n'),
   }
-  if (block.type === 'amount') {
-    return '<!--{{amount}}-->'
+}
+
+function blockStoredHtml(block: EmailBlock): string {
+  switch (block.type) {
+    case 'header':
+      return `<div ${dataAttrs([
+        ['data-email-part', 'header'],
+        ['data-background', block.background],
+        ['data-color', block.color],
+        ['data-logo', flag(block.showLogo)],
+        ['data-wordmark', flag(block.showWordmark)],
+        ['data-name', block.name],
+      ])}></div>`
+    case 'text':
+      return block.html
+    case 'amount':
+      return `<div ${dataAttrs([
+        ['data-email-part', 'amount'],
+        ['data-background', block.background],
+        ['data-border', block.border],
+        ['data-label-color', block.labelColor],
+        ['data-amount-color', block.amountColor],
+        ['data-label', block.label],
+        ['data-due', block.dueLabel],
+      ])}><!--{{amount}}--></div>`
+    case 'payment': {
+      const inner = block.showZelle
+        ? [block.html, zelleParagraph(block.zelleLabel)].filter(Boolean).join('\n')
+        : block.html
+      return `<div ${dataAttrs([
+        ['data-email-part', 'payment'],
+        ['data-zelle-label', block.zelleLabel],
+      ])}>\n${inner}\n</div>`
+    }
+    case 'button':
+      return `<div ${dataAttrs([
+        ['data-email-part', 'button'],
+        ['data-background', block.background],
+        ['data-color', block.color],
+        ['data-label', block.label],
+      ])}><!--{{payment_url}}--></div>`
+    case 'link':
+      return `<p ${dataAttrs([
+        ['data-email-part', 'link'],
+        ['data-lead', block.lead],
+      ])}><!--{{payment_url}}--></p>`
+    case 'attachment':
+      return `<p data-email-part="attachment">${escapeHtml(block.text)}</p>`
+    case 'footer':
+      return `<p data-email-part="footer">${escapeHtml(block.text)}</p>`
   }
-  if ((block.type === 'button' || block.type === 'link') && block.enabled) {
-    return paymentToken(true)
+}
+
+function writeV3(blocks: EmailBlock[]): string {
+  const lines = [MARKER_V3]
+  for (const block of blocks.map(normalizeBlock)) {
+    if (!block.enabled) {
+      continue
+    }
+    if (block.type === 'text' && !block.html.trim()) {
+      continue
+    }
+    if (block.type === 'payment' && !block.html.trim() && !block.showZelle) {
+      continue
+    }
+    if ((block.type === 'attachment' || block.type === 'footer') && !block.text.trim()) {
+      continue
+    }
+    lines.push(blockStoredHtml(block))
   }
-  return ''
+  return lines.join('\n')
+}
+
+function openingTag(raw: string): string {
+  const match = /^<[^>]+>/.exec(raw)
+  return match?.[0] ?? ''
+}
+
+function elementInner(raw: string): string {
+  return raw.replace(/^<[^>]+>/, '').replace(/<\/[^>]+>\s*$/, '')
+}
+
+function partKind(raw: string): string | null {
+  return parseAttrs(openingTag(raw).replace(/^</, '').replace(/>$/, ''))['data-email-part'] || null
+}
+
+function slotExists(raw: string, slot: string): boolean {
+  return new RegExp(`data-email-slot="${slot}"`, 'i').test(raw)
+}
+
+function slotHtml(raw: string, slot: string): string {
+  const match = new RegExp(
+    `<([a-z0-9]+)\\b[^>]*data-email-slot="${slot}"[^>]*>([\\s\\S]*?)<\\/\\1>`,
+    'i',
+  ).exec(raw)
+  return match?.[2] ?? ''
+}
+
+function takeId(counts: Record<string, number>, type: string): string {
+  const next = (counts[type] ?? 0) + 1
+  counts[type] = next
+  if (type === 'text') {
+    return `text-${next}`
+  }
+  return next === 1 ? type : `${type}-${next}`
+}
+
+function findClose(html: string, from: number, tag: string): number {
+  let depth = 1
+  let index = from
+  const lower = html.toLowerCase()
+  const open = `<${tag}`
+  const close = `</${tag}`
+  while (index < html.length && depth > 0) {
+    const nextOpen = lower.indexOf(open, index)
+    const nextClose = lower.indexOf(close, index)
+    if (nextClose === -1) {
+      return html.length
+    }
+    if (nextOpen !== -1 && nextOpen < nextClose) {
+      const after = html[nextOpen + open.length] ?? ''
+      if (/[\s>/]/.test(after)) {
+        depth += 1
+      }
+      index = nextOpen + open.length
+      continue
+    }
+    depth -= 1
+    const gt = html.indexOf('>', nextClose)
+    index = gt === -1 ? html.length : gt + 1
+  }
+  return index
+}
+
+function sliceTopLevel(html: string): string[] {
+  const parts: string[] = []
+  let index = 0
+  while (index < html.length) {
+    while (index < html.length && /\s/.test(html[index] ?? '')) {
+      index += 1
+    }
+    if (index >= html.length) {
+      break
+    }
+    if (html.startsWith('<!--', index)) {
+      const end = html.indexOf('-->', index + 4)
+      index = end === -1 ? html.length : end + 3
+      continue
+    }
+    if (html[index] !== '<') {
+      const next = html.indexOf('<', index)
+      const text = html.slice(index, next === -1 ? html.length : next).trim()
+      if (text) {
+        parts.push(paragraph(escapeHtml(text)))
+      }
+      index = next === -1 ? html.length : next
+      continue
+    }
+    const gt = html.indexOf('>', index + 1)
+    if (gt === -1) {
+      break
+    }
+    const token = html.slice(index + 1, gt).trim()
+    if (token.startsWith('/')) {
+      index = gt + 1
+      continue
+    }
+    const name = token.split(/\s+/)[0]?.replace(/\/$/, '').toLowerCase() ?? ''
+    if (!name) {
+      index = gt + 1
+      continue
+    }
+    if (token.endsWith('/') || name === 'br' || name === 'img' || name === 'hr') {
+      parts.push(html.slice(index, gt + 1))
+      index = gt + 1
+      continue
+    }
+    const end = findClose(html, gt + 1, name)
+    parts.push(html.slice(index, end))
+    index = end
+  }
+  if (
+    parts.length === 1 &&
+    parts[0].startsWith('<div') &&
+    !partKind(parts[0])
+  ) {
+    return sliceTopLevel(elementInner(parts[0]))
+  }
+  return parts
+}
+
+function proseBlocks(raw: string, counts: Record<string, number>): EmailBlock[] {
+  const html = sanitizeProseHtml(raw).trim()
+  if (!html) {
+    return []
+  }
+  return html
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => textBlock(takeId(counts, 'text'), line))
+}
+
+function blockFromPart(kind: string, raw: string, id: string): EmailBlock | null {
+  const attrs = parseAttrs(openingTag(raw).replace(/^</, '').replace(/>$/, ''))
+  if (kind === 'header') {
+    const slots = /data-email-slot=/.test(raw)
+    const name = slots
+      ? slotExists(raw, 'name')
+        ? editorHtmlToSubject(slotHtml(raw, 'name'))
+        : ''
+      : (attrs['data-name'] ?? '{{business_name}}')
+    return normalizeBlock({
+      ...headerBlock(id),
+      background: safeEmailColor(attrs['data-background'] ?? '', '#111111'),
+      color: safeEmailColor(attrs['data-color'] ?? '', '#f7f3ec'),
+      showLogo: slots ? slotExists(raw, 'logo') : readFlag(attrs['data-logo'], true),
+      showWordmark: slots
+        ? slotExists(raw, 'wordmark')
+        : readFlag(attrs['data-wordmark'], true),
+      name,
+      showName: name.trim().length > 0,
+    })
+  }
+  if (kind === 'amount') {
+    const label = slotExists(raw, 'label')
+      ? editorHtmlToSubject(slotHtml(raw, 'label'))
+      : (attrs['data-label'] ?? 'Amount due')
+    const dueLabel = slotExists(raw, 'due')
+      ? editorHtmlToSubject(slotHtml(raw, 'due'))
+      : (attrs['data-due'] ?? 'Due {{due_date}}')
+    return normalizeBlock({
+      ...amountBlock(id),
+      label,
+      dueLabel,
+      background: safeEmailColor(attrs['data-background'] ?? '', '#f7f3ec'),
+      border: safeEmailColor(attrs['data-border'] ?? '', '#e4ddd2'),
+      labelColor: safeEmailColor(attrs['data-label-color'] ?? '', '#5c564e'),
+      amountColor: safeEmailColor(attrs['data-amount-color'] ?? '', '#1c1917'),
+    })
+  }
+  if (kind === 'payment') {
+    const split = splitZelle(elementInner(raw))
+    return normalizeBlock(
+      paymentBlock(id, {
+        html: split.html,
+        showZelle: split.zelle,
+        zelleLabel: clip(attrs['data-zelle-label'] ?? 'Zelle') || 'Zelle',
+      }),
+    )
+  }
+  if (kind === 'button') {
+    const anchor = /<a\b[^>]*>([\s\S]*?)<\/a>/i.exec(raw)
+    const label = anchor
+      ? editorHtmlToSubject(anchor[1] ?? '')
+      : (attrs['data-label'] ?? 'Pay Online')
+    return normalizeBlock({
+      ...buttonBlock(id),
+      label,
+      background: safeEmailColor(attrs['data-background'] ?? '', '#24352c'),
+      color: safeEmailColor(attrs['data-color'] ?? '', '#f7f3ec'),
+    })
+  }
+  if (kind === 'link') {
+    const withoutAnchor = raw.replace(/<a\b[\s\S]*?<\/a>/gi, '')
+    const lead = editorHtmlToSubject(elementInner(withoutAnchor)) || (attrs['data-lead'] ?? '')
+    return normalizeBlock({
+      ...linkBlock(id),
+      lead,
+    })
+  }
+  if (kind === 'attachment') {
+    return normalizeBlock({
+      ...attachmentBlock(id),
+      text: editorHtmlToSubject(elementInner(raw)),
+    })
+  }
+  if (kind === 'footer') {
+    return normalizeBlock({
+      ...footerBlock(id),
+      text: editorHtmlToSubject(elementInner(raw)),
+    })
+  }
+  return null
+}
+
+function blocksFromSlices(slices: string[]): EmailBlock[] {
+  const counts: Record<string, number> = {}
+  const blocks: EmailBlock[] = []
+  for (const raw of slices) {
+    const kind = partKind(raw)
+    if (!kind) {
+      blocks.push(...proseBlocks(raw, counts))
+      continue
+    }
+    const block = blockFromPart(kind, raw, takeId(counts, kind))
+    if (block) {
+      blocks.push(block)
+    }
+  }
+  return blocks
+}
+
+function parseV3(source: string): EmailBlock[] {
+  return blocksFromSlices(sliceTopLevel(source.replace(MARKER_V3, '')))
+}
+
+function blockEditorHtml(block: EmailBlock, brand: EmailBrandAssets): string {
+  switch (block.type) {
+    case 'header': {
+      const logo = block.showLogo
+        ? `<img data-email-slot="logo" class="email-logo" src="${escapeHtml(brand.logoUrl ?? '')}" alt="" width="56" height="56" />`
+        : ''
+      const wordmark = block.showWordmark
+        ? `<img data-email-slot="wordmark" class="email-wordmark" src="${escapeHtml(brand.wordmarkUrl ?? '')}" alt="" />`
+        : ''
+      const name = block.name.trim()
+        ? `<p data-email-slot="name">${tokensToChips(escapeHtml(block.name))}</p>`
+        : ''
+      return `<div ${dataAttrs([
+        ['data-email-part', 'header'],
+        ['data-background', block.background],
+        ['data-color', block.color],
+        ['data-logo', flag(block.showLogo)],
+        ['data-wordmark', flag(block.showWordmark)],
+        ['data-name', block.name],
+      ])} style="background:${block.background};color:${block.color}">${logo}${wordmark}${name}</div>`
+    }
+    case 'text':
+      return tokensToChips(block.html)
+    case 'amount':
+      return `<div ${dataAttrs([
+        ['data-email-part', 'amount'],
+        ['data-background', block.background],
+        ['data-border', block.border],
+        ['data-label-color', block.labelColor],
+        ['data-amount-color', block.amountColor],
+        ['data-label', block.label],
+        ['data-due', block.dueLabel],
+      ])} style="background:${block.background};border:1px solid ${block.border};color:${block.labelColor}"><p data-email-slot="label">${tokensToChips(escapeHtml(block.label))}</p><p data-email-slot="value" style="color:${block.amountColor}">${variableChipHtml('amount')}</p><p data-email-slot="due">${tokensToChips(escapeHtml(block.dueLabel))}</p></div>`
+    case 'payment': {
+      const inner = block.showZelle
+        ? [block.html, zelleParagraph(block.zelleLabel)].filter(Boolean).join('\n')
+        : block.html
+      return `<div data-email-part="payment" data-zelle-label="${encodeAttr(block.zelleLabel)}">${tokensToChips(inner)}</div>`
+    }
+    case 'button':
+      return `<p ${dataAttrs([
+        ['data-email-part', 'button'],
+        ['data-background', block.background],
+        ['data-color', block.color],
+        ['data-label', block.label],
+      ])}><a href="{{payment_url}}" style="display:inline-block;background:${block.background};color:${block.color};padding:12px 22px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;line-height:1.2;text-decoration:none;">${tokensToChips(escapeHtml(block.label))}</a></p>`
+    case 'link':
+      return `<p ${dataAttrs([
+        ['data-email-part', 'link'],
+        ['data-lead', block.lead],
+      ])}>${tokensToChips(escapeHtml(block.lead))}<br><a href="{{payment_url}}">${variableChipHtml('payment_url')}</a></p>`
+    case 'attachment':
+      return `<p data-email-part="attachment">${tokensToChips(escapeHtml(block.text))}</p>`
+    case 'footer':
+      return `<p data-email-part="footer">${tokensToChips(escapeHtml(block.text))}</p>`
+  }
+}
+
+export type EmailInsertKind = 'header' | 'amount' | 'button' | 'link' | 'attachment' | 'footer'
+
+export function emailInsertHtml(
+  kind: EmailInsertKind,
+  brand: EmailBrandAssets = {},
+): string {
+  return blockEditorHtml(normalizeBlock(createEmailBlock(kind, [])), brand)
+}
+
+/** The letter shown in the editor. Same parts as the saved document, with field chips. */
+export function documentToEditorHtml(
+  source: string,
+  brand: EmailBrandAssets = {},
+): string {
+  if (!source.trim()) {
+    return ''
+  }
+  return readEmailBlocks(source)
+    .filter((block) => block.enabled)
+    .map((block) => blockEditorHtml(normalizeBlock(block), brand))
+    .join('')
+}
+
+/** Saved document for whatever the editor is currently showing. */
+export function editorHtmlToDocument(editorHtml: string): string {
+  const blocks = blocksFromSlices(sliceTopLevel(editorHtml))
+  if (blocks.length === 0) {
+    return ''
+  }
+  return writeV3(blocks)
 }
 
 export function writeEmailBlocks(blocks: EmailBlock[]): string {
-  const parts = [MARKER]
-  for (const block of blocks.map(normalizeBlock)) {
-    const inner = innerHtml(block)
-    parts.push(inner ? `${openTag(block)}\n${inner}\n<!--/email-block-->` : `${openTag(block)}<!--/email-block-->`)
-  }
-  return parts.join('\n')
+  return writeV3(blocks)
 }
 
 export function defaultEmailDocumentHtml(): string {
-  return writeEmailBlocks(defaultEmailBlocks())
+  return writeV3(defaultEmailBlocks())
 }
 
 /** Stable form of whatever is saved, including older templates. */
@@ -599,7 +968,7 @@ export function canonicalizeEmailBody(html: string): string {
   if (!html.trim()) {
     return html
   }
-  return writeEmailBlocks(readEmailBlocks(html))
+  return writeV3(readEmailBlocks(html))
 }
 
 function renderHeader(block: HeaderBlock, brand: EmailBrandAssets): string {
@@ -614,14 +983,15 @@ function renderHeader(block: HeaderBlock, brand: EmailBrandAssets): string {
     ? `<td valign="middle" bgcolor="${background}" style="padding:0 16px 0 0;background:${background};font-size:0;line-height:0;"><img class="email-logo" src="${escapeHtml(logo)}" width="56" height="56" alt="" style="display:block;border:0;outline:none;text-decoration:none;width:56px;height:56px;background:${background};" /></td>`
     : ''
   const wordmarkCell = wordmark
-    ? `<td valign="middle" bgcolor="${background}" style="padding:0;background:${background};font-size:0;line-height:0;"><img class="email-wordmark" src="${escapeHtml(wordmark)}" alt="${block.showName ? '' : '{{business_name}}'}" height="42" style="display:block;border:0;outline:none;text-decoration:none;height:42px;width:auto;max-width:280px;background:${background};" /></td>`
+    ? `<td valign="middle" bgcolor="${background}" style="padding:0;background:${background};font-size:0;line-height:0;"><img class="email-wordmark" src="${escapeHtml(wordmark)}" alt="${block.name.trim() ? '' : '{{business_name}}'}" height="42" style="display:block;border:0;outline:none;text-decoration:none;height:42px;width:auto;max-width:280px;background:${background};" /></td>`
     : ''
   const images =
     logo || wordmark
       ? `<tr>${logoCell}${wordmarkCell}</tr>`
       : ''
-  const nameRow = block.showName
-    ? `<tr><td colspan="2" align="center" bgcolor="${background}" style="padding:${images ? '12px' : '0'} 0 0;background:${background};font-family:Georgia,'Times New Roman',serif;font-size:${images ? '15px' : '22px'};line-height:1.3;letter-spacing:0.04em;font-weight:${images ? '400' : '700'};color:${color};">{{business_name}}</td></tr>`
+  const name = block.name.trim()
+  const nameRow = name
+    ? `<tr><td colspan="2" align="center" bgcolor="${background}" style="padding:${images ? '12px' : '0'} 0 0;background:${background};font-family:Georgia,'Times New Roman',serif;font-size:${images ? '15px' : '22px'};line-height:1.3;letter-spacing:0.04em;font-weight:${images ? '400' : '700'};color:${color};">${escapeHtml(name)}</td></tr>`
     : ''
   return `<tr><td class="email-pad" align="center" bgcolor="${background}" style="background:${background};padding:26px 28px 22px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0" bgcolor="${background}" style="margin:0 auto;background:${background};">${images}${nameRow}</table></td></tr>`
 }
