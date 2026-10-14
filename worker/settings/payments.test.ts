@@ -32,12 +32,20 @@ describe('payments settings', () => {
     expect(publicValue).not.toHaveProperty('secretKey')
   })
 
-  it('rejects a secret key pasted into the publishable field', () => {
-    const result = validatePaymentsWrite({
-      publishableKey: 'sk_test_51secret',
-      stripeEnabled: true,
-    })
-    expect(result.ok).toBe(false)
+  it('rejects a secret or restricted key pasted into the publishable field', () => {
+    for (const publishableKey of ['sk_test_51secret', 'rk_live_51restricted']) {
+      const result = validatePaymentsWrite({
+        publishableKey,
+        stripeEnabled: true,
+      })
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.message).toBe(
+          'A Stripe secret key cannot be used as the publishable key.',
+        )
+        expect(result.message).not.toContain(publishableKey)
+      }
+    }
   })
 
   it('rejects a secret key field on the write API', () => {
