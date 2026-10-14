@@ -606,8 +606,9 @@
   display: flex;
   flex-direction: column;
   width: min(1180px, 100%);
-  max-height: calc(100vh - 2.5rem);
-  overflow: auto;
+  height: calc(100dvh - 2.5rem);
+  max-height: calc(100dvh - 2.5rem);
+  overflow: hidden;
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
@@ -618,6 +619,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+  flex-shrink: 0;
   padding: 0.85rem 1rem;
   border-bottom: 1px solid var(--border);
   background: var(--header-bg);
@@ -639,17 +641,51 @@
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
   gap: 1rem;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   padding: 1rem;
+  overscroll-behavior: contain;
 }
 
 .email-modal__preview {
-  height: min(720px, calc(100vh - 8rem));
-  min-height: 24rem;
+  height: min(720px, 62dvh);
+  min-height: 16rem;
 }
 
 @media (max-width: 800px) {
+  .email-modal {
+    padding: 0;
+  }
+
+  .email-modal__dialog {
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+
+  .email-modal__bar {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    padding-top: max(0.85rem, env(safe-area-inset-top));
+  }
+
+  .email-modal__actions {
+    width: 100%;
+  }
+
+  .email-modal__actions .btn {
+    flex: 1;
+  }
+
   .email-modal__body {
     grid-template-columns: 1fr;
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
+
+  .email-modal__preview {
+    height: 50dvh;
+    min-height: 12rem;
   }
 }
 
