@@ -466,6 +466,100 @@
   display: none;
 }
 
+.email-sheet.ProseMirror {
+  padding: 12px 0 28px;
+  white-space: pre-wrap;
+  cursor: text;
+}
+
+.email-page .email-sheet.ProseMirror-focused,
+.email-page .email-sheet:focus {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.email-sheet .ProseMirror-selectednode {
+  outline: 2px solid #24352c;
+  outline-offset: 2px;
+}
+
+.email-sheet li > p {
+  margin: 0;
+  line-height: inherit;
+}
+
+.email-sheet > p[data-line-height="1"],
+.email-sheet [data-email-part="payment"] > p[data-line-height="1"],
+.email-sheet li[data-line-height="1"] {
+  line-height: 1;
+}
+
+.email-sheet > p[data-line-height="1.15"],
+.email-sheet [data-email-part="payment"] > p[data-line-height="1.15"],
+.email-sheet li[data-line-height="1.15"] {
+  line-height: 1.15;
+}
+
+.email-sheet > p[data-line-height="1.5"],
+.email-sheet [data-email-part="payment"] > p[data-line-height="1.5"],
+.email-sheet li[data-line-height="1.5"] {
+  line-height: 1.5;
+}
+
+.email-sheet > p[data-line-height="2"],
+.email-sheet [data-email-part="payment"] > p[data-line-height="2"],
+.email-sheet li[data-line-height="2"] {
+  line-height: 2;
+}
+
+.email-sheet > p[data-space-before="none"],
+.email-sheet [data-email-part="payment"] > p[data-space-before="none"],
+.email-sheet li[data-space-before="none"] {
+  margin-top: 0;
+}
+
+.email-sheet > p[data-space-before="small"],
+.email-sheet [data-email-part="payment"] > p[data-space-before="small"],
+.email-sheet li[data-space-before="small"] {
+  margin-top: 8px;
+}
+
+.email-sheet > p[data-space-before="normal"],
+.email-sheet [data-email-part="payment"] > p[data-space-before="normal"],
+.email-sheet li[data-space-before="normal"] {
+  margin-top: 16px;
+}
+
+.email-sheet > p[data-space-before="large"],
+.email-sheet [data-email-part="payment"] > p[data-space-before="large"],
+.email-sheet li[data-space-before="large"] {
+  margin-top: 28px;
+}
+
+.email-sheet > p[data-space-after="none"],
+.email-sheet [data-email-part="payment"] > p[data-space-after="none"],
+.email-sheet li[data-space-after="none"] {
+  margin-bottom: 0;
+}
+
+.email-sheet > p[data-space-after="small"],
+.email-sheet [data-email-part="payment"] > p[data-space-after="small"],
+.email-sheet li[data-space-after="small"] {
+  margin-bottom: 8px;
+}
+
+.email-sheet > p[data-space-after="normal"],
+.email-sheet [data-email-part="payment"] > p[data-space-after="normal"],
+.email-sheet li[data-space-after="normal"] {
+  margin-bottom: 16px;
+}
+
+.email-sheet > p[data-space-after="large"],
+.email-sheet [data-email-part="payment"] > p[data-space-after="large"],
+.email-sheet li[data-space-after="large"] {
+  margin-bottom: 28px;
+}
+
 .email-sheet > p :where(span, strong, em, b, i, font),
 .email-sheet > ul :where(span, strong, em, b, i, font),
 .email-sheet > ol :where(span, strong, em, b, i, font),
@@ -656,6 +750,10 @@
 
 .email-rich p {
   margin: 0 0 0.75rem;
+}
+
+.email-rich--line p {
+  margin: 0;
 }
 
 .email-rich:empty::before {

@@ -1,30 +1,13 @@
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { EditorContent, useEditor } from '@tiptap/react'
+import type { Editor } from '@tiptap/react'
+import { editorHtmlToSubject, subjectToEditorHtml } from '../../invoice/emailCompose.ts'
+import { documentToEditorHtml, editorHtmlToDocument } from '../../invoice/emailDocument.ts'
+import type { EmailInsertKind } from '../../invoice/emailDocument.ts'
 import {
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type ReactNode,
-} from 'react'
-import {
-  editorHtmlToSubject,
-  subjectToEditorHtml,
-  variableChipHtml,
-} from '../../invoice/emailCompose.ts'
-import {
-  documentToEditorHtml,
-  editorHtmlToDocument,
-  emailInsertHtml,
-  type EmailInsertKind,
-} from '../../invoice/emailDocument.ts'
-import {
-  emailSpacingFromHtml,
   EMPTY_METRICS,
   LINE_HEIGHTS,
-  metricsActive,
-  parseLineHeight,
-  parseSpaceStep,
   SPACE_STEPS,
-  spaceCss,
   type EmailSpacing,
   type LineHeightChoice,
   type ParagraphMetrics,
@@ -35,6 +18,16 @@ import {
   defaultEmailTemplates,
   type EmailVariableId,
 } from '../../invoice/emailTemplates.ts'
+import {
+  letterExtensions,
+  paintLetterSpacing,
+  syncDomSelection,
+  readEmailSpacing,
+  readParagraphMetrics,
+  shouldAdoptExternalLetter,
+  subjectExtensions,
+  syncLetterBrand,
+} from './emailLetterSchema.ts'
 
 export type EmailEditorBrand = {
   logoUrl?: string
@@ -50,8 +43,6 @@ const INSERTS: Array<{ kind: EmailInsertKind; label: string }> = [
   { kind: 'attachment', label: 'Attachment note' },
   { kind: 'footer', label: 'Footer' },
 ]
-
-type Snapshot = { subject: string; html: string }
 
 function preventFocusLoss(event: { preventDefault: () => void }) {
   event.preventDefault()
@@ -89,6 +80,10 @@ function spaceLabel(choice: SpaceStep): string {
   return choice[0].toUpperCase() + choice.slice(1)
 }
 
+function sameMetrics(left: ParagraphMetrics, right: ParagraphMetrics): boolean {
+  return left.lineHeight === right.lineHeight && left.before === right.before && left.after === right.after
+}
+
 function SpacingSelect({
   name,
   label,
@@ -96,7 +91,6 @@ function SpacingSelect({
   disabled,
   options,
   onChange,
-  onPointerDown,
 }: {
   name: string
   label: string
@@ -104,7 +98,6 @@ function SpacingSelect({
   disabled?: boolean
   options: Array<{ value: string; label: string }>
   onChange: (value: string) => void
-  onPointerDown?: () => void
 }) {
   return (
     <label className="email-editor__metric">
@@ -113,7 +106,6 @@ function SpacingSelect({
         aria-label={`${name} ${label.toLowerCase()}`}
         value={value}
         disabled={disabled}
-        onPointerDown={onPointerDown}
         onChange={(event) => onChange(event.target.value)}
       >
         <option value="">Default</option>
@@ -153,81 +145,6 @@ function ToolButton({
   )
 }
 
-function partElement(node: Node | null): HTMLElement | null {
-  const element = node instanceof Element ? node : node?.parentElement
-  return element?.closest('[data-email-part]') ?? null
-}
-
-const SPACING_LOCK =
-  '[data-email-part="header"], [data-email-part="amount"], [data-email-part="button"], [data-email-part="link"], [data-email-part="attachment"], [data-email-part="footer"], [data-email-part="spacing"]'
-
-function spacingLocked(node: HTMLElement): boolean {
-  return Boolean(node.closest(SPACING_LOCK))
-}
-
-function blockFromRange(sheet: HTMLElement, range: Range | null): HTMLElement | null {
-  const node = range?.startContainer ?? null
-  if (!node || !sheet.contains(node)) {
-    return null
-  }
-  const element = node instanceof Element ? node : node.parentElement
-  const block = element?.closest('li, p, h2, ul, ol')
-  if (!(block instanceof HTMLElement) || !sheet.contains(block) || spacingLocked(block)) {
-    return null
-  }
-  return block
-}
-
-function metricsFromElement(block: HTMLElement): ParagraphMetrics {
-  return {
-    lineHeight: parseLineHeight(block.getAttribute('data-line-height')),
-    before: parseSpaceStep(block.getAttribute('data-space-before')),
-    after: parseSpaceStep(block.getAttribute('data-space-after')),
-  }
-}
-
-function setMetricAttr(node: HTMLElement, name: string, value: string | null) {
-  if (!value) {
-    node.removeAttribute(name)
-    return
-  }
-  node.setAttribute(name, value)
-}
-
-function syncSheetSpacing(sheet: HTMLElement) {
-  const email = emailSpacingFromHtml(sheet.innerHTML)
-  sheet.style.setProperty('--email-line', email.lineHeight ?? '1.55')
-  sheet.style.setProperty('--email-before', email.before ? spaceCss(email.before) : '0px')
-  sheet.style.setProperty('--email-after', email.after ? spaceCss(email.after) : '16px')
-  for (const block of sheet.querySelectorAll('p, h2, ul, ol, li')) {
-    if (!(block instanceof HTMLElement) || spacingLocked(block)) {
-      continue
-    }
-    const metrics = metricsFromElement(block)
-    block.style.margin = ''
-    block.style.lineHeight = metrics.lineHeight ?? ''
-    block.style.marginTop = metrics.before ? spaceCss(metrics.before) : ''
-    block.style.marginBottom = metrics.after ? spaceCss(metrics.after) : ''
-  }
-}
-
-function writeEmailSpacing(sheet: HTMLElement, spacing: EmailSpacing) {
-  const current = sheet.querySelector('[data-email-part="spacing"]')
-  if (!metricsActive(spacing)) {
-    current?.remove()
-    return
-  }
-  const node = current instanceof HTMLElement ? current : document.createElement('div')
-  node.setAttribute('data-email-part', 'spacing')
-  node.setAttribute('contenteditable', 'false')
-  setMetricAttr(node, 'data-line-height', spacing.lineHeight)
-  setMetricAttr(node, 'data-space-before', spacing.before)
-  setMetricAttr(node, 'data-space-after', spacing.after)
-  if (!current) {
-    sheet.prepend(node)
-  }
-}
-
 export function EmailMessageEditor({
   subject,
   html,
@@ -243,14 +160,53 @@ export function EmailMessageEditor({
   brand?: EmailEditorBrand
   onChange: (next: { subject: string; html: string }) => void
 }) {
-  const brandAssets = {
-    logoUrl: brand?.logoUrl,
-    wordmarkUrl: brand?.wordmarkUrl,
-  }
-  const [seed, setSeed] = useState(() => documentToEditorHtml(html, brandAssets))
-  const [revision, setRevision] = useState(0)
-  const [canUndo, setCanUndo] = useState(false)
-  const [canRedo, setCanRedo] = useState(false)
+  const brandAssets = useMemo(
+    () => ({
+      logoUrl: brand?.logoUrl,
+      wordmarkUrl: brand?.wordmarkUrl,
+    }),
+    [brand?.logoUrl, brand?.wordmarkUrl],
+  )
+  const extensions = useMemo(() => letterExtensions(), [])
+  const subjectSchema = useMemo(() => subjectExtensions(), [])
+  const letterProps = useMemo(
+    () => ({
+      attributes: {
+        class: 'email-sheet',
+        'aria-label': 'Email',
+        'aria-multiline': 'true',
+        spellcheck: 'true',
+      },
+    }),
+    [],
+  )
+  const subjectProps = useMemo(
+    () => ({
+      attributes: {
+        id: 'email-subject',
+        class: 'email-rich email-rich--paper email-rich--line',
+        'aria-label': 'Subject',
+        'aria-multiline': 'false',
+        spellcheck: 'true',
+      },
+    }),
+    [],
+  )
+  const initialLetter = useRef(documentToEditorHtml(html, brandAssets))
+  const initialSubject = useRef(subjectToEditorHtml(subject))
+  const htmlProp = useRef(html)
+  const subjectProp = useRef(subject)
+  const onChangeRef = useRef(onChange)
+  const brandRef = useRef(brandAssets)
+  const active = useRef<'subject' | 'letter'>('letter')
+  const applying = useRef(false)
+  const letterRef = useRef<Editor | null>(null)
+  const subjectRef = useRef<Editor | null>(null)
+  htmlProp.current = html
+  subjectProp.current = subject
+  onChangeRef.current = onChange
+  brandRef.current = brandAssets
+
   const [fieldsOpen, setFieldsOpen] = useState(false)
   const [insertOpen, setInsertOpen] = useState(false)
   const [linkOpen, setLinkOpen] = useState(false)
@@ -258,124 +214,139 @@ export function EmailMessageEditor({
   const [paragraphMetrics, setParagraphMetrics] = useState<ParagraphMetrics>(EMPTY_METRICS)
   const [emailMetrics, setEmailMetrics] = useState<EmailSpacing>(EMPTY_METRICS)
   const [hasParagraph, setHasParagraph] = useState(false)
+  const [canUndo, setCanUndo] = useState(false)
+  const [canRedo, setCanRedo] = useState(false)
   const [linkUrl, setLinkUrl] = useState('https://')
   const [linkError, setLinkError] = useState<string | null>(null)
-  const subjectRef = useRef<HTMLDivElement>(null)
-  const sheetRef = useRef<HTMLDivElement>(null)
-  const subjectValue = useRef(subject)
-  const bodyValue = useRef(html.trim() ? editorHtmlToDocument(documentToEditorHtml(html, brandAssets)) : '')
-  const brandRef = useRef(brandAssets)
-  const emitted = useRef('')
-  const history = useRef<Snapshot[]>([])
-  const index = useRef(0)
-  const skipHistory = useRef(false)
   const fieldsRef = useRef<HTMLDivElement>(null)
   const insertRef = useRef<HTMLDivElement>(null)
-  const savedRange = useRef<Range | null>(null)
-  const emailSpacingRef = useRef<EmailSpacing>(emailSpacingFromHtml(html))
-  const active = useRef<'subject' | 'letter' | null>(null)
-  brandRef.current = brandAssets
 
-  function syncHistoryButtons() {
-    setCanUndo(index.current > 0)
-    setCanRedo(index.current < history.current.length - 1)
+  function publish(nextSubject: string, nextHtml: string) {
+    if (nextSubject === subjectProp.current && nextHtml === htmlProp.current) {
+      return
+    }
+    onChangeRef.current({ subject: nextSubject, html: nextHtml })
   }
 
-  function publish(nextSubject: string, nextHtml: string, record: boolean) {
-    const key = `${nextSubject}\n${nextHtml}`
-    emitted.current = key
-    bodyValue.current = nextHtml
-    if (record && !skipHistory.current) {
-      const snapshot = { subject: nextSubject, html: nextHtml }
-      const stack = history.current.slice(0, index.current + 1)
-      const previous = stack[stack.length - 1]
-      if (!previous || previous.subject !== snapshot.subject || previous.html !== snapshot.html) {
-        stack.push(snapshot)
-        if (stack.length > 80) {
-          stack.shift()
+  function refreshChrome(editor: Editor) {
+    paintLetterSpacing(editor)
+    const paragraph = readParagraphMetrics(editor)
+    setHasParagraph((current) => (current === paragraph.active ? current : paragraph.active))
+    setParagraphMetrics((current) => (sameMetrics(current, paragraph.metrics) ? current : paragraph.metrics))
+    const email = readEmailSpacing(editor)
+    setEmailMetrics((current) => (sameMetrics(current, email) ? current : email))
+    const historyEditor = active.current === 'subject' ? subjectRef.current ?? editor : editor
+    setCanUndo(historyEditor.can().undo())
+    setCanRedo(historyEditor.can().redo())
+  }
+
+  const letter = useEditor(
+    {
+      extensions,
+      editorProps: letterProps,
+      content: initialLetter.current,
+      parseOptions: { preserveWhitespace: 'full' },
+      immediatelyRender: true,
+      onFocus: () => {
+        active.current = 'letter'
+      },
+      onCreate: ({ editor }) => {
+        editor.storage.emailLetter.brand = brandRef.current
+        paintLetterSpacing(editor)
+        const next = editorHtmlToDocument(editor.getHTML())
+        if (!applying.current && next !== htmlProp.current) {
+          publish(subjectProp.current, next)
         }
-        history.current = stack
-        index.current = stack.length - 1
-      }
-    }
-    syncHistoryButtons()
-    onChange({ subject: nextSubject, html: nextHtml })
-  }
+      },
+      onUpdate: ({ editor }) => {
+        refreshChrome(editor)
+        if (applying.current) {
+          return
+        }
+        publish(
+          editorHtmlToSubject(subjectRef.current?.getHTML() ?? subjectToEditorHtml(subjectProp.current)),
+          editorHtmlToDocument(editor.getHTML()),
+        )
+      },
+      onSelectionUpdate: ({ editor }) => {
+        refreshChrome(editor)
+      },
+    },
+    [],
+  )
+
+  letterRef.current = letter
+
+  const subjectEditor = useEditor(
+    {
+      extensions: subjectSchema,
+      editorProps: subjectProps,
+      content: initialSubject.current,
+      immediatelyRender: true,
+      onFocus: () => {
+        active.current = 'subject'
+      },
+      onUpdate: ({ editor }) => {
+        if (applying.current) {
+          return
+        }
+        const nextSubject = editorHtmlToSubject(editor.getHTML())
+        publish(nextSubject, letterRef.current ? editorHtmlToDocument(letterRef.current.getHTML()) : htmlProp.current)
+        setCanUndo(editor.can().undo())
+        setCanRedo(editor.can().redo())
+      },
+    },
+    [],
+  )
 
   useEffect(() => {
-    const canonical = html.trim() ? editorHtmlToDocument(documentToEditorHtml(html, brandRef.current)) : html
-    const key = `${subject}\n${canonical}`
-    if (key === emitted.current) {
+    if (!letter) {
       return
     }
-    subjectValue.current = subject
-    bodyValue.current = canonical
-    emailSpacingRef.current = emailSpacingFromHtml(canonical)
-    setEmailMetrics(emailSpacingRef.current)
-    setSeed(documentToEditorHtml(canonical, brandRef.current))
-    setRevision((current) => current + 1)
-    history.current = [{ subject, html: canonical }]
-    index.current = 0
-    setCanUndo(false)
-    setCanRedo(false)
-    emitted.current = key
-    if (canonical !== html) {
-      onChange({ subject, html: canonical })
-    }
-  }, [subject, html, onChange])
+    letter.setEditable(!disabled, false)
+    subjectEditor?.setEditable(!disabled, false)
+  }, [disabled, letter, subjectEditor])
 
   useEffect(() => {
-    const node = subjectRef.current
-    if (!node) {
-      return
-    }
-    node.innerHTML = subjectToEditorHtml(subjectValue.current)
-  }, [revision])
+    subjectRef.current = subjectEditor
+  }, [subjectEditor])
 
   useEffect(() => {
-    const node = sheetRef.current
-    if (!node) {
-      return
-    }
-    node.innerHTML = seed
-    syncSheetSpacing(node)
-  }, [revision, seed])
-
-  useEffect(() => {
-    const node = sheetRef.current
-    if (!node || document.activeElement === node) {
-      return
-    }
-    const next = documentToEditorHtml(bodyValue.current, brandAssets)
-    if (node.innerHTML !== next) {
-      node.innerHTML = next
-      syncSheetSpacing(node)
-    }
-  }, [brandAssets.logoUrl, brandAssets.wordmarkUrl])
-
-  useEffect(() => {
-    if (!spacingOpen) {
-      return
-    }
-    function remember() {
-      const sheet = sheetRef.current
-      const selection = window.getSelection()
-      if (!sheet || !selection || selection.rangeCount === 0) {
+    if (!letter || shouldAdoptExternalLetter(letter.getHTML(), html)) {
+      if (!letter) {
         return
       }
-      const range = selection.getRangeAt(0)
-      if (!sheet.contains(range.startContainer)) {
-        return
-      }
-      savedRange.current = range.cloneRange()
-      const block = blockFromRange(sheet, range)
-      setHasParagraph(Boolean(block))
-      setParagraphMetrics(block ? metricsFromElement(block) : { ...EMPTY_METRICS })
+      applying.current = true
+      letter.commands.setContent(documentToEditorHtml(html, brandRef.current), {
+        emitUpdate: false,
+        parseOptions: { preserveWhitespace: 'full' },
+      })
+      syncLetterBrand(letter, brandRef.current)
+      paintLetterSpacing(letter)
+      applying.current = false
+      return
     }
-    remember()
-    document.addEventListener('selectionchange', remember)
-    return () => document.removeEventListener('selectionchange', remember)
-  }, [spacingOpen])
+  }, [html, letter])
+
+  useEffect(() => {
+    if (!subjectEditor) {
+      return
+    }
+    const current = editorHtmlToSubject(subjectEditor.getHTML())
+    if (current === subject) {
+      return
+    }
+    applying.current = true
+    subjectEditor.commands.setContent(subjectToEditorHtml(subject), { emitUpdate: false })
+    applying.current = false
+  }, [subject, subjectEditor])
+
+  useEffect(() => {
+    if (!letter) {
+      return
+    }
+    syncLetterBrand(letter, brandAssets)
+  }, [letter, brandAssets])
 
   useEffect(() => {
     if (!fieldsOpen && !insertOpen) {
@@ -404,127 +375,34 @@ export function EmailMessageEditor({
     }
   }, [fieldsOpen, insertOpen])
 
-  function commitSubject(editorHtml: string, record = true) {
-    const nextSubject = editorHtmlToSubject(editorHtml)
-    subjectValue.current = nextSubject
-    publish(nextSubject, bodyValue.current, record)
-  }
-
-  function commitSheet(record = true) {
-    const sheet = sheetRef.current
-    if (sheet) {
-      writeEmailSpacing(sheet, emailSpacingRef.current)
-    }
-    const nextHtml = editorHtmlToDocument(sheet?.innerHTML ?? '')
-    publish(subjectValue.current, nextHtml, record)
-  }
-
-  function restore(snapshot: Snapshot) {
-    skipHistory.current = true
-    subjectValue.current = snapshot.subject
-    bodyValue.current = snapshot.html
-    setSeed(documentToEditorHtml(snapshot.html, brandRef.current))
-    setRevision((current) => current + 1)
-    publish(snapshot.subject, snapshot.html, false)
-    skipHistory.current = false
-    syncHistoryButtons()
+  function focusedEditor(): Editor | null {
+    return active.current === 'subject' ? subjectEditor : letter
   }
 
   function undo() {
-    if (index.current <= 0) {
-      return
-    }
-    index.current -= 1
-    restore(history.current[index.current])
+    focusedEditor()?.chain().focus().undo().run()
   }
 
   function redo() {
-    if (index.current >= history.current.length - 1) {
-      return
-    }
-    index.current += 1
-    restore(history.current[index.current])
-  }
-
-  function onEditorKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-    const meta = event.metaKey || event.ctrlKey
-    if (meta && event.key.toLowerCase() === 'z') {
-      event.preventDefault()
-      if (event.shiftKey) {
-        redo()
-      } else {
-        undo()
-      }
-      return
-    }
-    if (meta && event.key.toLowerCase() === 'y') {
-      event.preventDefault()
-      redo()
-      return
-    }
-    if (event.currentTarget === sheetRef.current && event.key === 'Enter' && !event.shiftKey) {
-      const part = partElement(window.getSelection()?.anchorNode ?? null)
-      const kind = part?.getAttribute('data-email-part')
-      if (kind && kind !== 'payment') {
-        event.preventDefault()
-      }
-    }
-  }
-
-  function runCommand(command: string, value?: string) {
-    const node = active.current === 'subject' ? subjectRef.current : sheetRef.current
-    if (!node) {
-      return
-    }
-    node.focus()
-    document.execCommand(command, false, value)
-    if (node === subjectRef.current) {
-      commitSubject(node.innerHTML)
-    } else {
-      commitSheet()
-    }
+    focusedEditor()?.chain().focus().redo().run()
   }
 
   function insertVariable(id: EmailVariableId) {
-    const node = active.current === 'subject' ? subjectRef.current : sheetRef.current
-    if (!node) {
+    const editor = focusedEditor()
+    if (!editor) {
       return
     }
-    node.focus()
-    document.execCommand('insertHTML', false, variableChipHtml(id))
-    if (node === subjectRef.current) {
-      commitSubject(node.innerHTML)
-    } else {
-      commitSheet()
-    }
+    syncDomSelection(editor.view)
+    editor.chain().focus().insertMergeField(id).run()
     setFieldsOpen(false)
   }
 
-  function placeCaretInSheet() {
-    const sheet = sheetRef.current
-    if (!sheet) {
-      return
-    }
-    if (active.current === 'letter' && document.activeElement === sheet) {
-      return
-    }
-    sheet.focus()
-    const range = document.createRange()
-    range.selectNodeContents(sheet)
-    range.collapse(false)
-    const selection = window.getSelection()
-    selection?.removeAllRanges()
-    selection?.addRange(range)
-  }
-
   function insertPart(kind: EmailInsertKind) {
-    const sheet = sheetRef.current
-    if (!sheet) {
+    if (!letter) {
       return
     }
-    placeCaretInSheet()
-    document.execCommand('insertHTML', false, emailInsertHtml(kind, brandRef.current))
-    commitSheet()
+    syncDomSelection(letter.view)
+    letter.chain().focus().insertEmailPart(kind).run()
     setInsertOpen(false)
   }
 
@@ -536,84 +414,47 @@ export function EmailMessageEditor({
     }
     setLinkError(null)
     setLinkOpen(false)
-    runCommand('createLink', url)
+    focusedEditor()?.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
   }
 
   function resetTemplate() {
+    if (!letter || !subjectEditor) {
+      return
+    }
     const defaults = defaultEmailTemplates()
     const nextHtml = editorHtmlToDocument(documentToEditorHtml(defaults.body, brandRef.current))
-    subjectValue.current = defaults.subject
-    bodyValue.current = nextHtml
-    setSeed(documentToEditorHtml(nextHtml, brandRef.current))
-    setRevision((current) => current + 1)
-    publish(defaults.subject, nextHtml, true)
+    applying.current = true
+    subjectEditor.commands.setContent(subjectToEditorHtml(defaults.subject), { emitUpdate: false })
+    letter.commands.setContent(documentToEditorHtml(nextHtml, brandRef.current), {
+      emitUpdate: false,
+      parseOptions: { preserveWhitespace: 'full' },
+    })
+    syncLetterBrand(letter, brandRef.current)
+    paintLetterSpacing(letter)
+    applying.current = false
+    publish(defaults.subject, nextHtml)
   }
 
-  function healSheet() {
-    const node = sheetRef.current
-    if (!node) {
-      return
-    }
-    const canonical = editorHtmlToDocument(node.innerHTML)
-    const healed = documentToEditorHtml(canonical, brandRef.current)
-    if (node.innerHTML !== healed) {
-      node.innerHTML = healed
-      syncSheetSpacing(node)
-    }
-  }
-
-  function rememberSheetSelection() {
-    const sheet = sheetRef.current
-    const selection = window.getSelection()
-    if (!sheet || !selection || selection.rangeCount === 0) {
-      return
-    }
-    const range = selection.getRangeAt(0)
-    if (sheet.contains(range.startContainer)) {
-      savedRange.current = range.cloneRange()
-    }
-  }
-
-  function applyParagraphMetric(
-    key: 'lineHeight' | 'before' | 'after',
-    value: string,
-  ) {
-    const sheet = sheetRef.current
-    if (!sheet) {
-      return
-    }
-    const block = blockFromRange(sheet, savedRange.current)
-    if (!block) {
-      return
-    }
-    const attr =
-      key === 'lineHeight'
-        ? 'data-line-height'
-        : key === 'before'
-          ? 'data-space-before'
-          : 'data-space-after'
-    const parsed =
-      key === 'lineHeight' ? parseLineHeight(value) : parseSpaceStep(value)
-    setMetricAttr(block, attr, value ? parsed : null)
-    syncSheetSpacing(sheet)
-    setParagraphMetrics(metricsFromElement(block))
-    commitSheet()
+  function applyParagraphMetric(key: 'lineHeight' | 'spaceBefore' | 'spaceAfter', value: string) {
+    letter?.chain().focus().setParagraphSpacing(key, value || null).run()
   }
 
   function applyEmailMetric(key: 'lineHeight' | 'before' | 'after', value: string) {
-    const sheet = sheetRef.current
-    if (!sheet) {
+    if (!letter) {
       return
     }
     const next: EmailSpacing = {
-      ...emailSpacingRef.current,
-      [key]: key === 'lineHeight' ? parseLineHeight(value) : parseSpaceStep(value),
+      ...readEmailSpacing(letter),
+      [key]: key === 'lineHeight' ? value || null : value || null,
     }
-    emailSpacingRef.current = next
-    writeEmailSpacing(sheet, next)
-    syncSheetSpacing(sheet)
-    setEmailMetrics(next)
-    commitSheet()
+    if (key === 'lineHeight') {
+      next.lineHeight = value ? (value as EmailSpacing['lineHeight']) : null
+    } else if (key === 'before') {
+      next.before = value ? (value as EmailSpacing['before']) : null
+    } else {
+      next.after = value ? (value as EmailSpacing['after']) : null
+    }
+    letter.chain().focus().setEmailSpacing(next).run()
   }
 
   return (
@@ -622,40 +463,20 @@ export function EmailMessageEditor({
         <label className="field__label" htmlFor="email-subject">
           Subject
         </label>
-        <div
-          id="email-subject"
-          ref={subjectRef}
-          className="email-rich email-rich--paper email-rich--line"
-          contentEditable={!disabled}
-          role="textbox"
-          aria-label="Subject"
-          aria-multiline="false"
-          spellCheck
-          suppressContentEditableWarning
-          onFocus={() => {
-            active.current = 'subject'
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault()
-            }
-            onEditorKeyDown(event)
-          }}
-          onInput={() => commitSubject(subjectRef.current?.innerHTML ?? '')}
-        />
+        <EditorContent editor={subjectEditor} />
         <p className="settings-help">Reads as: {subjectPreview}</p>
       </div>
 
       <div className="email-editor__bar">
         <div className="email-editor__toolbar" role="toolbar" aria-label="Formatting">
           <div className="email-editor__group">
-            <ToolButton label="Bold" disabled={disabled} onClick={() => runCommand('bold')}>
+            <ToolButton label="Bold" disabled={disabled} onClick={() => focusedEditor()?.chain().focus().toggleBold().run()}>
               <ToolIcon>
                 <path d="M7 5h6a3.5 3.5 0 0 1 0 7H7z" />
                 <path d="M7 12h7a3.5 3.5 0 0 1 0 7H7z" />
               </ToolIcon>
             </ToolButton>
-            <ToolButton label="Italic" disabled={disabled} onClick={() => runCommand('italic')}>
+            <ToolButton label="Italic" disabled={disabled} onClick={() => focusedEditor()?.chain().focus().toggleItalic().run()}>
               <ToolIcon>
                 <path d="M19 4h-9" />
                 <path d="M14 20H5" />
@@ -678,7 +499,7 @@ export function EmailMessageEditor({
           </div>
           <span className="email-editor__divider" aria-hidden="true" />
           <div className="email-editor__group">
-            <ToolButton label="Bulleted list" disabled={disabled} onClick={() => runCommand('insertUnorderedList')}>
+            <ToolButton label="Bulleted list" disabled={disabled} onClick={() => letter?.chain().focus().toggleBulletList().run()}>
               <ToolIcon>
                 <path d="M9 6h12" />
                 <path d="M9 12h12" />
@@ -688,7 +509,7 @@ export function EmailMessageEditor({
                 <circle cx="4" cy="18" r="1" fill="currentColor" stroke="none" />
               </ToolIcon>
             </ToolButton>
-            <ToolButton label="Numbered list" disabled={disabled} onClick={() => runCommand('insertOrderedList')}>
+            <ToolButton label="Numbered list" disabled={disabled} onClick={() => letter?.chain().focus().toggleOrderedList().run()}>
               <ToolIcon>
                 <path d="M10 6h11" />
                 <path d="M10 12h11" />
@@ -701,21 +522,21 @@ export function EmailMessageEditor({
           </div>
           <span className="email-editor__divider" aria-hidden="true" />
           <div className="email-editor__group">
-            <ToolButton label="Align left" disabled={disabled} onClick={() => runCommand('justifyLeft')}>
+            <ToolButton label="Align left" disabled={disabled} onClick={() => letter?.chain().focus().setTextAlign('left').run()}>
               <ToolIcon>
                 <path d="M4 6h16" />
                 <path d="M4 12h10" />
                 <path d="M4 18h14" />
               </ToolIcon>
             </ToolButton>
-            <ToolButton label="Align center" disabled={disabled} onClick={() => runCommand('justifyCenter')}>
+            <ToolButton label="Align center" disabled={disabled} onClick={() => letter?.chain().focus().setTextAlign('center').run()}>
               <ToolIcon>
                 <path d="M4 6h16" />
                 <path d="M7 12h10" />
                 <path d="M5 18h14" />
               </ToolIcon>
             </ToolButton>
-            <ToolButton label="Align right" disabled={disabled} onClick={() => runCommand('justifyRight')}>
+            <ToolButton label="Align right" disabled={disabled} onClick={() => letter?.chain().focus().setTextAlign('right').run()}>
               <ToolIcon>
                 <path d="M4 6h16" />
                 <path d="M10 12h10" />
@@ -729,21 +550,11 @@ export function EmailMessageEditor({
               label="Line and paragraph spacing"
               disabled={disabled}
               onClick={() => {
-                const sheet = sheetRef.current
-                const selection = window.getSelection()
-                const live =
-                  selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null
-                if (sheet && live && sheet.contains(live.startContainer)) {
-                  savedRange.current = live.cloneRange()
-                }
                 setSpacingOpen((open) => !open)
                 setFieldsOpen(false)
                 setInsertOpen(false)
-                if (sheet) {
-                  setEmailMetrics(emailSpacingFromHtml(sheet.innerHTML))
-                  const block = blockFromRange(sheet, savedRange.current)
-                  setHasParagraph(Boolean(block))
-                  setParagraphMetrics(block ? metricsFromElement(block) : { ...EMPTY_METRICS })
+                if (letter) {
+                  refreshChrome(letter)
                 }
               }}
             >
@@ -884,7 +695,6 @@ export function EmailMessageEditor({
                 value: choice,
                 label: lineHeightLabel(choice),
               }))}
-              onPointerDown={rememberSheetSelection}
               onChange={(value) => applyParagraphMetric('lineHeight', value)}
             />
             <SpacingSelect
@@ -896,8 +706,7 @@ export function EmailMessageEditor({
                 value: choice,
                 label: spaceLabel(choice),
               }))}
-              onPointerDown={rememberSheetSelection}
-              onChange={(value) => applyParagraphMetric('before', value)}
+              onChange={(value) => applyParagraphMetric('spaceBefore', value)}
             />
             <SpacingSelect
               name="This paragraph"
@@ -908,8 +717,7 @@ export function EmailMessageEditor({
                 value: choice,
                 label: spaceLabel(choice),
               }))}
-              onPointerDown={rememberSheetSelection}
-              onChange={(value) => applyParagraphMetric('after', value)}
+              onChange={(value) => applyParagraphMetric('spaceAfter', value)}
             />
             {hasParagraph ? null : (
               <p className="email-editor__spacing-note">Click a paragraph in the letter.</p>
@@ -955,22 +763,7 @@ export function EmailMessageEditor({
       ) : null}
 
       <div className="email-page">
-        <div
-          ref={sheetRef}
-          className="email-sheet"
-          contentEditable={!disabled}
-          role="textbox"
-          aria-label="Email"
-          aria-multiline="true"
-          spellCheck
-          suppressContentEditableWarning
-          onFocus={() => {
-            active.current = 'letter'
-          }}
-          onKeyDown={onEditorKeyDown}
-          onInput={() => commitSheet()}
-          onBlur={healSheet}
-        />
+        <EditorContent editor={letter} />
       </div>
     </div>
   )
