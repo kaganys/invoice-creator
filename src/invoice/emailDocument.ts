@@ -2,7 +2,11 @@ import {
   readEmailDocument,
   sanitizeProseHtml,
 } from './emailCompose.ts'
-import type { EmailBrandAssets } from './emailHtml.ts'
+
+export type EmailBrandAssets = {
+  logoUrl?: string
+  wordmarkUrl?: string
+}
 
 /**
  * Ordered email blocks. The saved template is this document. The preview and

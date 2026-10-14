@@ -1,4 +1,10 @@
-import { readEmailBlocks, renderEmailBlocks, defaultEmailDocumentHtml } from './emailDocument.ts'
+import {
+  defaultEmailDocumentHtml,
+  readEmailBlocks,
+  renderEmailBlocks,
+  type EmailBrandAssets,
+} from './emailDocument.ts'
+
 import {
   applyEmailTemplateHtml,
   looksLikeHtml,
@@ -77,10 +83,7 @@ export type EmailWrapOptions = {
   wordmarkUrl?: string
 }
 
-export type EmailBrandAssets = {
-  logoUrl?: string
-  wordmarkUrl?: string
-}
+export type { EmailBrandAssets }
 
 /** Build an absolute URL for email images (email clients need https://…). */
 export function absolutePublicAssetUrl(baseOrigin: string, path: string): string {
