@@ -3,6 +3,7 @@ import {
   fetchPublicInvoice,
   type PublicInvoiceResponse,
 } from '../../api/publicInvoice.ts'
+import { payPageExitUrl } from '../../payments/successRedirect.ts'
 import { CardCheckout } from './CardCheckout.tsx'
 import './PublicInvoicePage.css'
 
@@ -79,6 +80,26 @@ export function PublicInvoicePage({ token }: { token: string }) {
 
   const state = payload?.state ?? (error ? 'invalid' : null)
   const invoice = payload?.invoice
+
+  useEffect(() => {
+    if (!invoice) {
+      return
+    }
+    const status = new URLSearchParams(window.location.search).get('redirect_status')
+    if (status !== 'succeeded' && status !== 'pending') {
+      return
+    }
+    const target = payPageExitUrl({
+      successRedirectUrl: invoice.successRedirectUrl ?? '',
+      invoiceNumber: invoice.number,
+      paid: state === 'paid',
+      processing: state === 'processing',
+      failed: false,
+    })
+    if (target) {
+      window.location.assign(target)
+    }
+  }, [invoice, state])
 
   return (
     <div className="public-pay">

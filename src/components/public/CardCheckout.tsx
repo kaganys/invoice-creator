@@ -19,6 +19,7 @@ import {
   useState,
   type FormEvent,
 } from 'react'
+import { payPageExitUrl } from '../../payments/successRedirect.ts'
 import {
   confirmPublicPayment,
   createPublicPaymentIntent,
@@ -315,12 +316,30 @@ export function CardCheckout({
   const [busy, setBusy] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [processing, setProcessing] = useState(false)
+  const [confirmedProcessing, setConfirmedProcessing] = useState(false)
   const [delayed, setDelayed] = useState(false)
   const [paid, setPaid] = useState(false)
   const onPaidRef = useRef(onAuthoritativePaid)
   onPaidRef.current = onAuthoritativePaid
   const publishableKey = invoice.stripePublishableKey
   const waiting = confirming || processing
+  // redirect_status in the query string is not proof of payment.
+  const exitUrl = payPageExitUrl({
+    successRedirectUrl: invoice.successRedirectUrl ?? '',
+    invoiceNumber: invoice.number,
+    paid,
+    processing: confirmedProcessing,
+    failed: Boolean(error) && !paid,
+  })
+  const leftPayPage = useRef(false)
+
+  useEffect(() => {
+    if (!exitUrl || leftPayPage.current) {
+      return
+    }
+    leftPayPage.current = true
+    window.location.assign(exitUrl)
+  }, [exitUrl])
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -356,10 +375,12 @@ export function CardCheckout({
         }
         if (result.state === 'processing') {
           setProcessing(true)
+          setConfirmedProcessing(true)
           setConfirming(false)
         }
         if (result.state === 'payable' && processing) {
           setProcessing(false)
+          setConfirmedProcessing(false)
           setConfirming(false)
           setError('Bank payment failed. You can try again.')
           return
@@ -402,6 +423,7 @@ export function CardCheckout({
         }
         if (result.status === 'processing') {
           setProcessing(true)
+          setConfirmedProcessing(true)
           return
         }
         if (result.status === 'requires_action' && result.clientSecret) {
@@ -580,7 +602,10 @@ export function CardCheckout({
           fallbackCategory={fallbackCategory}
           onBusy={setBusy}
           onSubmitted={() => setConfirming(true)}
-          onProcessing={() => setProcessing(true)}
+          onProcessing={() => {
+            setProcessing(true)
+            setConfirmedProcessing(true)
+          }}
         />
       </Elements>
     </div>

@@ -6,6 +6,7 @@ import { calculateCardCharge } from './cardAmount.ts'
 import {
   confirmPublicPayment,
   createPublicPaymentIntent,
+  sanitizePaymentReturnUrl,
 } from './intent.ts'
 import type { StripeIntentStore, StoredStripeIntent } from './intentStore.ts'
 import { generatePaymentToken, hashPaymentToken } from './tokenCrypto.ts'
@@ -409,7 +410,43 @@ describe('public confirm', () => {
     expect(payload.surchargeCents).toBe(180)
     expect(payload.category).toBe('card')
     expect(stripe.confirms[0]?.amount).toBe(5180)
+    expect(stripe.confirms[0]?.returnUrl).toBe('https://pay.vrfnw.com/')
+    expect(stripe.confirms[0]?.returnUrl).not.toContain('pay.example.com')
     expect(JSON.stringify(payload)).not.toContain('sk_test_secret')
+  })
+
+  it('does not send a merchant success URL to Stripe as return_url', async () => {
+    const { raw, row, invoice } = await setup()
+    const stripe = stripeMock({ paymentMethodType: 'card', walletType: 'apple_pay' })
+    const response = await confirmPublicPayment(
+      raw,
+      jsonRequest({
+        confirmationTokenId: 'ctoken_card',
+        returnUrl: 'https://pay.vrfnw.com/i/tok?redirect_status=succeeded',
+        successRedirectUrl: 'https://shop.example/thanks',
+      }),
+      {
+        tokens: tokenStore(row),
+        invoices: invoiceStore(invoice),
+        intents: intentStore(),
+        stripe,
+        payments: {
+          ...paymentsOn,
+          successRedirectUrl: 'https://shop.example/thanks',
+        },
+        stripeSecret: 'sk_test_secret',
+        clock: () => NOW,
+        idFactory: () => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      },
+    )
+    expect(response.status).toBe(200)
+    expect(stripe.confirms[0]?.returnUrl.startsWith('https://pay.vrfnw.com/')).toBe(true)
+    expect(stripe.confirms[0]?.returnUrl).not.toContain('shop.example')
+    expect(
+      sanitizePaymentReturnUrl('https://shop.example/thanks', {
+        requestUrl: 'https://pay.vrfnw.com/i/tok',
+      }),
+    ).toBe('https://pay.vrfnw.com/')
   })
 
   it('applies no surcharge for ACH and does not mark the invoice paid', async () => {

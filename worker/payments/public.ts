@@ -1,4 +1,5 @@
 import { invoiceLogoPath } from '../../src/branding.ts'
+import { successRedirectTarget } from '../../src/payments/successRedirect.ts'
 import { formatInvoiceDate } from '../../src/utils/dates.ts'
 import { calculateInvoiceTotals } from '../../src/utils/invoiceCalculations.ts'
 import { formatMoney } from '../../src/utils/money.ts'
@@ -176,6 +177,7 @@ function toPublicPayload(
       ? publicPaymentMethodTypes(payments, secret)
       : [],
     stripePublishableKey: stripeReady ? payments?.publishableKey ?? null : null,
+    successRedirectUrl: successRedirectTarget(payments?.successRedirectUrl ?? '') ?? '',
     logoPath: invoiceLogoPath(invoice.invoiceLogo),
     pendingKind: null,
   }

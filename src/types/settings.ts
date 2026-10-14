@@ -70,6 +70,7 @@ export type PaymentsSettingsPayload = {
   achPaymentsEnabled: boolean
   publishableKey: string
   statementDescriptor: string
+  successRedirectUrl: string
   secretConfigured: boolean
   webhookSecretConfigured?: boolean
   secretSource?: 'company' | 'platform' | 'none'

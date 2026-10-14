@@ -104,6 +104,7 @@ export const FALLBACK_SETTINGS: AppSettingsPayload = {
     achPaymentsEnabled: false,
     publishableKey: '',
     statementDescriptor: 'BITZ DESIGNS',
+    successRedirectUrl: '',
     secretConfigured: false,
   },
 }
