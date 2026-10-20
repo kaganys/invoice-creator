@@ -661,6 +661,17 @@
   background: transparent !important;
 }
 
+.email-sheet > [data-email-gap] {
+  min-height: 1.6em;
+  margin: 0;
+  padding: 0 22px 18px;
+}
+
+.email-editor [data-email-var] {
+  cursor: text;
+  user-select: all;
+}
+
 .email-rich {
   color: inherit;
   outline: none;

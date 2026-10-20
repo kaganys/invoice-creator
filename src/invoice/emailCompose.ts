@@ -729,7 +729,7 @@ export function subjectToEditorHtml(subject: string): string {
 }
 
 export function editorHtmlToSubject(html: string): string {
-  const withTokens = html.replace(
+  const withTokens = html.replace(/\u200b/g, '').replace(
     /<span\b[^>]*data-email-var="([a-z_]+)"[^>]*>[\s\S]*?<\/span>/gi,
     (_full, id: string) => (id in VARIABLE_LABEL ? `{{${id}}}` : ''),
   )

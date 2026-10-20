@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { defaultGraphicalEmailBody } from './emailBlocks.ts'
 import { defaultRichEmailBody } from './emailCompose.ts'
+import { caretAfterLastChip, ensureTrailingEditableGap } from './emailCaret.ts'
 import {
   canonicalizeEmailBody,
   defaultEmailBlocks,
@@ -159,5 +160,75 @@ describe('email block document', () => {
     )
     expect(sent.html).toContain('Hello Ada Lovelace,')
     expect(sent.html).not.toContain('data-email-var')
+  })
+
+  it('deletes a trailing payment-link chip and leaves it out after save, reload, and send', () => {
+    const editor = documentToEditorHtml(defaultEmailDocumentHtml(), BRAND)
+    expect(editor).toContain('data-email-var="payment_url"')
+    const removed = editor.replace(
+      /<br><span\b[^>]*data-email-var="payment_url"[^>]*>[\s\S]*?<\/span>/i,
+      '',
+    )
+    expect(removed).not.toContain('data-email-var="payment_url"')
+
+    const saved = editorHtmlToDocument(removed)
+    const link = readEmailBlocks(saved).find((block) => block.type === 'link')
+    expect(link).toMatchObject({
+      showUrl: false,
+      lead: 'If the button does not work, open this secure link:',
+    })
+
+    const reloaded = documentToEditorHtml(saved, BRAND)
+    expect(reloaded).not.toContain('data-email-var="payment_url"')
+    expect(reloaded).not.toContain('Payment link')
+    expect(editorHtmlToDocument(reloaded)).toBe(saved)
+
+    const sent = prepared(saved).html
+    const fallback = sent.slice(sent.indexOf('If the button does not work'))
+    expect(fallback.startsWith('If the button does not work')).toBe(true)
+    expect(fallback).not.toContain('pay.example.com')
+    expect(fallback).not.toContain('{{payment_url}}')
+    expect(sent).toContain('Pay Online')
+  })
+
+  it('keeps a removed payment-link chip out when that chip was the last line', () => {
+    const html = [
+      '<p data-email-part="attachment">A PDF copy of this invoice is attached to this email.</p>',
+      '<p data-email-part="footer">Sent by <span data-email-var="business_name" contenteditable="false">Business name</span></p>',
+      '<p data-email-part="link" data-lead="If the button does not work, open this secure link:" data-url="1">If the button does not work, open this secure link:<br><span data-email-var="payment_url" contenteditable="false">Payment link</span></p>',
+    ].join('')
+    const removed = html.replace(
+      /<br><span\b[^>]*data-email-var="payment_url"[^>]*>[\s\S]*?<\/span>/i,
+      '',
+    )
+    const saved = editorHtmlToDocument(removed)
+    const reloaded = documentToEditorHtml(saved)
+    expect(reloaded).not.toContain('payment_url')
+    expect(reloaded).not.toContain('Payment link')
+    expect(prepared(saved).html).not.toContain('pay.example.com')
+    expect(prepared(saved).html).not.toContain('{{payment_url}}')
+    expect(prepared(saved).html).toContain('Sent by Bitz Designs')
+  })
+
+  it('places an editable caret after the last chip, including a payment link at the end', () => {
+    const editor = documentToEditorHtml(defaultEmailDocumentHtml(), BRAND)
+    const placed = caretAfterLastChip(editor)
+    expect(placed).not.toBeNull()
+    const chipEnd = placed!.html.lastIndexOf('</span>') + '</span>'.length
+    expect(placed!.index).toBeGreaterThan(chipEnd)
+    expect(placed!.html.slice(placed!.index - 20, placed!.index)).toContain('data-email-gap')
+    expect(placed!.html.slice(placed!.index)).toBe('<br></p>')
+    expect(editorHtmlToDocument(ensureTrailingEditableGap(editor))).toBe(defaultEmailDocumentHtml())
+
+    const trailingLink = [
+      '<p data-email-part="footer">Sent by <span data-email-var="business_name" contenteditable="false">Business name</span></p>',
+      '<p data-email-part="link" data-url="1">Open this secure link:<br><span data-email-var="payment_url" contenteditable="false">Payment link</span></p>',
+    ].join('')
+    const afterLink = caretAfterLastChip(trailingLink)
+    expect(afterLink).not.toBeNull()
+    const linkChip = afterLink!.html.lastIndexOf('data-email-var="payment_url"')
+    expect(afterLink!.index).toBeGreaterThan(linkChip)
+    expect(afterLink!.html.slice(afterLink!.index)).toBe('<br></p>')
+    expect(afterLink!.html.slice(0, afterLink!.index)).toContain('Payment link')
   })
 })
