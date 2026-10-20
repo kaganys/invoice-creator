@@ -6,6 +6,7 @@ import {
   editorHtmlToTemplate,
   emailSectionEnabled,
   emptyEmailSections,
+  sanitizeProseHtml,
   readEmailDocument,
   setEmailSection,
   subjectToEditorHtml,
@@ -152,6 +153,18 @@ describe('email compose document', () => {
     expect(saved).not.toContain('{{customer_name}}Thanks')
     expect(saved.indexOf('Hello')).toBeLessThan(saved.indexOf('Thanks for the project.'))
     expect(saved.indexOf('Thanks for the project.')).toBeLessThan(saved.indexOf('Due soon.'))
+  })
+
+  it('keeps underline and a chosen text color in the letter', () => {
+    const saved = sanitizeProseHtml(
+      '<p>Payment is <u>due</u> <font color="#D9734E">soon</font> <span style="color: rgb(47, 143, 138)">now</span></p>',
+    )
+    expect(saved).toContain('<u>due</u>')
+    expect(saved).toContain('color:#d9734e')
+    expect(saved).toContain('color:#2f8f8a')
+    expect(sanitizeProseHtml('<p><span style="color:expression(alert(1))">x</span></p>')).not.toContain(
+      'expression',
+    )
   })
 
   it('edits the subject with chips and rejects line breaks', () => {

@@ -1,4 +1,15 @@
 import type { EmailVariableId } from './emailTemplates.ts'
+import {
+  EMPTY_METRICS,
+  headingDeclaration,
+  itemDeclaration,
+  listDeclaration,
+  metricsAttributes,
+  metricsFromAttrs,
+  paragraphDeclaration,
+  PARAGRAPH_STYLE,
+  type ParagraphMetrics,
+} from './emailSpacing.ts'
 
 export const EMAIL_SECTION_IDS = [
   'amount',
@@ -14,8 +25,7 @@ export type EmailDocument = {
   sections: Record<EmailSectionId, boolean>
 }
 
-const PARAGRAPH =
-  'margin:0 0 16px;font-size:16px;line-height:1.55;color:#111111;'
+const PARAGRAPH = PARAGRAPH_STYLE
 
 const VARIABLE_LABEL: Record<EmailVariableId, string> = {
   invoice_number: 'Invoice number',
@@ -238,6 +248,29 @@ function sectionId(value: string | undefined): EmailSectionId | null {
   return null
 }
 
+const TEXT_COLOR_ALLOW = new Set(['#2a2a26', '#d9734e', '#2f8f8a', '#1f4d3f'])
+
+function normalizeHexColor(raw: string): string | null {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(raw)
+  if (hex) {
+    const digits = hex[1]
+    return `#${digits.length === 3 ? digits.replace(/./g, (part) => part + part) : digits}`
+  }
+  const rgb = /^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$/.exec(raw)
+  if (!rgb) {
+    return null
+  }
+  const parts = [rgb[1], rgb[2], rgb[3]].map((part) => Math.min(255, Number(part)))
+  return `#${parts.map((part) => part.toString(16).padStart(2, '0')).join('')}`
+}
+
+function safeTextColor(style: string | undefined, colorAttr: string | undefined): string | null {
+  const fromStyle = /(?:^|;)\s*color\s*:\s*([^;]+)/i.exec(style ?? '')
+  const raw = (fromStyle?.[1] ?? colorAttr ?? '').trim().toLowerCase()
+  const normalized = normalizeHexColor(raw)
+  return normalized && TEXT_COLOR_ALLOW.has(normalized) ? normalized : null
+}
+
 function appendInline(html: string, piece: string): string {
   if (!piece) {
     return html
@@ -278,6 +311,23 @@ function renderInline(nodes: AnyNode[]): string {
       }
       continue
     }
+    if (node.tag === 'u') {
+      const inner = renderInline(node.children)
+      if (inner.trim()) {
+        html = appendInline(html, `<u>${inner}</u>`)
+      }
+      continue
+    }
+    if (node.tag === 'span' || node.tag === 'font') {
+      const inner = renderInline(node.children)
+      const color = safeTextColor(node.attrs.style, node.attrs.color)
+      if (inner.trim() && color) {
+        html = appendInline(html, `<span style="color:${color}">${inner}</span>`)
+      } else {
+        html = appendInline(html, inner)
+      }
+      continue
+    }
     if (node.tag === 'a') {
       const href = safeHref(node.attrs.href)
       const inner = renderInline(node.children)
@@ -296,11 +346,12 @@ function renderInline(nodes: AnyNode[]): string {
   return html
 }
 
-function paragraphStyle(align: string | null): string {
-  if (!align || align === 'left') {
-    return PARAGRAPH
-  }
-  return `${PARAGRAPH}text-align:${align};`
+function paragraphStyle(align: string | null, metrics: ParagraphMetrics = EMPTY_METRICS): string {
+  return paragraphDeclaration(align, metrics)
+}
+
+function taggedParagraph(align: string | null, metrics: ParagraphMetrics, inner: string): string {
+  return `<p${metricsAttributes(metrics)} style="${paragraphStyle(align, metrics)}">${inner}</p>`
 }
 
 type Rendered = {
@@ -336,7 +387,12 @@ function containsBlock(nodes: AnyNode[]): boolean {
   )
 }
 
-function renderMixed(node: ElementNode, into: Rendered, align: string | null) {
+function renderMixed(
+  node: ElementNode,
+  into: Rendered,
+  align: string | null,
+  metrics: ParagraphMetrics,
+) {
   let inline: AnyNode[] = []
   const pieces: Array<{ type: 'text'; value: string } | { type: 'html'; value: string }> = []
   const flush = () => {
@@ -368,7 +424,7 @@ function renderMixed(node: ElementNode, into: Rendered, align: string | null) {
       into.prose.push(piece.value)
       continue
     }
-    into.prose.push(`<p style="${paragraphStyle(align)}">${piece.value}</p>`)
+    into.prose.push(taggedParagraph(align, metrics, piece.value))
   }
 }
 
@@ -378,7 +434,7 @@ function renderBlocks(nodes: AnyNode[], into: Rendered, inheritedAlign: string |
     const inner = renderInline(inline).replace(/\s+/g, ' ').trim()
     inline = []
     if (inner) {
-      into.prose.push(`<p style="${paragraphStyle(inheritedAlign)}">${inner}</p>`)
+      into.prose.push(taggedParagraph(inheritedAlign, EMPTY_METRICS, inner))
     }
   }
 
@@ -407,25 +463,32 @@ function renderBlocks(nodes: AnyNode[], into: Rendered, inheritedAlign: string |
       continue
     }
     const align = textAlign(node.attrs) ?? inheritedAlign
+    const metrics = metricsFromAttrs(node.attrs)
     if (node.tag === 'ul' || node.tag === 'ol') {
       const items = node.children
         .filter(isElement)
         .filter((child) => child.tag === 'li')
-        .map((child) => renderInline(child.children).trim())
+        .map((child) => {
+          const inner = renderInline(child.children).trim()
+          if (!inner) {
+            return ''
+          }
+          const itemMetrics = metricsFromAttrs(child.attrs)
+          const itemStyle = itemDeclaration(itemMetrics)
+          const styleAttr = itemStyle ? ` style="${itemStyle};"` : ''
+          return `<li${metricsAttributes(itemMetrics)}${styleAttr}>${inner}</li>`
+        })
         .filter(Boolean)
-        .map((inner) => `<li>${inner}</li>`)
       if (items.length > 0) {
-        const style =
-          align && align !== 'left'
-            ? ` style="margin:0 0 16px;padding-left:22px;text-align:${align};"`
-            : ' style="margin:0 0 16px;padding-left:22px;"'
-        into.prose.push(`<${node.tag}${style}>${items.join('')}</${node.tag}>`)
+        into.prose.push(
+          `<${node.tag}${metricsAttributes(metrics)} style="${listDeclaration(align, metrics)}">${items.join('')}</${node.tag}>`,
+        )
       }
       continue
     }
     if (node.tag === 'p' || node.tag === 'div' || node.tag === 'h1' || node.tag === 'h2' || node.tag === 'h3' || node.tag === 'li') {
       if ((node.tag === 'p' || node.tag === 'div') && containsBlock(node.children)) {
-        renderMixed(node, into, align)
+        renderMixed(node, into, align, metrics)
         continue
       }
       const inner = renderInline(node.children).trim()
@@ -433,15 +496,12 @@ function renderBlocks(nodes: AnyNode[], into: Rendered, inheritedAlign: string |
         continue
       }
       if (node.tag === 'li') {
-        into.prose.push(`<p style="${paragraphStyle(align)}">${inner}</p>`)
+        into.prose.push(taggedParagraph(align, metrics, inner))
         continue
       }
       const tag = node.tag === 'h1' || node.tag === 'h2' || node.tag === 'h3' ? 'h2' : 'p'
-      const style =
-        tag === 'h2'
-          ? `margin:0 0 12px;font-size:20px;line-height:1.3;font-weight:700;color:#111111;${align && align !== 'left' ? `text-align:${align};` : ''}`
-          : paragraphStyle(align)
-      into.prose.push(`<${tag} style="${style}">${inner}</${tag}>`)
+      const style = tag === 'h2' ? headingDeclaration(align, metrics) : paragraphStyle(align, metrics)
+      into.prose.push(`<${tag}${metricsAttributes(metrics)} style="${style}">${inner}</${tag}>`)
       continue
     }
     renderBlocks(node.children, into, align)

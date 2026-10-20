@@ -5,6 +5,18 @@ import {
   tokensToChips,
   variableChipHtml,
 } from './emailCompose.ts'
+import {
+  EMPTY_METRICS,
+  metricsActive,
+  paintProseSpacing,
+  parseLineHeight,
+  parseSpaceStep,
+  proseForEditor,
+  spacingBlockHtml,
+  type EmailSpacing,
+  type LineHeightChoice,
+  type SpaceStep,
+} from './emailSpacing.ts'
 
 export type EmailBrandAssets = {
   logoUrl?: string
@@ -86,6 +98,15 @@ export type FooterBlock = {
   text: string
 }
 
+export type SpacingBlock = {
+  id: string
+  type: 'spacing'
+  enabled: boolean
+  lineHeight: LineHeightChoice | null
+  before: SpaceStep | null
+  after: SpaceStep | null
+}
+
 export type EmailBlock =
   | HeaderBlock
   | TextBlock
@@ -95,6 +116,7 @@ export type EmailBlock =
   | LinkBlock
   | AttachmentBlock
   | FooterBlock
+  | SpacingBlock
 
 export type EmailBlockType = EmailBlock['type']
 
@@ -107,6 +129,7 @@ export const EMAIL_BLOCK_TYPES: EmailBlockType[] = [
   'link',
   'attachment',
   'footer',
+  'spacing',
 ]
 
 const BLOCK_LABEL: Record<EmailBlockType, string> = {
@@ -118,6 +141,7 @@ const BLOCK_LABEL: Record<EmailBlockType, string> = {
   link: 'Link fallback',
   attachment: 'Attachment note',
   footer: 'Footer',
+  spacing: 'Spacing',
 }
 
 const MARKER_V2 = '<!--email-doc:v2-->'
@@ -248,6 +272,17 @@ function attachmentBlock(id: string, enabled = true): AttachmentBlock {
   }
 }
 
+function spacingBlock(id: string, spacing: EmailSpacing = EMPTY_METRICS): SpacingBlock {
+  return {
+    id,
+    type: 'spacing',
+    enabled: true,
+    lineHeight: spacing.lineHeight,
+    before: spacing.before,
+    after: spacing.after,
+  }
+}
+
 function footerBlock(id: string, enabled = true): FooterBlock {
   return {
     id,
@@ -301,6 +336,8 @@ export function createEmailBlock(type: EmailBlockType, existing: EmailBlock[]): 
       return attachmentBlock(id)
     case 'footer':
       return footerBlock(id)
+    case 'spacing':
+      return spacingBlock(id)
   }
 }
 
@@ -450,6 +487,12 @@ function parseBlock(attrs: Record<string, string>, inner: string, index: number)
         ...footerBlock(id, enabled),
         text: clip(attrs.text ?? footerBlock('footer').text),
       }
+    case 'spacing':
+      return spacingBlock(id, {
+        lineHeight: parseLineHeight(attrs['line-height']),
+        before: parseSpaceStep(attrs['space-before']),
+        after: parseSpaceStep(attrs['space-after']),
+      })
   }
 }
 
@@ -527,6 +570,14 @@ function normalizeBlock(block: EmailBlock): EmailBlock {
       return { ...block, text: clip(block.text) }
     case 'footer':
       return { ...block, text: clip(block.text) }
+    case 'spacing':
+      return {
+        ...block,
+        enabled: true,
+        lineHeight: parseLineHeight(block.lineHeight),
+        before: parseSpaceStep(block.before),
+        after: parseSpaceStep(block.after),
+      }
   }
 }
 
@@ -608,13 +659,23 @@ function blockStoredHtml(block: EmailBlock): string {
       return `<p data-email-part="attachment">${escapeHtml(block.text)}</p>`
     case 'footer':
       return `<p data-email-part="footer">${escapeHtml(block.text)}</p>`
+    case 'spacing':
+      return spacingBlockHtml(block)
   }
 }
 
 function writeV3(blocks: EmailBlock[]): string {
   const lines = [MARKER_V3]
-  for (const block of blocks.map(normalizeBlock)) {
+  const normalized = blocks.map(normalizeBlock)
+  const ordered = [
+    ...normalized.filter((block) => block.type === 'spacing' && metricsActive(block)),
+    ...normalized.filter((block) => block.type !== 'spacing'),
+  ]
+  for (const block of ordered) {
     if (!block.enabled) {
+      continue
+    }
+    if (block.type === 'spacing' && !metricsActive(block)) {
       continue
     }
     if (block.type === 'text' && !block.html.trim()) {
@@ -841,6 +902,15 @@ function blockFromPart(kind: string, raw: string, id: string): EmailBlock | null
       text: editorHtmlToSubject(elementInner(raw)),
     })
   }
+  if (kind === 'spacing') {
+    return normalizeBlock(
+      spacingBlock(id, {
+        lineHeight: parseLineHeight(attrs['data-line-height']),
+        before: parseSpaceStep(attrs['data-space-before']),
+        after: parseSpaceStep(attrs['data-space-after']),
+      }),
+    )
+  }
   return null
 }
 
@@ -887,7 +957,7 @@ function blockEditorHtml(block: EmailBlock, brand: EmailBrandAssets): string {
       ])} style="background:${block.background};color:${block.color}">${logo}${wordmark}${name}</div>`
     }
     case 'text':
-      return tokensToChips(block.html)
+      return tokensToChips(proseForEditor(block.html))
     case 'amount':
       return `<div ${dataAttrs([
         ['data-email-part', 'amount'],
@@ -902,7 +972,7 @@ function blockEditorHtml(block: EmailBlock, brand: EmailBrandAssets): string {
       const inner = block.showZelle
         ? [block.html, zelleParagraph(block.zelleLabel)].filter(Boolean).join('\n')
         : block.html
-      return `<div data-email-part="payment" data-zelle-label="${encodeAttr(block.zelleLabel)}">${tokensToChips(inner)}</div>`
+      return `<div data-email-part="payment" data-zelle-label="${encodeAttr(block.zelleLabel)}">${tokensToChips(proseForEditor(inner))}</div>`
     }
     case 'button':
       return `<p ${dataAttrs([
@@ -920,6 +990,8 @@ function blockEditorHtml(block: EmailBlock, brand: EmailBrandAssets): string {
       return `<p data-email-part="attachment">${tokensToChips(escapeHtml(block.text))}</p>`
     case 'footer':
       return `<p data-email-part="footer">${tokensToChips(escapeHtml(block.text))}</p>`
+    case 'spacing':
+      return spacingBlockHtml(block, true)
   }
 }
 
@@ -946,9 +1018,15 @@ export function documentToEditorHtml(
     .join('')
 }
 
+function stripEditorChrome(html: string): string {
+  return html
+    .replace(/<button\b[^>]*\bdata-email-chrome="[^"]*"[^>]*>[\s\S]*?<\/button>/gi, '')
+    .replace(/<span\b[^>]*\bdata-email-chrome="[^"]*"[^>]*>[\s\S]*?<\/span>/gi, '')
+}
+
 /** Saved document for whatever the editor is currently showing. */
 export function editorHtmlToDocument(editorHtml: string): string {
-  const blocks = blocksFromSlices(sliceTopLevel(editorHtml))
+  const blocks = blocksFromSlices(sliceTopLevel(stripEditorChrome(editorHtml)))
   if (blocks.length === 0) {
     return ''
   }
@@ -996,32 +1074,33 @@ function renderHeader(block: HeaderBlock, brand: EmailBrandAssets): string {
   return `<tr><td class="email-pad" align="center" bgcolor="${background}" style="background:${background};padding:26px 28px 22px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0" bgcolor="${background}" style="margin:0 auto;background:${background};">${images}${nameRow}</table></td></tr>`
 }
 
-function renderTextRow(html: string, padding: string): string {
+function renderTextRow(html: string, padding: string, spacing: EmailSpacing): string {
   if (!html.trim()) {
     return ''
   }
-  return `<tr><td class="email-pad email-content" style="padding:${padding};font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.55;color:#111111;">${html}</td></tr>`
+  const painted = paintProseSpacing(html, spacing)
+  return `<tr><td class="email-pad email-content" style="padding:${padding};font-family:Georgia,'Times New Roman',serif;font-size:16px;line-height:1.55;color:#111111;">${painted}</td></tr>`
 }
 
 function renderAmount(block: AmountBlock): string {
-  return `<tr><td class="email-pad" style="padding:8px 28px 12px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="background:${block.background};border:1px solid ${block.border};padding:18px 20px;"><p style="margin:0;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:${block.labelColor};font-weight:700;">${escapeHtml(block.label)}</p><p style="margin:6px 0 0;font-size:28px;line-height:1.2;font-weight:700;color:${block.amountColor};">{{amount}}</p><p style="margin:6px 0 0;font-size:14px;line-height:1.4;color:${block.labelColor};">${escapeHtml(block.dueLabel)}</p></td></tr></table></td></tr>`
+  return `<tr><td class="email-pad" style="padding:8px 28px 12px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="background:${block.background};border:1px solid ${block.border};border-left:3px solid #2f8f8a;padding:18px 20px;"><p style="margin:0;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:${block.labelColor};font-weight:700;">${escapeHtml(block.label)}</p><p style="margin:6px 0 0;font-size:28px;line-height:1.2;font-weight:700;color:${block.amountColor};">{{amount}}</p><p style="margin:6px 0 0;font-size:14px;line-height:1.4;color:${block.labelColor};">${escapeHtml(block.dueLabel)}</p></td></tr></table></td></tr>`
 }
 
-function renderPayment(block: PaymentBlock): string {
+function renderPayment(block: PaymentBlock, spacing: EmailSpacing): string {
   const zelle = block.showZelle
     ? paragraph(
         `${escapeHtml(block.zelleLabel)}: <strong style="color:#111111;">{{zelle_email}}</strong>`,
       )
     : ''
-  return renderTextRow(`${block.html}${zelle}`, '4px 28px 8px')
+  return renderTextRow(`${block.html}${zelle}`, '4px 28px 8px', spacing)
 }
 
 function renderButton(block: ButtonBlock): string {
-  return `<!--payment-url:start--><tr><td class="email-pad" align="center" style="padding:8px 28px;"><a href="{{payment_url}}" target="_blank" rel="noreferrer noopener" style="display:inline-block;background:${block.background};color:${block.color};padding:12px 22px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;line-height:1.2;text-decoration:none;">${escapeHtml(block.label)}</a></td></tr><!--payment-url:end-->`
+  return `<!--payment-url:start--><tr><td class="email-pad" align="left" style="padding:8px 28px;"><a href="{{payment_url}}" target="_blank" rel="noreferrer noopener" style="display:inline-block;background:${block.background};color:${block.color};padding:12px 22px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;line-height:1.2;text-decoration:none;">${escapeHtml(block.label)}</a></td></tr><!--payment-url:end-->`
 }
 
 function renderLink(block: LinkBlock): string {
-  return `<!--payment-url:start--><tr><td class="email-pad" align="center" style="padding:0 28px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.6;color:#5c564e;text-align:center;">${escapeHtml(block.lead)}<br><a href="{{payment_url}}" target="_blank" rel="noreferrer noopener" style="color:#24352c;word-break:break-all;">{{payment_url}}</a></td></tr><!--payment-url:end-->`
+  return `<!--payment-url:start--><tr><td class="email-pad" align="left" style="padding:0 28px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.6;color:#5c564e;text-align:left;">${escapeHtml(block.lead)}<br><a href="{{payment_url}}" target="_blank" rel="noreferrer noopener" style="color:#24352c;word-break:break-all;">{{payment_url}}</a></td></tr><!--payment-url:end-->`
 }
 
 function renderAttachment(block: AttachmentBlock): string {
@@ -1038,14 +1117,14 @@ function renderFooter(block: FooterBlock): string {
   return `<tr><td class="email-pad" align="center" style="padding:18px 12px 8px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.4;color:#6b7280;text-align:center;">${escapeHtml(block.text)}</td></tr>`
 }
 
-function renderInner(block: EmailBlock): string {
+function renderInner(block: EmailBlock, spacing: EmailSpacing): string {
   switch (block.type) {
     case 'text':
-      return renderTextRow(block.html, '8px 28px')
+      return renderTextRow(block.html, '8px 28px', spacing)
     case 'amount':
       return renderAmount(block)
     case 'payment':
-      return renderPayment(block)
+      return renderPayment(block, spacing)
     case 'button':
       return renderButton(block)
     case 'link':
@@ -1054,6 +1133,18 @@ function renderInner(block: EmailBlock): string {
       return renderAttachment(block)
     default:
       return ''
+  }
+}
+
+function spacingFromBlocks(blocks: EmailBlock[]): EmailSpacing {
+  const spacing = blocks.find((block) => block.type === 'spacing' && block.enabled)
+  if (!spacing || spacing.type !== 'spacing') {
+    return { ...EMPTY_METRICS }
+  }
+  return {
+    lineHeight: spacing.lineHeight,
+    before: spacing.before,
+    after: spacing.after,
   }
 }
 
@@ -1072,6 +1163,7 @@ export function renderEmailBlocks(blocks: EmailBlock[], brand: EmailBrandAssets 
     )
     card = []
   }
+  const spacing = spacingFromBlocks(blocks)
   for (const block of blocks) {
     if (!block.enabled) {
       continue
@@ -1085,7 +1177,7 @@ export function renderEmailBlocks(blocks: EmailBlock[], brand: EmailBrandAssets 
       }
       continue
     }
-    const inner = renderInner(block)
+    const inner = renderInner(block, spacing)
     if (inner) {
       card.push(inner)
     }

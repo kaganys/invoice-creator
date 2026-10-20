@@ -122,11 +122,42 @@ describe('email block document', () => {
     expect(editor).toContain('class="email-logo"')
     expect(editor).not.toContain('email-block')
     expect(editorHtmlToDocument(editor)).toBe(defaultEmailDocumentHtml())
+    const withChrome = editor.replace(
+      'Hello',
+      '<button data-email-chrome="grip" type="button"><i></i></button><span data-email-chrome="outline"></span>Hello',
+    )
+    expect(editorHtmlToDocument(withChrome)).toBe(defaultEmailDocumentHtml())
 
     const withoutButton = editor.replace(/<p data-email-part="button"[\s\S]*?<\/p>/, '')
     const sent = prepared(editorHtmlToDocument(withoutButton)).html
     expect(sent).not.toContain('Pay Online')
     expect(sent).toContain('Hello Ada Lovelace,')
     expect(sent).toContain('Sent by Bitz Designs')
+  })
+
+  it('paints paragraph and email spacing inline, the same in preview and the sent html', () => {
+    const editor = [
+      '<div data-email-part="spacing" data-line-height="1.15" data-space-before="small" data-space-after="large"></div>',
+      '<p data-line-height="2" data-space-after="none">Tight lines stay put.</p>',
+      '<p>Hello {{customer_name}},</p>',
+    ].join('')
+    const saved = editorHtmlToDocument(editor)
+    expect(saved).toContain('data-line-height="1.15"')
+    expect(saved).toContain('data-line-height="2"')
+    expect(saved).toContain('data-space-after="none"')
+    const roundTrip = editorHtmlToDocument(documentToEditorHtml(saved))
+    expect(roundTrip).toBe(saved)
+
+    const preview = prepared(saved)
+    const sent = prepared(roundTrip)
+    expect(sent.html).toBe(preview.html)
+    expect(sent.html).toContain(
+      'style="margin:8px 0 0;font-size:16px;line-height:2;color:#111111;"',
+    )
+    expect(sent.html).toContain(
+      'style="margin:8px 0 28px;font-size:16px;line-height:1.15;color:#111111;"',
+    )
+    expect(sent.html).toContain('Hello Ada Lovelace,')
+    expect(sent.html).not.toContain('data-email-var')
   })
 })

@@ -51,7 +51,7 @@ export function SettingsWorkbench({
             : 'settings-workbench__preview'
         }
       >
-        <p className="settings-preview__label">{previewTitle}</p>
+        {previewTitle ? <p className="settings-preview__label">{previewTitle}</p> : null}
         {preview}
       </aside>
       <div className="settings-workbench__bar">
