@@ -10,6 +10,7 @@ import {
   subjectToEditorHtml,
   variableChipHtml,
 } from '../../invoice/emailCompose.ts'
+import { stripEditorCaretMarks } from '../../invoice/emailCaret.ts'
 import {
   documentToEditorHtml,
   editorHtmlToDocument,
@@ -105,20 +106,254 @@ type CaretMark = { host: 'subject' | 'letter'; left: number; top: number; height
 
 function blockElements(sheet: HTMLElement): HTMLElement[] {
   return [...sheet.children].filter((node): node is HTMLElement => {
-    return node instanceof HTMLElement && node.getAttribute('data-email-part') !== 'spacing'
+    return (
+      node instanceof HTMLElement &&
+      node.getAttribute('data-email-part') !== 'spacing' &&
+      !node.hasAttribute('data-email-gap')
+    )
   })
+}
+
+function gapIsEmpty(node: HTMLElement): boolean {
+  return (node.textContent ?? '').replace(/\u200b/g, '').trim().length === 0
 }
 
 function editableHtml(sheet: HTMLElement): string {
   const clone = sheet.cloneNode(true) as HTMLElement
   clone.querySelectorAll('[data-email-chrome]').forEach((node) => node.remove())
   clone.querySelectorAll('.is-ghost').forEach((node) => node.classList.remove('is-ghost'))
-  return clone.innerHTML
+  clone.querySelectorAll('[data-email-gap]').forEach((node) => {
+    if (!(node instanceof HTMLElement)) {
+      return
+    }
+    if (gapIsEmpty(node)) {
+      node.remove()
+    } else {
+      node.removeAttribute('data-email-gap')
+    }
+  })
+  return stripEditorCaretMarks(clone.innerHTML)
+}
+
+function hasCaretText(node: Node | null): boolean {
+  return node?.nodeType === Node.TEXT_NODE && (node.textContent ?? '').length > 0
+}
+
+function ensureTextBesideChip(chip: HTMLElement, side: 'before' | 'after') {
+  const sibling = side === 'before' ? chip.previousSibling : chip.nextSibling
+  if (sibling instanceof HTMLElement && sibling.hasAttribute('data-email-chrome')) {
+    const pad = document.createTextNode('\u200b')
+    if (side === 'before') {
+      chip.before(pad)
+    } else {
+      chip.after(pad)
+    }
+    return
+  }
+  if (hasCaretText(sibling)) {
+    return
+  }
+  const pad = document.createTextNode('\u200b')
+  if (side === 'before') {
+    chip.before(pad)
+  } else {
+    chip.after(pad)
+  }
+}
+
+function ensureInlineCaretGaps(root: HTMLElement) {
+  for (const chip of root.querySelectorAll('[data-email-var]')) {
+    if (!(chip instanceof HTMLElement)) {
+      continue
+    }
+    ensureTextBesideChip(chip, 'before')
+    ensureTextBesideChip(chip, 'after')
+  }
+}
+
+function elementEndsWithChip(block: HTMLElement): boolean {
+  if (block.hasAttribute('data-email-var')) {
+    return true
+  }
+  for (let node: Node | null = block.lastChild; node; node = node.previousSibling) {
+    if (node instanceof HTMLElement && node.hasAttribute('data-email-chrome')) {
+      continue
+    }
+    if (node.nodeType === Node.TEXT_NODE && !(node.textContent ?? '').replace(/\u200b/g, '').trim()) {
+      continue
+    }
+    if (node instanceof HTMLElement && node.tagName === 'BR') {
+      continue
+    }
+    if (node instanceof HTMLElement && node.hasAttribute('data-email-var')) {
+      return true
+    }
+    if (node instanceof HTMLElement) {
+      return elementEndsWithChip(node)
+    }
+    return false
+  }
+  return false
+}
+
+function ensureTrailingGap(sheet: HTMLElement) {
+  const last = [...sheet.children].reverse().find((node): node is HTMLElement => {
+    return (
+      node instanceof HTMLElement &&
+      node.getAttribute('data-email-part') !== 'spacing' &&
+      !node.hasAttribute('data-email-gap')
+    )
+  })
+  const needs = last instanceof HTMLElement && elementEndsWithChip(last)
+  const gaps = [...sheet.children].filter(
+    (node): node is HTMLElement => node instanceof HTMLElement && node.hasAttribute('data-email-gap'),
+  )
+  if (!needs) {
+    for (const gap of gaps) {
+      if (gapIsEmpty(gap)) {
+        gap.remove()
+      }
+    }
+    return
+  }
+  let gap = gaps.find((node) => gapIsEmpty(node))
+  for (const extra of gaps) {
+    if (extra !== gap && gapIsEmpty(extra)) {
+      extra.remove()
+    }
+  }
+  if (!gap) {
+    gap = document.createElement('p')
+    gap.setAttribute('data-email-gap', '')
+    gap.append(document.createElement('br'))
+    sheet.append(gap)
+    return
+  }
+  if (!gap.querySelector('br') && gapIsEmpty(gap)) {
+    gap.append(document.createElement('br'))
+  }
+  if (sheet.lastElementChild !== gap) {
+    sheet.append(gap)
+  }
+}
+
+function ensureCaretPositions(sheet: HTMLElement) {
+  ensureInlineCaretGaps(sheet)
+  ensureTrailingGap(sheet)
+}
+
+function settleTypedGaps(sheet: HTMLElement) {
+  for (const gap of [...sheet.querySelectorAll(':scope > [data-email-gap]')]) {
+    if (gap instanceof HTMLElement && !gapIsEmpty(gap)) {
+      gap.removeAttribute('data-email-gap')
+    }
+  }
+}
+
+function chipFromSibling(start: Node | null, direction: -1 | 1): HTMLElement | null {
+  let node = start
+  while (node) {
+    if (node instanceof HTMLElement && node.hasAttribute('data-email-chrome')) {
+      node = direction === -1 ? node.previousSibling : node.nextSibling
+      continue
+    }
+    if (node.nodeType === Node.TEXT_NODE && (node.textContent ?? '').replace(/\u200b/g, '').length === 0) {
+      node = direction === -1 ? node.previousSibling : node.nextSibling
+      continue
+    }
+    if (node instanceof HTMLElement && node.hasAttribute('data-email-var')) {
+      return node
+    }
+    return null
+  }
+  return null
+}
+
+function adjacentChip(range: Range, key: 'Backspace' | 'Delete'): HTMLElement | null {
+  const container = range.startContainer
+  const offset = range.startOffset
+  if (container.nodeType === Node.TEXT_NODE) {
+    const text = container.textContent ?? ''
+    if (key === 'Backspace') {
+      if (text.slice(0, offset).replace(/\u200b/g, '').length > 0) {
+        return null
+      }
+      return chipFromSibling(container.previousSibling, -1)
+    }
+    if (text.slice(offset).replace(/\u200b/g, '').length > 0) {
+      return null
+    }
+    return chipFromSibling(container.nextSibling, 1)
+  }
+  const child =
+    key === 'Backspace' ? (container.childNodes[offset - 1] ?? null) : (container.childNodes[offset] ?? null)
+  return chipFromSibling(child, key === 'Backspace' ? -1 : 1)
+}
+
+function placeCollapsedCaret(node: Node, offset: number) {
+  const range = document.createRange()
+  const max = node.nodeType === Node.TEXT_NODE ? (node.textContent ?? '').length : node.childNodes.length
+  range.setStart(node, Math.max(0, Math.min(offset, max)))
+  range.collapse(true)
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+}
+
+function removeChipForKey(root: HTMLElement, key: 'Backspace' | 'Delete'): boolean {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) {
+    return false
+  }
+  const range = selection.getRangeAt(0)
+  if (!root.contains(range.commonAncestorContainer)) {
+    return false
+  }
+  if (!range.collapsed) {
+    const chips = [...root.querySelectorAll('[data-email-var]')].filter(
+      (node): node is HTMLElement => node instanceof HTMLElement && range.intersectsNode(node),
+    )
+    if (chips.length === 0) {
+      return false
+    }
+    range.deleteContents()
+    for (const chip of chips) {
+      if (chip.isConnected) {
+        chip.remove()
+      }
+    }
+    selection.removeAllRanges()
+    selection.addRange(range)
+    return true
+  }
+  const chip = adjacentChip(range, key)
+  if (!chip || !root.contains(chip)) {
+    return false
+  }
+  const parent = chip.parentNode
+  const index = parent ? [...parent.childNodes].indexOf(chip) : 0
+  chip.remove()
+  if (parent) {
+    placeCollapsedCaret(parent, Math.max(0, index))
+  }
+  return true
+}
+
+function selectChip(chip: HTMLElement) {
+  const range = document.createRange()
+  range.selectNode(chip)
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
 }
 
 function decorateSheet(sheet: HTMLElement) {
   for (const child of [...sheet.children]) {
-    if (!(child instanceof HTMLElement) || child.getAttribute('data-email-part') === 'spacing') {
+    if (
+      !(child instanceof HTMLElement) ||
+      child.getAttribute('data-email-part') === 'spacing' ||
+      child.hasAttribute('data-email-gap')
+    ) {
       continue
     }
     if (!child.querySelector(':scope > [data-email-chrome="outline"]')) {
@@ -140,6 +375,7 @@ function decorateSheet(sheet: HTMLElement) {
       child.append(grip)
     }
   }
+  ensureCaretPositions(sheet)
 }
 
 function characterBefore(range: Range): string {
@@ -428,6 +664,7 @@ export function EmailMessageEditor({
       return
     }
     node.innerHTML = subjectToEditorHtml(subjectValue.current)
+    ensureInlineCaretGaps(node)
   }, [revision])
 
   useEffect(() => {
@@ -574,6 +811,21 @@ export function EmailMessageEditor({
     if (meta && event.key.toLowerCase() === 'y') {
       event.preventDefault()
       redo()
+      return
+    }
+    if (
+      (event.key === 'Backspace' || event.key === 'Delete') &&
+      removeChipForKey(event.currentTarget, event.key)
+    ) {
+      event.preventDefault()
+      if (event.currentTarget === sheetRef.current) {
+        settleTypedGaps(event.currentTarget)
+        decorateSheet(event.currentTarget)
+        commitSheet()
+      } else {
+        ensureInlineCaretGaps(event.currentTarget)
+        commitSubject(event.currentTarget.innerHTML)
+      }
       return
     }
     if (event.currentTarget === sheetRef.current && event.key === 'Enter' && !event.shiftKey) {
@@ -791,12 +1043,28 @@ export function EmailMessageEditor({
     if (!(target instanceof Element)) {
       return
     }
+    const sheet = sheetRef.current
+    const chip = target.closest('[data-email-var]')
+    if (chip instanceof HTMLElement && sheet?.contains(chip)) {
+      event.preventDefault()
+      sheet.focus()
+      selectChip(chip)
+      return
+    }
+    if (target === sheet) {
+      const gap = sheet.querySelector(':scope > [data-email-gap]')
+      if (gap instanceof HTMLElement) {
+        const rect = gap.getBoundingClientRect()
+        if (event.clientY >= rect.top - 8) {
+          placeCollapsedCaret(gap, 0)
+        }
+      }
+    }
     const grip = target.closest('[data-email-chrome="grip"]')
     if (!grip) {
       return
     }
     event.preventDefault()
-    const sheet = sheetRef.current
     const page = pageRef.current
     const block = grip.parentElement
     if (!sheet || !page || !(block instanceof HTMLElement)) {
@@ -989,7 +1257,13 @@ export function EmailMessageEditor({
                 }
                 onEditorKeyDown(event)
               }}
-              onInput={() => commitSubject(subjectRef.current?.innerHTML ?? '')}
+              onInput={() => {
+                const subjectNode = subjectRef.current
+                if (subjectNode) {
+                  ensureInlineCaretGaps(subjectNode)
+                }
+                commitSubject(subjectNode?.innerHTML ?? '')
+              }}
               onDragOver={(event) => onChipOver(event, 'subject')}
               onDrop={(event) => onChipDrop(event, 'subject')}
             />
@@ -1410,8 +1684,11 @@ export function EmailMessageEditor({
           }}
           onKeyDown={onEditorKeyDown}
           onInput={() => {
-            commitSheet()
             const sheet = sheetRef.current
+            if (sheet) {
+              settleTypedGaps(sheet)
+            }
+            commitSheet()
             if (sheet) {
               decorateSheet(sheet)
             }

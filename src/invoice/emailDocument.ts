@@ -1,3 +1,4 @@
+import { stripEditorCaretMarks } from './emailCaret.ts'
 import {
   editorHtmlToSubject,
   readEmailDocument,
@@ -82,6 +83,8 @@ export type LinkBlock = {
   type: 'link'
   enabled: boolean
   lead: string
+  /** The payment-link chip. Stays off once the sender deletes it. */
+  showUrl: boolean
 }
 
 export type AttachmentBlock = {
@@ -260,6 +263,7 @@ function linkBlock(id: string, enabled = true): LinkBlock {
     type: 'link',
     enabled,
     lead: 'If the button does not work, open this secure link:',
+    showUrl: true,
   }
 }
 
@@ -565,7 +569,7 @@ function normalizeBlock(block: EmailBlock): EmailBlock {
         color: safeEmailColor(block.color, '#f7f3ec'),
       }
     case 'link':
-      return { ...block, lead: clip(block.lead) }
+      return { ...block, lead: clip(block.lead), showUrl: block.showUrl !== false }
     case 'attachment':
       return { ...block, text: clip(block.text) }
     case 'footer':
@@ -654,7 +658,8 @@ function blockStoredHtml(block: EmailBlock): string {
       return `<p ${dataAttrs([
         ['data-email-part', 'link'],
         ['data-lead', block.lead],
-      ])}><!--{{payment_url}}--></p>`
+        ['data-url', flag(block.showUrl)],
+      ])}>${block.showUrl ? '<!--{{payment_url}}-->' : ''}</p>`
     case 'attachment':
       return `<p data-email-part="attachment">${escapeHtml(block.text)}</p>`
     case 'footer':
@@ -685,6 +690,9 @@ function writeV3(blocks: EmailBlock[]): string {
       continue
     }
     if ((block.type === 'attachment' || block.type === 'footer') && !block.text.trim()) {
+      continue
+    }
+    if (block.type === 'link' && !block.lead.trim() && !block.showUrl) {
       continue
     }
     lines.push(blockStoredHtml(block))
@@ -822,6 +830,25 @@ function proseBlocks(raw: string, counts: Record<string, number>): EmailBlock[] 
     .map((line) => textBlock(takeId(counts, 'text'), line))
 }
 
+function linkShowsEditorUrl(inner: string): boolean {
+  if (/data-email-var="payment_url"/i.test(inner)) {
+    return true
+  }
+  if (/<a\b[^>]*\bhref="\{\{payment_url\}\}"/i.test(inner)) {
+    return true
+  }
+  return /\{\{\s*payment_url\s*\}\}/.test(inner.replace(/<!--[\s\S]*?-->/g, ''))
+}
+
+function linkVisibleLead(inner: string): string {
+  const withoutUrl = inner
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<a\b[^>]*\bhref="\{\{payment_url\}\}"[^>]*>[\s\S]*?<\/a>/gi, '')
+    .replace(/<span\b[^>]*\bdata-email-var="payment_url"[^>]*>[\s\S]*?<\/span>/gi, '')
+    .replace(/\{\{\s*payment_url\s*\}\}/g, '')
+  return editorHtmlToSubject(withoutUrl)
+}
+
 function blockFromPart(kind: string, raw: string, id: string): EmailBlock | null {
   const attrs = parseAttrs(openingTag(raw).replace(/^</, '').replace(/>$/, ''))
   if (kind === 'header') {
@@ -883,11 +910,19 @@ function blockFromPart(kind: string, raw: string, id: string): EmailBlock | null
     })
   }
   if (kind === 'link') {
-    const withoutAnchor = raw.replace(/<a\b[\s\S]*?<\/a>/gi, '')
-    const lead = editorHtmlToSubject(elementInner(withoutAnchor)) || (attrs['data-lead'] ?? '')
+    const inner = elementInner(raw)
+    const visible = linkVisibleLead(inner)
+    const editorUrl = linkShowsEditorUrl(inner)
+    const stored = visible.length === 0 && !editorUrl
+    const showUrl = editorUrl
+      ? true
+      : stored &&
+        (attrs['data-url'] === '1' ||
+          (attrs['data-url'] == null && /<!--\s*\{\{\s*payment_url\s*\}\}\s*-->/.test(inner)))
     return normalizeBlock({
       ...linkBlock(id),
-      lead,
+      lead: visible || (stored ? (attrs['data-lead'] ?? '') : ''),
+      showUrl,
     })
   }
   if (kind === 'attachment') {
@@ -981,11 +1016,16 @@ function blockEditorHtml(block: EmailBlock, brand: EmailBrandAssets): string {
         ['data-color', block.color],
         ['data-label', block.label],
       ])}><a href="{{payment_url}}" style="display:inline-block;background:${block.background};color:${block.color};padding:12px 22px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;line-height:1.2;text-decoration:none;">${tokensToChips(escapeHtml(block.label))}</a></p>`
-    case 'link':
+    case 'link': {
+      const lead = tokensToChips(escapeHtml(block.lead))
+      const chip = block.showUrl ? variableChipHtml('payment_url') : ''
+      const inner = lead && chip ? `${lead}<br>${chip}` : `${lead}${chip}`
       return `<p ${dataAttrs([
         ['data-email-part', 'link'],
         ['data-lead', block.lead],
-      ])}>${tokensToChips(escapeHtml(block.lead))}<br><a href="{{payment_url}}">${variableChipHtml('payment_url')}</a></p>`
+        ['data-url', flag(block.showUrl)],
+      ])}>${inner}</p>`
+    }
     case 'attachment':
       return `<p data-email-part="attachment">${tokensToChips(escapeHtml(block.text))}</p>`
     case 'footer':
@@ -1026,7 +1066,7 @@ function stripEditorChrome(html: string): string {
 
 /** Saved document for whatever the editor is currently showing. */
 export function editorHtmlToDocument(editorHtml: string): string {
-  const blocks = blocksFromSlices(sliceTopLevel(stripEditorChrome(editorHtml)))
+  const blocks = blocksFromSlices(sliceTopLevel(stripEditorCaretMarks(stripEditorChrome(editorHtml))))
   if (blocks.length === 0) {
     return ''
   }
@@ -1100,7 +1140,15 @@ function renderButton(block: ButtonBlock): string {
 }
 
 function renderLink(block: LinkBlock): string {
-  return `<!--payment-url:start--><tr><td class="email-pad" align="left" style="padding:0 28px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.6;color:#5c564e;text-align:left;">${escapeHtml(block.lead)}<br><a href="{{payment_url}}" target="_blank" rel="noreferrer noopener" style="color:#24352c;word-break:break-all;">{{payment_url}}</a></td></tr><!--payment-url:end-->`
+  const lead = escapeHtml(block.lead)
+  if (!lead && !block.showUrl) {
+    return ''
+  }
+  const url = block.showUrl
+    ? `${lead ? '<br>' : ''}<a href="{{payment_url}}" target="_blank" rel="noreferrer noopener" style="color:#24352c;word-break:break-all;">{{payment_url}}</a>`
+    : ''
+  const row = `<tr><td class="email-pad" align="left" style="padding:0 28px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.6;color:#5c564e;text-align:left;">${lead}${url}</td></tr>`
+  return block.showUrl ? `<!--payment-url:start-->${row}<!--payment-url:end-->` : row
 }
 
 function renderAttachment(block: AttachmentBlock): string {
