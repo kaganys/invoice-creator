@@ -122,6 +122,11 @@ describe('email block document', () => {
     expect(editor).toContain('class="email-logo"')
     expect(editor).not.toContain('email-block')
     expect(editorHtmlToDocument(editor)).toBe(defaultEmailDocumentHtml())
+    const withChrome = editor.replace(
+      'Hello',
+      '<button data-email-chrome="grip" type="button"><i></i></button><span data-email-chrome="outline"></span>Hello',
+    )
+    expect(editorHtmlToDocument(withChrome)).toBe(defaultEmailDocumentHtml())
 
     const withoutButton = editor.replace(/<p data-email-part="button"[\s\S]*?<\/p>/, '')
     const sent = prepared(editorHtmlToDocument(withoutButton)).html

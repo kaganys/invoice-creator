@@ -30,6 +30,8 @@ import {
   type ParagraphMetrics,
   type SpaceStep,
 } from '../../invoice/emailSpacing.ts'
+import { insertionIndex } from '../../invoice/emailArrange.ts'
+import { SAMPLE_EMAIL_VARS } from '../../invoice/emailHtml.ts'
 import {
   EMAIL_VARIABLES,
   defaultEmailTemplates,
@@ -43,9 +45,9 @@ export type EmailEditorBrand = {
 }
 
 const INSERTS: Array<{ kind: EmailInsertKind; label: string }> = [
-  { kind: 'button', label: 'Pay button' },
-  { kind: 'link', label: 'Payment link' },
-  { kind: 'amount', label: 'Amount due' },
+  { kind: 'button', label: 'Pay online button' },
+  { kind: 'amount', label: 'Amount due box' },
+  { kind: 'link', label: 'Link fallback' },
   { kind: 'header', label: 'Header' },
   { kind: 'attachment', label: 'Attachment note' },
   { kind: 'footer', label: 'Footer' },
@@ -85,65 +87,137 @@ function lineHeightLabel(choice: LineHeightChoice): string {
   return choice
 }
 
-function spaceLabel(choice: SpaceStep): string {
-  return choice[0].toUpperCase() + choice.slice(1)
+const TEXT_COLORS = [
+  { value: '#2a2a26', label: 'Ink' },
+  { value: '#d9734e', label: 'Coral' },
+  { value: '#2f8f8a', label: 'Teal' },
+  { value: '#1f4d3f', label: 'Green' },
+] as const
+
+const SPACE_PT: Record<SpaceStep, string> = {
+  none: '0 pt',
+  small: '6 pt',
+  normal: '12 pt',
+  large: '21 pt',
 }
 
-function SpacingSelect({
-  name,
-  label,
-  value,
-  disabled,
-  options,
-  onChange,
-  onPointerDown,
-}: {
-  name: string
-  label: string
-  value: string
-  disabled?: boolean
-  options: Array<{ value: string; label: string }>
-  onChange: (value: string) => void
-  onPointerDown?: () => void
-}) {
-  return (
-    <label className="email-editor__metric">
-      <span>{label}</span>
-      <select
-        aria-label={`${name} ${label.toLowerCase()}`}
-        value={value}
-        disabled={disabled}
-        onPointerDown={onPointerDown}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        <option value="">Default</option>
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  )
+type CaretMark = { host: 'subject' | 'letter'; left: number; top: number; height: number }
+
+function blockElements(sheet: HTMLElement): HTMLElement[] {
+  return [...sheet.children].filter((node): node is HTMLElement => {
+    return node instanceof HTMLElement && node.getAttribute('data-email-part') !== 'spacing'
+  })
+}
+
+function editableHtml(sheet: HTMLElement): string {
+  const clone = sheet.cloneNode(true) as HTMLElement
+  clone.querySelectorAll('[data-email-chrome]').forEach((node) => node.remove())
+  clone.querySelectorAll('.is-ghost').forEach((node) => node.classList.remove('is-ghost'))
+  return clone.innerHTML
+}
+
+function decorateSheet(sheet: HTMLElement) {
+  for (const child of [...sheet.children]) {
+    if (!(child instanceof HTMLElement) || child.getAttribute('data-email-part') === 'spacing') {
+      continue
+    }
+    if (!child.querySelector(':scope > [data-email-chrome="outline"]')) {
+      const outline = document.createElement('span')
+      outline.dataset.emailChrome = 'outline'
+      outline.className = 'email-hovline'
+      outline.contentEditable = 'false'
+      child.append(outline)
+    }
+    if (!child.querySelector(':scope > [data-email-chrome="grip"]')) {
+      const grip = document.createElement('button')
+      grip.type = 'button'
+      grip.dataset.emailChrome = 'grip'
+      grip.className = 'email-grip'
+      grip.contentEditable = 'false'
+      grip.setAttribute('aria-label', 'Drag to reorder')
+      grip.tabIndex = -1
+      grip.innerHTML = '<i></i><i></i><i></i><i></i><i></i><i></i>'
+      child.append(grip)
+    }
+  }
+}
+
+function characterBefore(range: Range): string {
+  const node = range.startContainer
+  if (node.nodeType === Node.TEXT_NODE && range.startOffset > 0) {
+    return (node.textContent ?? '').charAt(range.startOffset - 1)
+  }
+  const sibling =
+    node.nodeType === Node.TEXT_NODE
+      ? node.previousSibling
+      : node.childNodes[range.startOffset - 1] ?? null
+  return (sibling?.textContent ?? '').slice(-1)
+}
+
+function caretRangeFromPoint(x: number, y: number): Range | null {
+  const doc = document as Document & {
+    caretRangeFromPoint?: (clientX: number, clientY: number) => Range | null
+    caretPositionFromPoint?: (
+      clientX: number,
+      clientY: number,
+    ) => { offsetNode: Node; offset: number } | null
+  }
+  if (typeof doc.caretRangeFromPoint === 'function') {
+    return doc.caretRangeFromPoint(x, y)
+  }
+  const position = doc.caretPositionFromPoint?.(x, y)
+  if (!position) {
+    return null
+  }
+  const range = document.createRange()
+  range.setStart(position.offsetNode, position.offset)
+  range.collapse(true)
+  return range
+}
+
+function chipIdFromDrop(transfer: DataTransfer): EmailVariableId | null {
+  const custom = transfer.getData('application/x-email-var')
+  const plain = transfer.getData('text/plain')
+  const raw = custom || (plain.startsWith('email-var:') ? plain.slice('email-var:'.length) : '')
+  return EMAIL_VARIABLES.some((variable) => variable.id === raw) ? (raw as EmailVariableId) : null
+}
+
+function sampleValue(id: EmailVariableId): string {
+  if (id === 'payment_url') {
+    return 'pay.example.com/…'
+  }
+  if (id === 'payment_memo') {
+    return 'Memo line'
+  }
+  return SAMPLE_EMAIL_VARS[id]
+}
+
+function nudgeStep(current: SpaceStep | null, fallback: SpaceStep, delta: number): SpaceStep {
+  const index = SPACE_STEPS.indexOf(current ?? fallback)
+  const next = Math.min(SPACE_STEPS.length - 1, Math.max(0, index + delta))
+  return SPACE_STEPS[next]
 }
 
 function ToolButton({
   label,
   disabled,
+  pressed,
   onClick,
   children,
 }: {
   label: string
   disabled?: boolean
+  pressed?: boolean
   onClick: () => void
   children: ReactNode
 }) {
   return (
     <button
       type="button"
-      className="email-editor__tool"
+      className={pressed ? 'email-editor__tool is-on' : 'email-editor__tool'}
       title={label}
       aria-label={label}
+      aria-pressed={pressed}
       disabled={disabled}
       onMouseDown={preventFocusLoss}
       onClick={onClick}
@@ -234,13 +308,22 @@ export function EmailMessageEditor({
   subjectPreview,
   disabled,
   brand,
+  envelope,
+  resetSignal = 0,
   onChange,
 }: {
   subject: string
   html: string
-  subjectPreview: string
+  subjectPreview?: string
   disabled?: boolean
   brand?: EmailEditorBrand
+  envelope?: {
+    fromName: string
+    replyTo: string
+    onFromName: (value: string) => void
+    onReplyTo: (value: string) => void
+  }
+  resetSignal?: number
   onChange: (next: { subject: string; html: string }) => void
 }) {
   const brandAssets = {
@@ -251,7 +334,6 @@ export function EmailMessageEditor({
   const [revision, setRevision] = useState(0)
   const [canUndo, setCanUndo] = useState(false)
   const [canRedo, setCanRedo] = useState(false)
-  const [fieldsOpen, setFieldsOpen] = useState(false)
   const [insertOpen, setInsertOpen] = useState(false)
   const [linkOpen, setLinkOpen] = useState(false)
   const [spacingOpen, setSpacingOpen] = useState(false)
@@ -260,8 +342,18 @@ export function EmailMessageEditor({
   const [hasParagraph, setHasParagraph] = useState(false)
   const [linkUrl, setLinkUrl] = useState('https://')
   const [linkError, setLinkError] = useState<string | null>(null)
+  const [paletteOpen, setPaletteOpen] = useState(true)
+  const [styleOpen, setStyleOpen] = useState(false)
+  const [colorOpen, setColorOpen] = useState(false)
+  const [styleName, setStyleName] = useState('Paragraph')
+  const [ink, setInk] = useState<(typeof TEXT_COLORS)[number]['value']>('#d9734e')
+  const [marks, setMarks] = useState({ bold: false, italic: false, underline: false })
+  const [insertLine, setInsertLine] = useState<number | null>(null)
+  const [caret, setCaret] = useState<CaretMark | null>(null)
   const subjectRef = useRef<HTMLDivElement>(null)
+  const subjectWrapRef = useRef<HTMLDivElement>(null)
   const sheetRef = useRef<HTMLDivElement>(null)
+  const pageRef = useRef<HTMLDivElement>(null)
   const subjectValue = useRef(subject)
   const bodyValue = useRef(html.trim() ? editorHtmlToDocument(documentToEditorHtml(html, brandAssets)) : '')
   const brandRef = useRef(brandAssets)
@@ -269,11 +361,17 @@ export function EmailMessageEditor({
   const history = useRef<Snapshot[]>([])
   const index = useRef(0)
   const skipHistory = useRef(false)
-  const fieldsRef = useRef<HTMLDivElement>(null)
   const insertRef = useRef<HTMLDivElement>(null)
+  const barRef = useRef<HTMLDivElement>(null)
   const savedRange = useRef<Range | null>(null)
+  const dropRange = useRef<Range | null>(null)
+  const draggingChip = useRef<EmailVariableId | null>(null)
+  const chipDropped = useRef(false)
+  const dragTo = useRef<number | null>(null)
   const emailSpacingRef = useRef<EmailSpacing>(emailSpacingFromHtml(html))
   const active = useRef<'subject' | 'letter' | null>(null)
+  const resetSeen = useRef(resetSignal)
+  const commitSheetRef = useRef<() => void>(() => {})
   brandRef.current = brandAssets
 
   function syncHistoryButtons() {
@@ -339,6 +437,7 @@ export function EmailMessageEditor({
     }
     node.innerHTML = seed
     syncSheetSpacing(node)
+    decorateSheet(node)
   }, [revision, seed])
 
   useEffect(() => {
@@ -347,16 +446,14 @@ export function EmailMessageEditor({
       return
     }
     const next = documentToEditorHtml(bodyValue.current, brandAssets)
-    if (node.innerHTML !== next) {
+    if (editableHtml(node) !== next) {
       node.innerHTML = next
       syncSheetSpacing(node)
+      decorateSheet(node)
     }
   }, [brandAssets.logoUrl, brandAssets.wordmarkUrl])
 
   useEffect(() => {
-    if (!spacingOpen) {
-      return
-    }
     function remember() {
       const sheet = sheetRef.current
       const selection = window.getSelection()
@@ -371,29 +468,46 @@ export function EmailMessageEditor({
       const block = blockFromRange(sheet, range)
       setHasParagraph(Boolean(block))
       setParagraphMetrics(block ? metricsFromElement(block) : { ...EMPTY_METRICS })
+      const element =
+        range.startContainer instanceof Element
+          ? range.startContainer
+          : range.startContainer.parentElement
+      setStyleName(element?.closest('h2') ? 'Heading' : 'Paragraph')
+      try {
+        setMarks({
+          bold: document.queryCommandState('bold'),
+          italic: document.queryCommandState('italic'),
+          underline: document.queryCommandState('underline'),
+        })
+      } catch {
+        setMarks({ bold: false, italic: false, underline: false })
+      }
     }
-    remember()
     document.addEventListener('selectionchange', remember)
     return () => document.removeEventListener('selectionchange', remember)
-  }, [spacingOpen])
+  }, [])
 
   useEffect(() => {
-    if (!fieldsOpen && !insertOpen) {
+    if (!insertOpen && !styleOpen && !colorOpen && !spacingOpen && !linkOpen) {
       return
     }
     function onPointerDown(event: MouseEvent) {
-      const target = event.target as Node
-      if (fieldsOpen && !fieldsRef.current?.contains(target)) {
-        setFieldsOpen(false)
+      if (barRef.current?.contains(event.target as Node)) {
+        return
       }
-      if (insertOpen && !insertRef.current?.contains(target)) {
-        setInsertOpen(false)
-      }
+      setInsertOpen(false)
+      setStyleOpen(false)
+      setColorOpen(false)
+      setSpacingOpen(false)
+      setLinkOpen(false)
     }
     function onKey(event: KeyboardEvent) {
       if (event.key === 'Escape') {
-        setFieldsOpen(false)
         setInsertOpen(false)
+        setStyleOpen(false)
+        setColorOpen(false)
+        setSpacingOpen(false)
+        setLinkOpen(false)
       }
     }
     document.addEventListener('mousedown', onPointerDown)
@@ -402,7 +516,7 @@ export function EmailMessageEditor({
       document.removeEventListener('mousedown', onPointerDown)
       document.removeEventListener('keydown', onKey)
     }
-  }, [fieldsOpen, insertOpen])
+  }, [insertOpen, styleOpen, colorOpen, spacingOpen, linkOpen])
 
   function commitSubject(editorHtml: string, record = true) {
     const nextSubject = editorHtmlToSubject(editorHtml)
@@ -415,7 +529,7 @@ export function EmailMessageEditor({
     if (sheet) {
       writeEmailSpacing(sheet, emailSpacingRef.current)
     }
-    const nextHtml = editorHtmlToDocument(sheet?.innerHTML ?? '')
+    const nextHtml = editorHtmlToDocument(sheet ? editableHtml(sheet) : '')
     publish(subjectValue.current, nextHtml, record)
   }
 
@@ -482,6 +596,7 @@ export function EmailMessageEditor({
       commitSubject(node.innerHTML)
     } else {
       commitSheet()
+      decorateSheet(node)
     }
   }
 
@@ -496,8 +611,9 @@ export function EmailMessageEditor({
       commitSubject(node.innerHTML)
     } else {
       commitSheet()
+      decorateSheet(node)
     }
-    setFieldsOpen(false)
+    setInsertOpen(false)
   }
 
   function placeCaretInSheet() {
@@ -525,6 +641,7 @@ export function EmailMessageEditor({
     placeCaretInSheet()
     document.execCommand('insertHTML', false, emailInsertHtml(kind, brandRef.current))
     commitSheet()
+    decorateSheet(sheet)
     setInsertOpen(false)
   }
 
@@ -549,29 +666,27 @@ export function EmailMessageEditor({
     publish(defaults.subject, nextHtml, true)
   }
 
+  useEffect(() => {
+    if (resetSignal === resetSeen.current) {
+      return
+    }
+    resetSeen.current = resetSignal
+    resetTemplate()
+  }, [resetSignal])
+
   function healSheet() {
     const node = sheetRef.current
     if (!node) {
       return
     }
-    const canonical = editorHtmlToDocument(node.innerHTML)
+    const current = editableHtml(node)
+    const canonical = editorHtmlToDocument(current)
     const healed = documentToEditorHtml(canonical, brandRef.current)
-    if (node.innerHTML !== healed) {
+    if (current !== healed) {
       node.innerHTML = healed
       syncSheetSpacing(node)
     }
-  }
-
-  function rememberSheetSelection() {
-    const sheet = sheetRef.current
-    const selection = window.getSelection()
-    if (!sheet || !selection || selection.rangeCount === 0) {
-      return
-    }
-    const range = selection.getRangeAt(0)
-    if (sheet.contains(range.startContainer)) {
-      savedRange.current = range.cloneRange()
-    }
+    decorateSheet(node)
   }
 
   function applyParagraphMetric(
@@ -616,345 +731,671 @@ export function EmailMessageEditor({
     commitSheet()
   }
 
+  commitSheetRef.current = commitSheet
+
+  function restoreSheetRange() {
+    const sheet = sheetRef.current
+    const range = savedRange.current
+    if (!sheet) {
+      return
+    }
+    sheet.focus()
+    if (!range) {
+      return
+    }
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+  }
+
+  function applyBlock(tag: 'p' | 'h2') {
+    restoreSheetRange()
+    document.execCommand('formatBlock', false, tag)
+    commitSheet()
+    const sheet = sheetRef.current
+    if (sheet) {
+      decorateSheet(sheet)
+    }
+    setStyleName(tag === 'h2' ? 'Heading' : 'Paragraph')
+    setStyleOpen(false)
+  }
+
+  function applyColor(color: (typeof TEXT_COLORS)[number]['value']) {
+    restoreSheetRange()
+    document.execCommand('foreColor', false, color)
+    setInk(color)
+    commitSheet()
+    const sheet = sheetRef.current
+    if (sheet) {
+      decorateSheet(sheet)
+    }
+    setColorOpen(false)
+  }
+
+  function shownLine(): string {
+    const choice = (hasParagraph ? paragraphMetrics.lineHeight : null) ?? emailMetrics.lineHeight
+    return choice ? lineHeightLabel(choice) : '1.55'
+  }
+
+  function shownPoints(key: 'before' | 'after'): string {
+    const choice = (hasParagraph ? paragraphMetrics[key] : null) ?? emailMetrics[key]
+    const step = choice ?? (key === 'after' ? 'normal' : 'none')
+    return SPACE_PT[step].replace(' pt', '')
+  }
+
+  function onSheetPointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (disabled) {
+      return
+    }
+    const target = event.target
+    if (!(target instanceof Element)) {
+      return
+    }
+    const grip = target.closest('[data-email-chrome="grip"]')
+    if (!grip) {
+      return
+    }
+    event.preventDefault()
+    const sheet = sheetRef.current
+    const page = pageRef.current
+    const block = grip.parentElement
+    if (!sheet || !page || !(block instanceof HTMLElement)) {
+      return
+    }
+    const from = blockElements(sheet).indexOf(block)
+    if (from < 0) {
+      return
+    }
+    block.classList.add('is-ghost')
+    dragTo.current = from
+    const move = (pointer: PointerEvent) => {
+      const blocks = blockElements(sheet)
+      const to = insertionIndex(
+        blocks.map((item) => {
+          const rect = item.getBoundingClientRect()
+          return rect.top + rect.height / 2
+        }),
+        pointer.clientY,
+      )
+      dragTo.current = to
+      const pageRect = page.getBoundingClientRect()
+      const edge =
+        to <= 0 ? blocks[0] : to >= blocks.length ? blocks[blocks.length - 1] : blocks[to - 1]
+      if (!edge) {
+        setInsertLine(null)
+        return
+      }
+      const rect = edge.getBoundingClientRect()
+      const anchor = to <= 0 ? rect.top : rect.bottom
+      setInsertLine(anchor - pageRect.top + page.scrollTop + (to <= 0 ? -6 : 3))
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      block.classList.remove('is-ghost')
+      setInsertLine(null)
+      const to = dragTo.current
+      dragTo.current = null
+      if (to == null || to === from || to === from + 1) {
+        return
+      }
+      const blocks = blockElements(sheet)
+      const node = blocks[from]
+      if (!node) {
+        return
+      }
+      sheet.insertBefore(node, blocks[to] ?? null)
+      commitSheetRef.current()
+      decorateSheet(sheet)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
+  function placeDraggedChip(host: 'subject' | 'letter', id: EmailVariableId) {
+    const node = host === 'subject' ? subjectRef.current : sheetRef.current
+    const range = dropRange.current
+    const variable = EMAIL_VARIABLES.find((item) => item.id === id)
+    if (!node || !variable) {
+      return
+    }
+    if (!range || !node.contains(range.startContainer)) {
+      active.current = host
+      insertVariable(id)
+      return
+    }
+    range.deleteContents()
+    const chip = document.createElement('span')
+    chip.dataset.emailVar = id
+    chip.contentEditable = 'false'
+    chip.textContent = variable.label
+    const previous = characterBefore(range)
+    range.insertNode(chip)
+    if (previous && !/\s/.test(previous)) {
+      chip.before(document.createTextNode(' '))
+    }
+    if (host === 'subject') {
+      commitSubject(node.innerHTML)
+    } else {
+      commitSheet()
+      decorateSheet(node)
+    }
+  }
+
+  function onChipDragStart(event: React.DragEvent<HTMLElement>, id: EmailVariableId) {
+    draggingChip.current = id
+    chipDropped.current = false
+    event.dataTransfer.setData('application/x-email-var', id)
+    event.dataTransfer.setData('text/plain', `email-var:${id}`)
+    event.dataTransfer.effectAllowed = 'copy'
+  }
+
+  function finishChipDrag() {
+    const id = draggingChip.current
+    const inSubject = Boolean(
+      dropRange.current && subjectRef.current?.contains(dropRange.current.startContainer),
+    )
+    if (!chipDropped.current && id) {
+      placeDraggedChip(inSubject ? 'subject' : 'letter', id)
+    }
+    draggingChip.current = null
+    chipDropped.current = false
+    setCaret(null)
+  }
+
+  function onChipDrop(event: React.DragEvent<HTMLElement>, host: 'subject' | 'letter') {
+    event.preventDefault()
+    const id = chipIdFromDrop(event.dataTransfer) ?? draggingChip.current
+    if (!id) {
+      setCaret(null)
+      return
+    }
+    chipDropped.current = true
+    draggingChip.current = null
+    setCaret(null)
+    placeDraggedChip(host, id)
+  }
+
+  function onChipOver(event: React.DragEvent<HTMLElement>, host: 'subject' | 'letter') {
+    const types = [...event.dataTransfer.types]
+    if (!types.includes('application/x-email-var') && !types.includes('text/plain')) {
+      return
+    }
+    event.preventDefault()
+    const root = host === 'letter' ? sheetRef.current : subjectRef.current
+    const frame = host === 'letter' ? pageRef.current : subjectWrapRef.current
+    if (!root || !frame) {
+      return
+    }
+    const range = caretRangeFromPoint(event.clientX, event.clientY)
+    if (!range || !root.contains(range.startContainer)) {
+      setCaret(null)
+      return
+    }
+    const owner =
+      range.startContainer instanceof Element
+        ? range.startContainer
+        : range.startContainer.parentElement
+    if (owner?.closest('[data-email-chrome], [data-email-part="spacing"]')) {
+      setCaret(null)
+      return
+    }
+    dropRange.current = range.cloneRange()
+    const rect = range.getClientRects()[0] ?? range.getBoundingClientRect()
+    const frameRect = frame.getBoundingClientRect()
+    setCaret({
+      host,
+      left: rect.left - frameRect.left + (host === 'letter' ? frame.scrollLeft : 0),
+      top: rect.top - frameRect.top + (host === 'letter' ? frame.scrollTop : 0),
+      height: Math.max(rect.height, 16),
+    })
+  }
+
+  function stepParagraph(key: 'before' | 'after', delta: number) {
+    const fallback = key === 'after' ? 'normal' : 'none'
+    applyParagraphMetric(key, nudgeStep(paragraphMetrics[key], fallback, delta))
+  }
+
+  function stepEmail(key: 'before' | 'after', delta: number) {
+    const fallback = key === 'after' ? 'normal' : 'none'
+    applyEmailMetric(key, nudgeStep(emailMetrics[key], fallback, delta))
+  }
+
+  const paragraphLine = paragraphMetrics.lineHeight
+  const emailLine = emailMetrics.lineHeight
+
   return (
     <div className="email-editor">
-      <div className="email-editor__subject">
-        <label className="field__label" htmlFor="email-subject">
-          Subject
+      <div className="email-envelope">
+        <label className="email-envelope__subject">
+          <span>Subject</span>
+          <div className="email-envelope__control" ref={subjectWrapRef}>
+            <div
+              id="email-subject"
+              ref={subjectRef}
+              className="email-rich email-rich--paper email-rich--line"
+              contentEditable={!disabled}
+              role="textbox"
+              aria-label="Subject"
+              aria-multiline="false"
+              spellCheck
+              suppressContentEditableWarning
+              onFocus={() => {
+                active.current = 'subject'
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                }
+                onEditorKeyDown(event)
+              }}
+              onInput={() => commitSubject(subjectRef.current?.innerHTML ?? '')}
+              onDragOver={(event) => onChipOver(event, 'subject')}
+              onDrop={(event) => onChipDrop(event, 'subject')}
+            />
+            {caret?.host === 'subject' ? (
+              <span
+                className="email-dropcaret"
+                style={{ left: caret.left, top: caret.top, height: caret.height }}
+              />
+            ) : null}
+          </div>
         </label>
-        <div
-          id="email-subject"
-          ref={subjectRef}
-          className="email-rich email-rich--paper email-rich--line"
-          contentEditable={!disabled}
-          role="textbox"
-          aria-label="Subject"
-          aria-multiline="false"
-          spellCheck
-          suppressContentEditableWarning
-          onFocus={() => {
-            active.current = 'subject'
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault()
-            }
-            onEditorKeyDown(event)
-          }}
-          onInput={() => commitSubject(subjectRef.current?.innerHTML ?? '')}
-        />
-        <p className="settings-help">Reads as: {subjectPreview}</p>
+        {envelope ? (
+          <>
+            <label>
+              <span>From name</span>
+              <input
+                className="field__input"
+                value={envelope.fromName}
+                disabled={disabled}
+                onChange={(event) => envelope.onFromName(event.target.value)}
+              />
+            </label>
+            <label>
+              <span>Reply-to</span>
+              <input
+                className="field__input"
+                type="email"
+                value={envelope.replyTo}
+                disabled={disabled}
+                placeholder="Optional"
+                onChange={(event) => envelope.onReplyTo(event.target.value)}
+              />
+            </label>
+          </>
+        ) : null}
       </div>
+      {subjectPreview ? (
+        <p className="email-editor__resolved">Reads as {subjectPreview}</p>
+      ) : null}
 
-      <div className="email-editor__bar">
+      <div className="email-editor__bar" ref={barRef}>
         <div className="email-editor__toolbar" role="toolbar" aria-label="Formatting">
-          <div className="email-editor__group">
-            <ToolButton label="Bold" disabled={disabled} onClick={() => runCommand('bold')}>
-              <ToolIcon>
-                <path d="M7 5h6a3.5 3.5 0 0 1 0 7H7z" />
-                <path d="M7 12h7a3.5 3.5 0 0 1 0 7H7z" />
-              </ToolIcon>
-            </ToolButton>
-            <ToolButton label="Italic" disabled={disabled} onClick={() => runCommand('italic')}>
-              <ToolIcon>
-                <path d="M19 4h-9" />
-                <path d="M14 20H5" />
-                <path d="m15 4-6 16" />
-              </ToolIcon>
-            </ToolButton>
-            <ToolButton
-              label="Link"
-              disabled={disabled}
-              onClick={() => {
-                setLinkOpen((open) => !open)
-                setLinkError(null)
-              }}
-            >
-              <ToolIcon>
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-              </ToolIcon>
-            </ToolButton>
-          </div>
-          <span className="email-editor__divider" aria-hidden="true" />
-          <div className="email-editor__group">
-            <ToolButton label="Bulleted list" disabled={disabled} onClick={() => runCommand('insertUnorderedList')}>
-              <ToolIcon>
-                <path d="M9 6h12" />
-                <path d="M9 12h12" />
-                <path d="M9 18h12" />
-                <circle cx="4" cy="6" r="1" fill="currentColor" stroke="none" />
-                <circle cx="4" cy="12" r="1" fill="currentColor" stroke="none" />
-                <circle cx="4" cy="18" r="1" fill="currentColor" stroke="none" />
-              </ToolIcon>
-            </ToolButton>
-            <ToolButton label="Numbered list" disabled={disabled} onClick={() => runCommand('insertOrderedList')}>
-              <ToolIcon>
-                <path d="M10 6h11" />
-                <path d="M10 12h11" />
-                <path d="M10 18h11" />
-                <path d="M4 6h1v4" />
-                <path d="M4 10h2" />
-                <path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" />
-              </ToolIcon>
-            </ToolButton>
-          </div>
-          <span className="email-editor__divider" aria-hidden="true" />
-          <div className="email-editor__group">
-            <ToolButton label="Align left" disabled={disabled} onClick={() => runCommand('justifyLeft')}>
-              <ToolIcon>
-                <path d="M4 6h16" />
-                <path d="M4 12h10" />
-                <path d="M4 18h14" />
-              </ToolIcon>
-            </ToolButton>
-            <ToolButton label="Align center" disabled={disabled} onClick={() => runCommand('justifyCenter')}>
-              <ToolIcon>
-                <path d="M4 6h16" />
-                <path d="M7 12h10" />
-                <path d="M5 18h14" />
-              </ToolIcon>
-            </ToolButton>
-            <ToolButton label="Align right" disabled={disabled} onClick={() => runCommand('justifyRight')}>
-              <ToolIcon>
-                <path d="M4 6h16" />
-                <path d="M10 12h10" />
-                <path d="M6 18h14" />
-              </ToolIcon>
-            </ToolButton>
-          </div>
-          <span className="email-editor__divider" aria-hidden="true" />
-          <div className="email-editor__group">
-            <ToolButton
-              label="Line and paragraph spacing"
-              disabled={disabled}
-              onClick={() => {
-                const sheet = sheetRef.current
-                const selection = window.getSelection()
-                const live =
-                  selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null
-                if (sheet && live && sheet.contains(live.startContainer)) {
-                  savedRange.current = live.cloneRange()
-                }
-                setSpacingOpen((open) => !open)
-                setFieldsOpen(false)
-                setInsertOpen(false)
-                if (sheet) {
-                  setEmailMetrics(emailSpacingFromHtml(sheet.innerHTML))
-                  const block = blockFromRange(sheet, savedRange.current)
-                  setHasParagraph(Boolean(block))
-                  setParagraphMetrics(block ? metricsFromElement(block) : { ...EMPTY_METRICS })
-                }
-              }}
-            >
-              <ToolIcon>
-                <path d="M4 6h16" />
-                <path d="M4 12h16" />
-                <path d="M4 18h10" />
-              </ToolIcon>
-            </ToolButton>
-          </div>
-          <span className="email-editor__divider" aria-hidden="true" />
-          <div className="email-editor__group">
-            <ToolButton label="Undo" disabled={disabled || !canUndo} onClick={undo}>
-              <ToolIcon>
-                <path d="M9 14 4 9l5-5" />
-                <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H12" />
-              </ToolIcon>
-            </ToolButton>
-            <ToolButton label="Redo" disabled={disabled || !canRedo} onClick={redo}>
-              <ToolIcon>
-                <path d="m15 14 5-5-5-5" />
-                <path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H12" />
-              </ToolIcon>
-            </ToolButton>
-            <ToolButton label="Reset to the default message" disabled={disabled} onClick={resetTemplate}>
-              <ToolIcon>
-                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                <path d="M3 3v5h5" />
-              </ToolIcon>
-            </ToolButton>
-          </div>
-        </div>
-        <div className="email-editor__menus">
-          <div className="email-editor__fields" ref={fieldsRef}>
+          <div className="email-editor__popwrap">
             <button
               type="button"
-              className="email-editor__insert"
+              className="email-editor__tool email-editor__tool--menu"
               aria-haspopup="menu"
-              aria-expanded={fieldsOpen}
+              aria-expanded={styleOpen}
               disabled={disabled}
               onMouseDown={preventFocusLoss}
               onClick={() => {
-                setFieldsOpen((open) => !open)
+                setStyleOpen((open) => !open)
                 setInsertOpen(false)
+                setColorOpen(false)
+                setSpacingOpen(false)
+                setLinkOpen(false)
               }}
             >
-              Insert field
+              {styleName} ▾
             </button>
-            {fieldsOpen ? (
-              <ul className="email-editor__menu" role="menu">
-                {EMAIL_VARIABLES.map((variable) => (
-                  <li key={variable.id} role="none">
-                    <button
-                      type="button"
-                      role="menuitem"
-                      disabled={disabled}
-                      onMouseDown={preventFocusLoss}
-                      onClick={() => insertVariable(variable.id)}
-                    >
-                      {variable.label}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+            {styleOpen ? (
+              <div className="email-pop email-pop--style" role="menu">
+                <button type="button" role="menuitem" onMouseDown={preventFocusLoss} onClick={() => applyBlock('p')}>
+                  Paragraph
+                </button>
+                <button type="button" role="menuitem" onMouseDown={preventFocusLoss} onClick={() => applyBlock('h2')}>
+                  Heading
+                </button>
+              </div>
             ) : null}
           </div>
-          <div className="email-editor__fields" ref={insertRef}>
+          <span className="email-editor__divider" aria-hidden="true" />
+          <ToolButton label="Bold" pressed={marks.bold} disabled={disabled} onClick={() => runCommand('bold')}>
+            <b>B</b>
+          </ToolButton>
+          <ToolButton label="Italic" pressed={marks.italic} disabled={disabled} onClick={() => runCommand('italic')}>
+            <i>I</i>
+          </ToolButton>
+          <ToolButton
+            label="Underline"
+            pressed={marks.underline}
+            disabled={disabled}
+            onClick={() => runCommand('underline')}
+          >
+            <u>U</u>
+          </ToolButton>
+          <ToolButton
+            label="Link"
+            disabled={disabled}
+            onClick={() => {
+              setLinkOpen((open) => !open)
+              setLinkError(null)
+              setStyleOpen(false)
+              setInsertOpen(false)
+              setColorOpen(false)
+              setSpacingOpen(false)
+            }}
+          >
+            ↗ Link
+          </ToolButton>
+          <span className="email-editor__divider" aria-hidden="true" />
+          <ToolButton label="Bulleted list" disabled={disabled} onClick={() => runCommand('insertUnorderedList')}>
+            • List
+          </ToolButton>
+          <ToolButton label="Numbered list" disabled={disabled} onClick={() => runCommand('insertOrderedList')}>
+            1. List
+          </ToolButton>
+          <span className="email-editor__divider" aria-hidden="true" />
+          <ToolButton label="Align left" disabled={disabled} onClick={() => runCommand('justifyLeft')}>
+            ⟸
+          </ToolButton>
+          <ToolButton label="Align center" disabled={disabled} onClick={() => runCommand('justifyCenter')}>
+            ≡
+          </ToolButton>
+          <ToolButton label="Align right" disabled={disabled} onClick={() => runCommand('justifyRight')}>
+            ⟹
+          </ToolButton>
+          <span className="email-editor__divider" aria-hidden="true" />
+          <div className="email-editor__popwrap">
             <button
               type="button"
-              className="email-editor__insert"
+              className="email-editor__tool"
+              aria-label="Text color"
+              aria-expanded={colorOpen}
+              disabled={disabled}
+              onMouseDown={preventFocusLoss}
+              onClick={() => {
+                setColorOpen((open) => !open)
+                setStyleOpen(false)
+                setInsertOpen(false)
+                setSpacingOpen(false)
+                setLinkOpen(false)
+              }}
+            >
+              A<span className="email-editor__swatch" style={{ background: ink }} />
+            </button>
+            {colorOpen ? (
+              <div className="email-pop email-pop--color" role="menu" aria-label="Text color">
+                {TEXT_COLORS.map((choice) => (
+                  <button
+                    key={choice.value}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={ink === choice.value}
+                    onMouseDown={preventFocusLoss}
+                    onClick={() => applyColor(choice.value)}
+                  >
+                    <i style={{ background: choice.value }} />
+                    {choice.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            className={spacingOpen ? 'email-editor__tool is-on' : 'email-editor__tool'}
+            aria-label="Line spacing"
+            aria-expanded={spacingOpen}
+            disabled={disabled}
+            onMouseDown={preventFocusLoss}
+            onClick={() => {
+              setSpacingOpen((open) => !open)
+              setStyleOpen(false)
+              setInsertOpen(false)
+              setColorOpen(false)
+              setLinkOpen(false)
+              const sheet = sheetRef.current
+              if (sheet) {
+                setEmailMetrics(emailSpacingFromHtml(sheet.innerHTML))
+              }
+            }}
+          >
+            ↕ {shownLine()}
+          </button>
+          <button
+            type="button"
+            className="email-editor__tool"
+            aria-label="Paragraph spacing"
+            disabled={disabled}
+            onMouseDown={preventFocusLoss}
+            onClick={() => {
+              setSpacingOpen((open) => !open)
+              setStyleOpen(false)
+              setInsertOpen(false)
+              setColorOpen(false)
+              setLinkOpen(false)
+            }}
+          >
+            ¶ {shownPoints('before')} / {shownPoints('after')}
+          </button>
+          <span className="email-editor__grow" />
+          <ToolButton label="Undo" disabled={disabled || !canUndo} onClick={undo}>
+            <ToolIcon>
+              <path d="M9 14 4 9l5-5" />
+              <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H12" />
+            </ToolIcon>
+          </ToolButton>
+          <ToolButton label="Redo" disabled={disabled || !canRedo} onClick={redo}>
+            <ToolIcon>
+              <path d="m15 14 5-5-5-5" />
+              <path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H12" />
+            </ToolIcon>
+          </ToolButton>
+          <div className="email-editor__popwrap" ref={insertRef}>
+            <button
+              type="button"
+              className={insertOpen ? 'email-editor__insert is-open' : 'email-editor__insert'}
               aria-haspopup="menu"
               aria-expanded={insertOpen}
               disabled={disabled}
               onMouseDown={preventFocusLoss}
               onClick={() => {
                 setInsertOpen((open) => !open)
-                setFieldsOpen(false)
+                setStyleOpen(false)
+                setColorOpen(false)
+                setSpacingOpen(false)
+                setLinkOpen(false)
               }}
             >
-              Insert
+              + Insert ▾
             </button>
             {insertOpen ? (
-              <ul className="email-editor__menu" role="menu">
-                {INSERTS.map((item) => (
-                  <li key={item.kind} role="none">
-                    <button
-                      type="button"
-                      role="menuitem"
-                      disabled={disabled}
-                      onMouseDown={preventFocusLoss}
-                      onClick={() => insertPart(item.kind)}
-                    >
-                      {item.label}
-                    </button>
-                  </li>
+              <div className="email-pop email-pop--insert" role="menu">
+                <p className="email-pop__label">Merge fields</p>
+                {EMAIL_VARIABLES.map((variable) => (
+                  <button
+                    key={variable.id}
+                    type="button"
+                    role="menuitem"
+                    className="email-pop__row"
+                    disabled={disabled}
+                    onMouseDown={preventFocusLoss}
+                    onClick={() => insertVariable(variable.id)}
+                  >
+                    <span className="email-chip">{variable.label}</span>
+                    <em>{sampleValue(variable.id)}</em>
+                  </button>
                 ))}
-              </ul>
+                <p className="email-pop__label">Blocks</p>
+                {INSERTS.map((item) => (
+                  <button
+                    key={item.kind}
+                    type="button"
+                    role="menuitem"
+                    className="email-pop__row"
+                    disabled={disabled}
+                    onMouseDown={preventFocusLoss}
+                    onClick={() => insertPart(item.kind)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
             ) : null}
           </div>
         </div>
+        {linkOpen ? (
+          <div className="email-pop email-pop--link">
+            <label className="field__label" htmlFor="email-link-url">
+              Link address
+            </label>
+            <div className="email-editor__link-row">
+              <input
+                id="email-link-url"
+                className="field__input"
+                value={linkUrl}
+                disabled={disabled}
+                onChange={(event) => setLinkUrl(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    applyLink()
+                  }
+                }}
+              />
+              <button type="button" className="btn btn--primary" disabled={disabled} onClick={applyLink}>
+                Add link
+              </button>
+            </div>
+            {linkError ? <p className="settings-status settings-status--error">{linkError}</p> : null}
+          </div>
+        ) : null}
+        {spacingOpen ? (
+          <div className="email-pop email-pop--spacing" role="group" aria-label="Line and paragraph spacing">
+            <p className="email-pop__label">Line spacing</p>
+            <div className="email-editor__segments" role="radiogroup" aria-label="Line spacing">
+              {LINE_HEIGHTS.map((choice) => (
+                <button
+                  key={choice}
+                  type="button"
+                  role="radio"
+                  aria-checked={paragraphLine === choice}
+                  className={paragraphLine === choice ? 'is-on' : undefined}
+                  disabled={disabled || !hasParagraph}
+                  onMouseDown={preventFocusLoss}
+                  onClick={() => applyParagraphMetric('lineHeight', choice)}
+                >
+                  {lineHeightLabel(choice)}
+                </button>
+              ))}
+            </div>
+            <p className="email-pop__label">Paragraph spacing</p>
+            <div className="email-editor__kv">
+              <span>Before</span>
+              <span className="email-editor__num">
+                <button type="button" aria-label="Decrease space before" disabled={disabled || !hasParagraph} onMouseDown={preventFocusLoss} onClick={() => stepParagraph('before', -1)}>−</button>
+                {SPACE_PT[paragraphMetrics.before ?? 'none']}
+                <button type="button" aria-label="Increase space before" disabled={disabled || !hasParagraph} onMouseDown={preventFocusLoss} onClick={() => stepParagraph('before', 1)}>+</button>
+              </span>
+            </div>
+            <div className="email-editor__kv">
+              <span>After</span>
+              <span className="email-editor__num">
+                <button type="button" aria-label="Decrease space after" disabled={disabled || !hasParagraph} onMouseDown={preventFocusLoss} onClick={() => stepParagraph('after', -1)}>−</button>
+                {SPACE_PT[paragraphMetrics.after ?? 'normal']}
+                <button type="button" aria-label="Increase space after" disabled={disabled || !hasParagraph} onMouseDown={preventFocusLoss} onClick={() => stepParagraph('after', 1)}>+</button>
+              </span>
+            </div>
+            <p className="email-pop__hint">
+              {hasParagraph ? 'Applies to the selected paragraphs' : 'Click a paragraph in the letter.'}
+            </p>
+            <p className="email-pop__label">Whole email</p>
+            <div className="email-editor__segments" role="radiogroup" aria-label="Email line spacing">
+              {LINE_HEIGHTS.map((choice) => (
+                <button
+                  key={choice}
+                  type="button"
+                  role="radio"
+                  aria-checked={emailLine === choice}
+                  className={emailLine === choice ? 'is-on' : undefined}
+                  disabled={disabled}
+                  onClick={() => applyEmailMetric('lineHeight', choice)}
+                >
+                  {lineHeightLabel(choice)}
+                </button>
+              ))}
+            </div>
+            <div className="email-editor__kv">
+              <span>Before</span>
+              <span className="email-editor__num">
+                <button type="button" aria-label="Decrease email space before" disabled={disabled} onClick={() => stepEmail('before', -1)}>−</button>
+                {SPACE_PT[emailMetrics.before ?? 'none']}
+                <button type="button" aria-label="Increase email space before" disabled={disabled} onClick={() => stepEmail('before', 1)}>+</button>
+              </span>
+            </div>
+            <div className="email-editor__kv">
+              <span>After</span>
+              <span className="email-editor__num">
+                <button type="button" aria-label="Decrease email space after" disabled={disabled} onClick={() => stepEmail('after', -1)}>−</button>
+                {SPACE_PT[emailMetrics.after ?? 'normal']}
+                <button type="button" aria-label="Increase email space after" disabled={disabled} onClick={() => stepEmail('after', 1)}>+</button>
+              </span>
+            </div>
+          </div>
+        ) : null}
       </div>
-      {linkOpen ? (
-        <div className="email-editor__link">
-          <label className="field__label" htmlFor="email-link-url">
-            Link address
-          </label>
-          <div className="email-editor__link-row">
-            <input
-              id="email-link-url"
-              className="field__input"
-              value={linkUrl}
-              disabled={disabled}
-              onChange={(event) => setLinkUrl(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault()
-                  applyLink()
-                }
-              }}
-            />
-            <button type="button" className="btn btn--primary" disabled={disabled} onClick={applyLink}>
-              Add link
-            </button>
-          </div>
-          {linkError ? <p className="settings-status settings-status--error">{linkError}</p> : null}
-        </div>
-      ) : null}
-      {spacingOpen ? (
-        <div className="email-editor__spacing" role="group" aria-label="Line and paragraph spacing">
-          <div className="email-editor__spacing-set">
-            <p className="email-editor__spacing-title">This paragraph</p>
-            <SpacingSelect
-              name="This paragraph"
-              label="Line"
-              value={paragraphMetrics.lineHeight ?? ''}
-              disabled={disabled || !hasParagraph}
-              options={LINE_HEIGHTS.map((choice) => ({
-                value: choice,
-                label: lineHeightLabel(choice),
-              }))}
-              onPointerDown={rememberSheetSelection}
-              onChange={(value) => applyParagraphMetric('lineHeight', value)}
-            />
-            <SpacingSelect
-              name="This paragraph"
-              label="Before"
-              value={paragraphMetrics.before ?? ''}
-              disabled={disabled || !hasParagraph}
-              options={SPACE_STEPS.map((choice) => ({
-                value: choice,
-                label: spaceLabel(choice),
-              }))}
-              onPointerDown={rememberSheetSelection}
-              onChange={(value) => applyParagraphMetric('before', value)}
-            />
-            <SpacingSelect
-              name="This paragraph"
-              label="After"
-              value={paragraphMetrics.after ?? ''}
-              disabled={disabled || !hasParagraph}
-              options={SPACE_STEPS.map((choice) => ({
-                value: choice,
-                label: spaceLabel(choice),
-              }))}
-              onPointerDown={rememberSheetSelection}
-              onChange={(value) => applyParagraphMetric('after', value)}
-            />
-            {hasParagraph ? null : (
-              <p className="email-editor__spacing-note">Click a paragraph in the letter.</p>
-            )}
-          </div>
-          <div className="email-editor__spacing-set">
-            <p className="email-editor__spacing-title">Whole email</p>
-            <SpacingSelect
-              name="Whole email"
-              label="Line"
-              value={emailMetrics.lineHeight ?? ''}
-              disabled={disabled}
-              options={LINE_HEIGHTS.map((choice) => ({
-                value: choice,
-                label: lineHeightLabel(choice),
-              }))}
-              onChange={(value) => applyEmailMetric('lineHeight', value)}
-            />
-            <SpacingSelect
-              name="Whole email"
-              label="Before"
-              value={emailMetrics.before ?? ''}
-              disabled={disabled}
-              options={SPACE_STEPS.map((choice) => ({
-                value: choice,
-                label: spaceLabel(choice),
-              }))}
-              onChange={(value) => applyEmailMetric('before', value)}
-            />
-            <SpacingSelect
-              name="Whole email"
-              label="After"
-              value={emailMetrics.after ?? ''}
-              disabled={disabled}
-              options={SPACE_STEPS.map((choice) => ({
-                value: choice,
-                label: spaceLabel(choice),
-              }))}
-              onChange={(value) => applyEmailMetric('after', value)}
-            />
-          </div>
-        </div>
-      ) : null}
 
-      <div className="email-page">
+      <div
+        className={paletteOpen ? 'email-page has-palette' : 'email-page'}
+        ref={pageRef}
+        onDragEnd={finishChipDrag}
+      >
+        {paletteOpen ? (
+          <aside className="email-palette" aria-label="Merge fields">
+            <p className="email-palette__title">
+              Merge fields
+              <small>drag into text</small>
+            </p>
+            {EMAIL_VARIABLES.map((variable) => (
+              <div
+                key={variable.id}
+                className="email-palette__row"
+                draggable={!disabled}
+                onDragStart={(event) => onChipDragStart(event, variable.id)}
+                onDragEnd={finishChipDrag}
+              >
+                <span className="email-palette__dots" aria-hidden="true">
+                  <i /><i /><i /><i /><i /><i />
+                </span>
+                <button
+                  type="button"
+                  className="email-chip"
+                  draggable={!disabled}
+                  disabled={disabled}
+                  onDragStart={(event) => onChipDragStart(event, variable.id)}
+                  onDragEnd={finishChipDrag}
+                  onClick={() => insertVariable(variable.id)}
+                >
+                  {variable.label}
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="email-palette__hide"
+              onClick={() => setPaletteOpen(false)}
+            >
+              Hide
+            </button>
+          </aside>
+        ) : (
+          <button type="button" className="email-palette__show" onClick={() => setPaletteOpen(true)}>
+            Fields
+          </button>
+        )}
         <div
           ref={sheetRef}
           className="email-sheet"
@@ -968,9 +1409,25 @@ export function EmailMessageEditor({
             active.current = 'letter'
           }}
           onKeyDown={onEditorKeyDown}
-          onInput={() => commitSheet()}
+          onInput={() => {
+            commitSheet()
+            const sheet = sheetRef.current
+            if (sheet) {
+              decorateSheet(sheet)
+            }
+          }}
           onBlur={healSheet}
+          onPointerDown={onSheetPointerDown}
+          onDragOver={(event) => onChipOver(event, 'letter')}
+          onDrop={(event) => onChipDrop(event, 'letter')}
         />
+        {insertLine != null ? <div className="email-insline" style={{ top: insertLine }} /> : null}
+        {caret?.host === 'letter' ? (
+          <span
+            className="email-dropcaret"
+            style={{ left: caret.left, top: caret.top, height: caret.height }}
+          />
+        ) : null}
       </div>
     </div>
   )

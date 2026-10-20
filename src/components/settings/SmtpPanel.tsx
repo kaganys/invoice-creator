@@ -37,6 +37,9 @@ export function SmtpPanel() {
   const [testBusy, setTestBusy] = useState(false)
   const [testTo, setTestTo] = useState('')
   const [password, setPassword] = useState('')
+  const [previewDevice, setPreviewDevice] = useState<'desktop' | 'mobile'>('desktop')
+  const [pane, setPane] = useState<'edit' | 'preview'>('edit')
+  const [resetSignal, setResetSignal] = useState(0)
 
   useEffect(() => {
     setDraft(withCanonicalBody(smtp))
@@ -207,15 +210,7 @@ export function SmtpPanel() {
               <legend>From</legend>
               <p className="settings-help">Shown on the messages this company sends.</p>
               <div className="form-grid form-grid--2">
-                <Field label="Name" htmlFor="smtp-from-name">
-                  <input
-                    id="smtp-from-name"
-                    className="field__input"
-                    value={draft.fromName}
-                    onChange={(event) => patch({ fromName: event.target.value })}
-                  />
-                </Field>
-                <Field label="Email" htmlFor="smtp-from-email">
+                <Field label="Email" htmlFor="smtp-from-email" className="form-grid__full">
                   <input
                     id="smtp-from-email"
                     className="field__input"
@@ -224,37 +219,56 @@ export function SmtpPanel() {
                     onChange={(event) => patch({ fromEmail: event.target.value })}
                   />
                 </Field>
-                <Field label="Reply-to" htmlFor="smtp-reply-to" className="form-grid__full">
-                  <input
-                    id="smtp-reply-to"
-                    className="field__input"
-                    type="email"
-                    value={draft.replyTo}
-                    placeholder="Optional"
-                    onChange={(event) => patch({ replyTo: event.target.value })}
-                  />
-                </Field>
               </div>
       </fieldset>
 
+      <div className="email-device-switch" role="tablist" aria-label="Email editor">
+        <button
+          type="button"
+          role="tab"
+          className={pane === 'edit' ? 'is-on' : undefined}
+          aria-selected={pane === 'edit'}
+          onClick={() => setPane('edit')}
+        >
+          Edit
+        </button>
+        <button
+          type="button"
+          role="tab"
+          className={pane === 'preview' ? 'is-on' : undefined}
+          aria-selected={pane === 'preview'}
+          onClick={() => setPane('preview')}
+        >
+          Preview
+        </button>
+      </div>
       <SettingsWorkbench
-        className="settings-workbench--compose"
-        previewTitle="Email preview"
+        className={`settings-workbench--compose is-${pane}`}
+        previewTitle=""
         saving={saving}
         dirty={dirty}
         success={success}
         error={error}
         onSave={() => void onSave()}
-        saveLabel="Save email"
+        saveLabel="Save"
+        extra={
+          <button
+            type="button"
+            className="btn btn--ghost"
+            disabled={saving || loading}
+            onClick={() => setResetSignal((current) => current + 1)}
+          >
+            Reset to default
+          </button>
+        }
         form={
           <>
             <fieldset className="settings-group" disabled={saving || loading}>
               <legend>Message</legend>
               <p className="settings-help">
-                Write the email as one letter. Change or delete any part of it.
-                Insert a field or a pay button from the toolbar. Line height and
-                paragraph spacing are there too. The preview is the message that
-                will be sent.
+                Write the email as one letter. Drag a block by its handle to reorder it.
+                Drag a merge field from the list into the text. The preview is the
+                message that will be sent.
               </p>
               <EmailMessageEditor
                 subject={draft.subjectTemplate}
@@ -268,6 +282,13 @@ export function SmtpPanel() {
                   ),
                   senderName: draft.fromName.trim() || previewVars.business_name,
                 }}
+                envelope={{
+                  fromName: draft.fromName,
+                  replyTo: draft.replyTo,
+                  onFromName: (fromName) => patch({ fromName }),
+                  onReplyTo: (replyTo) => patch({ replyTo }),
+                }}
+                resetSignal={resetSignal}
                 onChange={({ subject, html }) =>
                   patch({ subjectTemplate: subject, bodyTemplate: html })
                 }
@@ -314,14 +335,50 @@ export function SmtpPanel() {
           </>
         }
         preview={
-          <>
-            <p className="settings-preview__subject">{subjectPreview}</p>
-            <iframe
-              title="Invoice email preview"
-              className="settings-preview__email"
-              srcDoc={preview.html}
-            />
-          </>
+          <div className="email-preview">
+            <div className="email-preview__bar">
+              <strong>
+                Preview{' '}
+                <small>
+                  · sample data: {previewVars.customer_name}, {previewVars.invoice_number}
+                </small>
+              </strong>
+              <div className="email-preview__seg" role="group" aria-label="Preview width">
+                <button
+                  type="button"
+                  className={previewDevice === 'desktop' ? 'is-on' : undefined}
+                  aria-pressed={previewDevice === 'desktop'}
+                  onClick={() => setPreviewDevice('desktop')}
+                >
+                  Desktop
+                </button>
+                <button
+                  type="button"
+                  className={previewDevice === 'mobile' ? 'is-on' : undefined}
+                  aria-pressed={previewDevice === 'mobile'}
+                  onClick={() => setPreviewDevice('mobile')}
+                >
+                  Mobile
+                </button>
+              </div>
+            </div>
+            <div className="email-preview__mail">
+              <div className="email-preview__meta">
+                <b>{subjectPreview}</b>
+                <span>
+                  {draft.fromName.trim() || previewVars.business_name}
+                  {draft.fromEmail.trim() ? ` <${draft.fromEmail.trim()}>` : ''} · to{' '}
+                  {previewVars.customer_name}
+                </span>
+              </div>
+              <div className={previewDevice === 'mobile' ? 'email-preview__frame is-mobile' : 'email-preview__frame'}>
+                <iframe
+                  title="Invoice email preview"
+                  srcDoc={preview.html}
+                />
+              </div>
+            </div>
+          </div>
         }
       />
     </>

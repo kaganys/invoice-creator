@@ -248,6 +248,29 @@ function sectionId(value: string | undefined): EmailSectionId | null {
   return null
 }
 
+const TEXT_COLOR_ALLOW = new Set(['#2a2a26', '#d9734e', '#2f8f8a', '#1f4d3f'])
+
+function normalizeHexColor(raw: string): string | null {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(raw)
+  if (hex) {
+    const digits = hex[1]
+    return `#${digits.length === 3 ? digits.replace(/./g, (part) => part + part) : digits}`
+  }
+  const rgb = /^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$/.exec(raw)
+  if (!rgb) {
+    return null
+  }
+  const parts = [rgb[1], rgb[2], rgb[3]].map((part) => Math.min(255, Number(part)))
+  return `#${parts.map((part) => part.toString(16).padStart(2, '0')).join('')}`
+}
+
+function safeTextColor(style: string | undefined, colorAttr: string | undefined): string | null {
+  const fromStyle = /(?:^|;)\s*color\s*:\s*([^;]+)/i.exec(style ?? '')
+  const raw = (fromStyle?.[1] ?? colorAttr ?? '').trim().toLowerCase()
+  const normalized = normalizeHexColor(raw)
+  return normalized && TEXT_COLOR_ALLOW.has(normalized) ? normalized : null
+}
+
 function appendInline(html: string, piece: string): string {
   if (!piece) {
     return html
@@ -285,6 +308,23 @@ function renderInline(nodes: AnyNode[]): string {
       const inner = renderInline(node.children)
       if (inner.trim()) {
         html = appendInline(html, `<em>${inner}</em>`)
+      }
+      continue
+    }
+    if (node.tag === 'u') {
+      const inner = renderInline(node.children)
+      if (inner.trim()) {
+        html = appendInline(html, `<u>${inner}</u>`)
+      }
+      continue
+    }
+    if (node.tag === 'span' || node.tag === 'font') {
+      const inner = renderInline(node.children)
+      const color = safeTextColor(node.attrs.style, node.attrs.color)
+      if (inner.trim() && color) {
+        html = appendInline(html, `<span style="color:${color}">${inner}</span>`)
+      } else {
+        html = appendInline(html, inner)
       }
       continue
     }

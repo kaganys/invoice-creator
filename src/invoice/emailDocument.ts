@@ -1018,9 +1018,15 @@ export function documentToEditorHtml(
     .join('')
 }
 
+function stripEditorChrome(html: string): string {
+  return html
+    .replace(/<button\b[^>]*\bdata-email-chrome="[^"]*"[^>]*>[\s\S]*?<\/button>/gi, '')
+    .replace(/<span\b[^>]*\bdata-email-chrome="[^"]*"[^>]*>[\s\S]*?<\/span>/gi, '')
+}
+
 /** Saved document for whatever the editor is currently showing. */
 export function editorHtmlToDocument(editorHtml: string): string {
-  const blocks = blocksFromSlices(sliceTopLevel(editorHtml))
+  const blocks = blocksFromSlices(sliceTopLevel(stripEditorChrome(editorHtml)))
   if (blocks.length === 0) {
     return ''
   }
@@ -1073,11 +1079,11 @@ function renderTextRow(html: string, padding: string, spacing: EmailSpacing): st
     return ''
   }
   const painted = paintProseSpacing(html, spacing)
-  return `<tr><td class="email-pad email-content" style="padding:${padding};font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.55;color:#111111;">${painted}</td></tr>`
+  return `<tr><td class="email-pad email-content" style="padding:${padding};font-family:Georgia,'Times New Roman',serif;font-size:16px;line-height:1.55;color:#111111;">${painted}</td></tr>`
 }
 
 function renderAmount(block: AmountBlock): string {
-  return `<tr><td class="email-pad" style="padding:8px 28px 12px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="background:${block.background};border:1px solid ${block.border};padding:18px 20px;"><p style="margin:0;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:${block.labelColor};font-weight:700;">${escapeHtml(block.label)}</p><p style="margin:6px 0 0;font-size:28px;line-height:1.2;font-weight:700;color:${block.amountColor};">{{amount}}</p><p style="margin:6px 0 0;font-size:14px;line-height:1.4;color:${block.labelColor};">${escapeHtml(block.dueLabel)}</p></td></tr></table></td></tr>`
+  return `<tr><td class="email-pad" style="padding:8px 28px 12px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="background:${block.background};border:1px solid ${block.border};border-left:3px solid #2f8f8a;padding:18px 20px;"><p style="margin:0;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:${block.labelColor};font-weight:700;">${escapeHtml(block.label)}</p><p style="margin:6px 0 0;font-size:28px;line-height:1.2;font-weight:700;color:${block.amountColor};">{{amount}}</p><p style="margin:6px 0 0;font-size:14px;line-height:1.4;color:${block.labelColor};">${escapeHtml(block.dueLabel)}</p></td></tr></table></td></tr>`
 }
 
 function renderPayment(block: PaymentBlock, spacing: EmailSpacing): string {
@@ -1090,11 +1096,11 @@ function renderPayment(block: PaymentBlock, spacing: EmailSpacing): string {
 }
 
 function renderButton(block: ButtonBlock): string {
-  return `<!--payment-url:start--><tr><td class="email-pad" align="center" style="padding:8px 28px;"><a href="{{payment_url}}" target="_blank" rel="noreferrer noopener" style="display:inline-block;background:${block.background};color:${block.color};padding:12px 22px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;line-height:1.2;text-decoration:none;">${escapeHtml(block.label)}</a></td></tr><!--payment-url:end-->`
+  return `<!--payment-url:start--><tr><td class="email-pad" align="left" style="padding:8px 28px;"><a href="{{payment_url}}" target="_blank" rel="noreferrer noopener" style="display:inline-block;background:${block.background};color:${block.color};padding:12px 22px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;line-height:1.2;text-decoration:none;">${escapeHtml(block.label)}</a></td></tr><!--payment-url:end-->`
 }
 
 function renderLink(block: LinkBlock): string {
-  return `<!--payment-url:start--><tr><td class="email-pad" align="center" style="padding:0 28px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.6;color:#5c564e;text-align:center;">${escapeHtml(block.lead)}<br><a href="{{payment_url}}" target="_blank" rel="noreferrer noopener" style="color:#24352c;word-break:break-all;">{{payment_url}}</a></td></tr><!--payment-url:end-->`
+  return `<!--payment-url:start--><tr><td class="email-pad" align="left" style="padding:0 28px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.6;color:#5c564e;text-align:left;">${escapeHtml(block.lead)}<br><a href="{{payment_url}}" target="_blank" rel="noreferrer noopener" style="color:#24352c;word-break:break-all;">{{payment_url}}</a></td></tr><!--payment-url:end-->`
 }
 
 function renderAttachment(block: AttachmentBlock): string {
